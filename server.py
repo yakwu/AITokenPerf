@@ -101,6 +101,107 @@ async def update_config(request):
     return web.json_response({"status": "ok"})
 
 
+# ---- Profiles routes ----
+
+def _get_profiles(config: dict) -> dict:
+    """从配置中提取 profiles 信息"""
+    return {
+        "profiles": config.get("profiles", []),
+        "active_profile": config.get("active_profile", ""),
+    }
+
+
+def _write_config(config: dict):
+    """将完整配置写回 config.yaml"""
+    # 不写入 api_key_display 这类临时字段
+    config.pop("api_key_display", None)
+    with open(CONFIG_PATH, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+
+async def get_profiles(request):
+    config = _load_config()
+    return web.json_response(_get_profiles(config))
+
+
+async def save_profile(request):
+    data = await request.json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return web.json_response({"error": "Profile name is required"}, status=400)
+
+    profile = {
+        "name": name,
+        "base_url": data.get("base_url", ""),
+        "api_key": data.get("api_key", ""),
+        "model": data.get("model", ""),
+        "api_version": data.get("api_version", "2023-06-01"),
+    }
+
+    # 读取原始 YAML 文件（不经过 env override）
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            raw = yaml.safe_load(f) or {}
+    else:
+        raw = {}
+
+    profiles = raw.get("profiles", [])
+    idx = next((i for i, p in enumerate(profiles) if p.get("name") == name), -1)
+    if idx >= 0:
+        profiles[idx] = profile
+    else:
+        profiles.append(profile)
+
+    raw["profiles"] = profiles
+    raw["active_profile"] = name
+    _write_config(raw)
+    return web.json_response({"status": "ok"})
+
+
+async def switch_profile(request):
+    data = await request.json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return web.json_response({"error": "Profile name is required"}, status=400)
+
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            raw = yaml.safe_load(f) or {}
+    else:
+        raw = {}
+
+    profiles = raw.get("profiles", [])
+    target = next((p for p in profiles if p.get("name") == name), None)
+    if not target:
+        return web.json_response({"error": "Profile not found"}, status=404)
+
+    raw["active_profile"] = name
+    _write_config(raw)
+
+    # 返回合并后的配置（profile 字段覆盖顶层默认值）
+    config = _load_config()
+    for key in ("base_url", "api_key", "model", "api_version"):
+        if target.get(key):
+            config[key] = target[key]
+    return web.json_response({"status": "ok", "config": config})
+
+
+async def delete_profile(request):
+    name = request.match_info["name"]
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            raw = yaml.safe_load(f) or {}
+    else:
+        raw = {}
+
+    profiles = raw.get("profiles", [])
+    raw["profiles"] = [p for p in profiles if p.get("name") != name]
+    if raw.get("active_profile") == name:
+        raw["active_profile"] = ""
+    _write_config(raw)
+    return web.json_response({"status": "deleted"})
+
+
 # ---- Results routes ----
 
 async def list_results(request):
@@ -329,6 +430,10 @@ def create_app() -> web.Application:
     app.router.add_static("/js/", STATIC_DIR / "js")
     app.router.add_get("/api/config", get_config)
     app.router.add_put("/api/config", update_config)
+    app.router.add_get("/api/profiles", get_profiles)
+    app.router.add_post("/api/profiles/save", save_profile)
+    app.router.add_post("/api/profiles/switch", switch_profile)
+    app.router.add_delete("/api/profiles/{name}", delete_profile)
     app.router.add_get("/api/results", list_results)
     app.router.add_get("/api/results/{filename}", get_result)
     app.router.add_delete("/api/results/{filename}", delete_result)

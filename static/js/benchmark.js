@@ -30,23 +30,23 @@ document.addEventListener('alpine:init', () => {
     profileDeleteCandidate: '',
 
     init() {
-      this.loadProfiles();
-      this.loadConfig();
+      this.loadConfig().then(() => this.loadProfiles());
       this.checkRunningStatus();
     },
 
     // ---- Profile methods ----
-    loadProfiles() {
+    async loadProfiles() {
       try {
-        const raw = JSON.parse(localStorage.getItem('aitokenperf_profiles') || '[]');
-        this.profiles = Array.isArray(raw) ? raw : [];
+        const data = await api('/api/profiles');
+        this.profiles = Array.isArray(data.profiles) ? data.profiles : [];
+        const active = data.active_profile || '';
+        if (active && this.profiles.some(p => p.name === active)) {
+          this.currentProfileName = active;
+          this.profileDraftName = active;
+        }
       } catch {
         this.profiles = [];
       }
-    },
-
-    _saveProfiles() {
-      localStorage.setItem('aitokenperf_profiles', JSON.stringify(this.profiles));
     },
 
     toggleProfileComposer() {
@@ -101,7 +101,7 @@ document.addEventListener('alpine:init', () => {
       );
     },
 
-    saveProfile() {
+    async saveProfile() {
       const trimmed = this.profileDraftName.trim();
       if (!trimmed) {
         toast('请输入 Profile 名称', 'info');
@@ -116,38 +116,47 @@ document.addEventListener('alpine:init', () => {
         return;
       }
 
-      const profile = {
-        name: trimmed,
-        base_url: this.form.base_url,
-        api_key: this.form.api_key,
-        model: this.form.model,
-        api_version: '2023-06-01',
-      };
-
-      const idx = this.profiles.findIndex(p => p.name === trimmed);
-      if (idx >= 0) {
-        this.profiles[idx] = profile;
-      } else {
-        this.profiles.push(profile);
+      try {
+        await api('/api/profiles/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: trimmed,
+            base_url: this.form.base_url,
+            api_key: this.form.api_key,
+            model: this.form.model,
+            api_version: '2023-06-01',
+          }),
+        });
+        this.currentProfileName = trimmed;
+        this.profileDeleteCandidate = '';
+        this.closeProfileComposer();
+        toast(this.profileDraftExists ? 'Profile 已更新' : 'Profile 已保存', 'success');
+        await this.loadProfiles();
+      } catch (e) {
+        toast('保存失败: ' + e.message, 'error');
       }
-      this.profiles = [...this.profiles];
-      this._saveProfiles();
-      this.currentProfileName = trimmed;
-      this.profileDeleteCandidate = '';
-      this.closeProfileComposer();
-      toast(idx >= 0 ? 'Profile 已更新' : 'Profile 已保存', 'success');
     },
 
-    switchProfile(name) {
-      const p = this.profiles.find(p => p.name === name);
-      if (!p) return;
-      this.form.base_url = p.base_url || '';
-      this.form.api_key = p.api_key || '';
-      this.form.model = p.model || '';
-      this.currentProfileName = name;
-      this.profileDraftName = name;
-      this.profileComposerOpen = false;
-      this.profileDeleteCandidate = '';
+    async switchProfile(name) {
+      try {
+        const data = await api('/api/profiles/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        if (data.error) { toast(data.error, 'error'); return; }
+        const c = data.config || {};
+        this.form.base_url = c.base_url || '';
+        this.form.api_key = c.api_key || '';
+        this.form.model = c.model || '';
+        this.currentProfileName = name;
+        this.profileDraftName = name;
+        this.profileComposerOpen = false;
+        this.profileDeleteCandidate = '';
+      } catch (e) {
+        toast('切换失败: ' + e.message, 'error');
+      }
     },
 
     requestDeleteProfile(name) {
@@ -159,17 +168,21 @@ document.addEventListener('alpine:init', () => {
       this.profileDeleteCandidate = '';
     },
 
-    confirmDeleteProfile(name) {
-      this.profiles = this.profiles.filter(p => p.name !== name);
-      this._saveProfiles();
-      if (this.currentProfileName === name) {
-        this.currentProfileName = '';
+    async confirmDeleteProfile(name) {
+      try {
+        await api('/api/profiles/' + encodeURIComponent(name), { method: 'DELETE' });
+        if (this.currentProfileName === name) {
+          this.currentProfileName = '';
+        }
+        if (this.profileDraftName === name) {
+          this.profileDraftName = '';
+        }
+        this.profileDeleteCandidate = '';
+        toast('Profile 已删除', 'info');
+        await this.loadProfiles();
+      } catch (e) {
+        toast('删除失败: ' + e.message, 'error');
       }
-      if (this.profileDraftName === name) {
-        this.profileDraftName = '';
-      }
-      this.profileDeleteCandidate = '';
-      toast('Profile 已删除', 'info');
     },
 
     profileHost(baseUrl) {

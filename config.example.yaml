@@ -13,3 +13,15 @@ system_prompt: You are a helpful assistant.
 timeout: 60
 user_prompt: Write a short essay about the future of artificial intelligence in exactly
   200 words.
+
+# Profile 管理（通过 Web UI 保存，也可手动编辑）
+active_profile: 生产环境
+profiles:
+  - name: 生产环境
+    base_url: https://api.example.com
+    api_key: sk-prod-xxx
+    model: claude-sonnet-4-6
+  - name: 测试环境
+    base_url: https://api.staging.example.com
+    api_key: sk-test-xxx
+    model: claude-sonnet-4-6
