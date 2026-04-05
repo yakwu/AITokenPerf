@@ -56,6 +56,19 @@
           <button class="btn btn-ghost btn-sm" @click="loadConfig()">从配置加载</button>
         </div>
       </div>
+      <!-- Profile Selector -->
+      <div class="profile-bar">
+        <div class="profile-select-wrap">
+          <select class="form-input profile-select" x-model="currentProfileName" @change="switchProfile(currentProfileName)">
+            <option value="">-- 选择 Profile --</option>
+            <template x-for="p in profiles" :key="p.name">
+              <option :value="p.name" x-text="p.name"></option>
+            </template>
+          </select>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="saveAsProfile()">保存为 Profile</button>
+        <button class="btn btn-ghost btn-sm" x-show="currentProfileName" @click="deleteProfile()" style="color:var(--danger)">删除</button>
+      </div>
       <div class="form-grid">
         <div class="form-group">
           <label class="form-label">目标地址</label>

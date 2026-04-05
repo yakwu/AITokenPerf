@@ -22,10 +22,66 @@ document.addEventListener('alpine:init', () => {
     liveResults: [],
     evtSource: null,
 
+    // Profile management
+    profiles: [],
+    currentProfileName: '',
+
     init() {
+      this.loadProfiles();
       this.loadConfig();
-      // Check if benchmark is already running
       this.checkRunningStatus();
+    },
+
+    // ---- Profile methods ----
+    loadProfiles() {
+      try {
+        this.profiles = JSON.parse(localStorage.getItem('aitokenperf_profiles') || '[]');
+      } catch { this.profiles = []; }
+    },
+
+    _saveProfiles() {
+      localStorage.setItem('aitokenperf_profiles', JSON.stringify(this.profiles));
+    },
+
+    saveAsProfile() {
+      const name = prompt('输入 Profile 名称：', this.currentProfileName || '');
+      if (!name || !name.trim()) return;
+      const trimmed = name.trim();
+      const profile = {
+        name: trimmed,
+        base_url: this.form.base_url,
+        api_key: this.form.api_key,
+        model: this.form.model,
+        api_version: '2023-06-01',
+      };
+      const idx = this.profiles.findIndex(p => p.name === trimmed);
+      if (idx >= 0) {
+        this.profiles[idx] = profile;
+      } else {
+        this.profiles.push(profile);
+      }
+      this.profiles = [...this.profiles];
+      this._saveProfiles();
+      this.currentProfileName = trimmed;
+      toast('Profile 已保存', 'success');
+    },
+
+    switchProfile(name) {
+      const p = this.profiles.find(p => p.name === name);
+      if (!p) return;
+      this.form.base_url = p.base_url || '';
+      this.form.api_key = p.api_key || '';
+      this.form.model = p.model || '';
+      this.currentProfileName = name;
+    },
+
+    deleteProfile() {
+      if (!this.currentProfileName) return;
+      if (!confirm(`删除 Profile "${this.currentProfileName}"？`)) return;
+      this.profiles = this.profiles.filter(p => p.name !== this.currentProfileName);
+      this._saveProfiles();
+      this.currentProfileName = '';
+      toast('Profile 已删除', 'info');
     },
 
     async checkRunningStatus() {

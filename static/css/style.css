@@ -279,6 +279,25 @@ tbody tr:last-child td { border-bottom: none; }
   gap: 20px;
 }
 
+/* ---- Profile Selector ---- */
+.profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.profile-select-wrap { flex: 1; max-width: 280px; }
+
+.profile-select {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group.full { grid-column: 1 / -1; }
 
