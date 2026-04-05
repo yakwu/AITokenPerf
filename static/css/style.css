@@ -876,7 +876,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   display: flex;
   height: 32px;
   border-radius: 6px;
-  overflow: visible;
+  overflow: hidden;
   margin-bottom: 14px;
   position: relative;
 }
@@ -1130,6 +1130,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   position: relative;
   height: 300px;
   margin-top: 16px;
+  overflow: hidden;
 }
 
 .charts-row {

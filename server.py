@@ -32,7 +32,9 @@ class BenchState:
     status: str = "idle"  # idle | running | stopping
     current_task: Optional[asyncio.Task] = None
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
-    subscribers: list = field(default_factory=list)
+    task_id: str = ""
+    events: list = field(default_factory=list)
+    event_seq: int = 0
     current_concurrency: int = 0
     current_level: int = 0
     total_levels: int = 0
@@ -48,16 +50,13 @@ state = BenchState()
 
 # ---- Helpers ----
 
-def _sse(event: str, data: dict) -> bytes:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
-
-
 async def _publish(event_type: str, data: dict):
-    for q in list(state.subscribers):
-        try:
-            q.put_nowait((event_type, data))
-        except asyncio.QueueFull:
-            pass
+    state.event_seq += 1
+    state.events.append({
+        "seq": state.event_seq,
+        "type": event_type,
+        "data": data,
+    })
 
 
 def _apply_env_overrides(config: dict) -> dict:
@@ -305,12 +304,16 @@ async def start_bench(request):
         if key in body and body[key] is not None:
             config[key] = body[key]
 
+    import uuid
+    state.task_id = uuid.uuid4().hex[:12]
+    state.events = []
+    state.event_seq = 0
     state.status = "running"
     state.stop_event = asyncio.Event()
     state.start_time = time.monotonic()
     state.current_task = asyncio.create_task(_run_benchmark_task(config))
 
-    return web.json_response({"status": "started"})
+    return web.json_response({"status": "started", "task_id": state.task_id})
 
 
 async def stop_bench(request):
@@ -322,7 +325,12 @@ async def stop_bench(request):
 
 
 async def bench_status(request):
+    since = int(request.query.get("since", 0))
+    new_events = [e for e in state.events if e["seq"] > since]
+    elapsed = round(time.monotonic() - state.start_time, 1) if state.start_time else 0
+
     return web.json_response({
+        "task_id": state.task_id,
         "status": state.status,
         "concurrency": state.current_concurrency,
         "level": state.current_level,
@@ -331,35 +339,9 @@ async def bench_status(request):
         "total": state.total_count,
         "success": state.success_count,
         "failed": state.failed_count,
+        "elapsed": elapsed,
+        "events": new_events,
     })
-
-
-# ---- SSE stream ----
-
-async def bench_stream(request):
-    response = web.StreamResponse(headers={
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no",
-    })
-    await response.prepare(request)
-
-    queue = asyncio.Queue(maxsize=200)
-    state.subscribers.append(queue)
-    try:
-        await response.write(_sse("bench:status", {"status": state.status}))
-        while True:
-            event_type, data = await queue.get()
-            await response.write(_sse(event_type, data))
-            if event_type in ("bench:complete", "bench:error", "bench:stopped"):
-                break
-    except (asyncio.CancelledError, ConnectionResetError):
-        pass
-    finally:
-        if queue in state.subscribers:
-            state.subscribers.remove(queue)
-    return response
 
 
 # ---- Core benchmark task ----
@@ -494,7 +476,6 @@ def create_app() -> web.Application:
     app.router.add_post("/api/bench/start", start_bench)
     app.router.add_post("/api/bench/stop", stop_bench)
     app.router.add_get("/api/bench/status", bench_status)
-    app.router.add_get("/api/bench/stream", bench_stream)
     return app
 
 

@@ -20,7 +20,9 @@ document.addEventListener('alpine:init', () => {
     progress: { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' },
     logs: [],
     liveResults: [],
-    evtSource: null,
+    pollTimer: null,
+    eventCursor: 0,
+    taskId: null,
 
     // Profile management
     profiles: [],
@@ -366,10 +368,12 @@ document.addEventListener('alpine:init', () => {
     async checkRunningStatus() {
       const status = await api('/api/bench/status');
       if (status.status === 'running') {
+        this.taskId = status.task_id;
+        this.eventCursor = 0;
         this.running = true;
         Alpine.store('app').status = 'running';
         Alpine.store('app').tab = 'benchmark';
-        this.connectSSE();
+        this.startPolling();
       }
     },
 
@@ -418,8 +422,10 @@ document.addEventListener('alpine:init', () => {
           body: JSON.stringify(config),
         });
         if (res.error) { toast(res.error, 'error'); return; }
+        this.taskId = res.task_id;
+        this.eventCursor = 0;
         this.setRunningState(true);
-        this.connectSSE();
+        this.startPolling();
         toast('\u6d4b\u8bd5\u5df2\u542f\u52a8', 'success');
       } catch (e) { toast('\u542f\u52a8\u5931\u8d25: ' + e.message, 'error'); }
     },
@@ -441,8 +447,10 @@ document.addEventListener('alpine:init', () => {
           body: JSON.stringify(config),
         });
         if (res.error) { toast(res.error, 'error'); return; }
+        this.taskId = res.task_id;
+        this.eventCursor = 0;
         this.setRunningState(true);
-        this.connectSSE();
+        this.startPolling();
         toast('\u8fde\u901a\u6027\u9a8c\u8bc1\u5df2\u542f\u52a8\uff081 \u4e2a\u8bf7\u6c42\uff09', 'info');
       } catch (e) { toast('\u5931\u8d25: ' + e.message, 'error'); }
     },
@@ -457,59 +465,76 @@ document.addEventListener('alpine:init', () => {
       Alpine.store('app').status = running ? 'running' : 'idle';
     },
 
-    connectSSE() {
-      if (this.evtSource) this.evtSource.close();
-      this.evtSource = new EventSource('/api/bench/stream');
+    startPolling() {
+      this.stopPolling();
+      this.pollTimer = setInterval(() => this.pollStatus(), 1500);
+      this.pollStatus();
+    },
 
-      this.evtSource.addEventListener('bench:start', e => {
-        const d = JSON.parse(e.data);
-        this.logLine(`<span class="info">[\u7b2c ${d.current_level}/${d.total_levels} \u7ea7] \u542f\u52a8 \u5e76\u53d1=${d.concurrency} \u6a21\u5f0f=${d.mode}</span>`);
-      });
+    stopPolling() {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
+    },
 
-      this.evtSource.addEventListener('bench:progress', e => {
-        const d = JSON.parse(e.data);
-        this.progress.done = d.done;
-        this.progress.success = d.success;
-        this.progress.failed = d.failed;
-        this.progress.elapsed = d.elapsed;
-        this.progress.total = d.total;
-        if (d.elapsed > 0) {
-          this.progress.rate = (d.done / d.elapsed).toFixed(1);
+    async pollStatus() {
+      try {
+        const data = await api(`/api/bench/status?since=${this.eventCursor}`);
+        this.progress.done = data.done;
+        this.progress.success = data.success;
+        this.progress.failed = data.failed;
+        this.progress.total = data.total;
+        this.progress.elapsed = data.elapsed;
+        if (data.elapsed > 0) {
+          this.progress.rate = (data.done / data.elapsed).toFixed(1);
         }
-      });
+        if (data.events && data.events.length) {
+          for (const evt of data.events) {
+            this.eventCursor = evt.seq;
+            this.handleEvent(evt.type, evt.data);
+          }
+        }
+        if (data.status === 'idle' && this.running) {
+          this.stopPolling();
+          this.setRunningState(false);
+        }
+      } catch (e) {
+        // 网络错误，下次轮询继续
+      }
+    },
 
-      this.evtSource.addEventListener('bench:level_complete', e => {
-        const d = JSON.parse(e.data);
-        this.logLine(`<span class="ok">[\u5b8c\u6210] \u5e76\u53d1=${d.concurrency} \u2713</span>`);
-        this.liveResults = [...this.liveResults, { concurrency: d.concurrency, result: d.result }];
-      });
-
-      this.evtSource.addEventListener('bench:complete', e => {
-        this.evtSource.close();
-        this.evtSource = null;
-        this.setRunningState(false);
-        toast('\u6d4b\u8bd5\u5b8c\u6210\uff01', 'success');
-        this.logLine('<span class="ok">\u6d4b\u8bd5\u5b8c\u6210\uff01</span>');
-      });
-
-      this.evtSource.addEventListener('bench:stopped', e => {
-        this.evtSource.close();
-        this.evtSource = null;
-        this.setRunningState(false);
-        toast('\u6d4b\u8bd5\u5df2\u505c\u6b62', 'info');
-        this.logLine('<span class="fail">\u6d4b\u8bd5\u5df2\u88ab\u7528\u6237\u505c\u6b62</span>');
-      });
-
-      this.evtSource.addEventListener('bench:error', e => {
-        const d = JSON.parse(e.data);
-        this.evtSource.close();
-        this.evtSource = null;
-        this.setRunningState(false);
-        toast('\u9519\u8bef: ' + d.error, 'error');
-        this.logLine(`<span class="fail">\u9519\u8bef: ${d.error}</span>`);
-      });
-
-      this.evtSource.onerror = () => {};
+    handleEvent(type, d) {
+      switch (type) {
+        case 'bench:start':
+          this.logLine(`<span class="info">[\u7b2c ${d.current_level}/${d.total_levels} \u7ea7] \u542f\u52a8 \u5e76\u53d1=${d.concurrency} \u6a21\u5f0f=${d.mode}</span>`);
+          break;
+        case 'bench:progress':
+          // 标量字段已在 pollStatus 中更新
+          break;
+        case 'bench:level_complete':
+          this.logLine(`<span class="ok">[\u5b8c\u6210] \u5e76\u53d1=${d.concurrency} \u2713</span>`);
+          this.liveResults = [...this.liveResults, { concurrency: d.concurrency, result: d.result }];
+          break;
+        case 'bench:complete':
+          this.stopPolling();
+          this.setRunningState(false);
+          toast('\u6d4b\u8bd5\u5b8c\u6210\uff01', 'success');
+          this.logLine('<span class="ok">\u6d4b\u8bd5\u5b8c\u6210\uff01</span>');
+          break;
+        case 'bench:stopped':
+          this.stopPolling();
+          this.setRunningState(false);
+          toast('\u6d4b\u8bd5\u5df2\u505c\u6b62', 'info');
+          this.logLine('<span class="fail">\u6d4b\u8bd5\u5df2\u88ab\u7528\u6237\u505c\u6b62</span>');
+          break;
+        case 'bench:error':
+          this.stopPolling();
+          this.setRunningState(false);
+          toast('\u9519\u8bef: ' + d.error, 'error');
+          this.logLine(`<span class="fail">\u9519\u8bef: ${d.error}</span>`);
+          break;
+      }
     },
 
     logLine(html) {
