@@ -13,7 +13,7 @@ document.addEventListener('alpine:init', () => {
     },
     showApiKey: false,
     concurrencyPresets: [1, 10, 50, 100, 200, 500, 1000],
-    selectedConcurrency: new Set([100]),
+    selectedConcurrency: 100,
     customConcurrency: '',
     requestsPerLevel: '',
     running: false,
@@ -27,10 +27,24 @@ document.addEventListener('alpine:init', () => {
     currentProfileName: '',
     profileDraftName: '',
     profileDeleteCandidate: '',
+    profileMode: 'selected', // 'selected' | 'new'
+    knownModels: [],
+    editingProfileName: false,
+    profileDirty: false,
+    savedProfileConfig: null,
 
     init() {
-      this.loadConfig().then(() => this.loadProfiles());
+      this.loadConfig().then(() => {
+        this.loadProfiles().then(() => {
+          this.profileMode = this.currentProfileName ? 'selected' : 'new';
+          this.snapshotProfileConfig();
+        });
+      });
+      this.loadKnownModels();
       this.checkRunningStatus();
+      this.$watch('form.base_url', () => this.checkProfileDirty());
+      this.$watch('form.api_key', () => this.checkProfileDirty());
+      this.$watch('form.model', () => this.checkProfileDirty());
     },
 
     // ---- Profile methods ----
@@ -45,6 +59,18 @@ document.addEventListener('alpine:init', () => {
         }
       } catch {
         this.profiles = [];
+      }
+    },
+
+    async loadKnownModels() {
+      try {
+        const data = await api('/api/results');
+        const models = (Array.isArray(data) ? data : [])
+          .map(r => r.config?.model)
+          .filter(Boolean);
+        this.knownModels = [...new Set(models)].sort();
+      } catch {
+        this.knownModels = [];
       }
     },
 
@@ -82,6 +108,99 @@ document.addEventListener('alpine:init', () => {
       );
     },
 
+    checkProfileDirty() {
+      if (!this.currentProfileName || !this.savedProfileConfig) {
+        this.profileDirty = false;
+        return;
+      }
+      const s = this.savedProfileConfig;
+      this.profileDirty = (
+        this.form.base_url !== (s.base_url || '') ||
+        this.form.api_key !== (s.api_key || '') ||
+        this.form.model !== (s.model || '')
+      );
+    },
+
+    snapshotProfileConfig() {
+      this.savedProfileConfig = {
+        base_url: this.form.base_url,
+        api_key: this.form.api_key,
+        model: this.form.model,
+      };
+      this.profileDirty = false;
+    },
+
+    startRenameProfile() {
+      this.editingProfileName = true;
+      this.$nextTick(() => {
+        const el = this.$refs.renameInput;
+        if (el) { el.focus(); el.select(); }
+      });
+    },
+
+    cancelRenameProfile() {
+      this.profileDraftName = this.currentProfileName;
+      this.editingProfileName = false;
+    },
+
+    async finishRenameProfile() {
+      if (!this.editingProfileName) return;
+      this.editingProfileName = false;
+      const newName = this.profileDraftName.trim();
+      if (!newName || newName === this.currentProfileName) {
+        this.profileDraftName = this.currentProfileName;
+        return;
+      }
+      // 重命名：保存为新名字，删除旧的
+      try {
+        await api('/api/profiles/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: newName,
+            base_url: this.form.base_url,
+            api_key: this.form.api_key,
+            model: this.form.model,
+            api_version: '2023-06-01',
+          }),
+        });
+        const oldName = this.currentProfileName;
+        await api('/api/profiles/' + encodeURIComponent(oldName), { method: 'DELETE' });
+        this.currentProfileName = newName;
+        toast('已重命名为「' + newName + '」', 'success');
+        await this.loadProfiles();
+      } catch (e) {
+        toast('重命名失败: ' + e.message, 'error');
+        this.profileDraftName = this.currentProfileName;
+      }
+    },
+
+    async saveAsNewProfile() {
+      const name = prompt('另存为新 Profile，输入名称:');
+      if (!name || !name.trim()) return;
+      const trimmed = name.trim();
+      try {
+        await api('/api/profiles/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: trimmed,
+            base_url: this.form.base_url,
+            api_key: this.form.api_key,
+            model: this.form.model,
+            api_version: '2023-06-01',
+          }),
+        });
+        this.currentProfileName = trimmed;
+        this.profileDraftName = trimmed;
+        toast('已另存为「' + trimmed + '」', 'success');
+        this.snapshotProfileConfig();
+        await this.loadProfiles();
+      } catch (e) {
+        toast('另存失败: ' + e.message, 'error');
+      }
+    },
+
     async saveProfile() {
       const trimmed = this.profileDraftName.trim();
       if (!trimmed) {
@@ -112,10 +231,24 @@ document.addEventListener('alpine:init', () => {
         this.currentProfileName = trimmed;
         this.profileDeleteCandidate = '';
         toast(this.profileDraftExists ? 'Profile 已更新' : 'Profile 已保存', 'success');
+        this.snapshotProfileConfig();
         await this.loadProfiles();
       } catch (e) {
         toast('保存失败: ' + e.message, 'error');
       }
+    },
+
+    newProfile() {
+      this.form.base_url = '';
+      this.form.api_key = '';
+      this.form.model = '';
+      this.currentProfileName = '';
+      this.profileDraftName = '';
+      this.profileDeleteCandidate = '';
+      this.profileMode = 'new';
+      this.editingProfileName = false;
+      this.savedProfileConfig = null;
+      this.profileDirty = false;
     },
 
     async switchProfile(name) {
@@ -133,6 +266,9 @@ document.addEventListener('alpine:init', () => {
         this.currentProfileName = name;
         this.profileDraftName = name;
         this.profileDeleteCandidate = '';
+        this.profileMode = 'selected';
+        this.editingProfileName = false;
+        this.snapshotProfileConfig();
       } catch (e) {
         toast('切换失败: ' + e.message, 'error');
       }
@@ -200,18 +336,18 @@ document.addEventListener('alpine:init', () => {
       const mode = c.mode || 'burst';
       this.form.mode = mode;
       if (c.concurrency_levels && c.concurrency_levels.length) {
-        this.selectedConcurrency = new Set(c.concurrency_levels);
+        this.selectedConcurrency = c.concurrency_levels[0];
       }
     },
 
     getFormConfig() {
-      const conc = [...this.selectedConcurrency].sort((a, b) => a - b);
+      const conc = this.selectedConcurrency || 100;
       const requests = parseInt(this.requestsPerLevel);
       const config = {
         base_url: this.form.base_url,
         api_key: this.form.api_key,
         model: this.form.model,
-        concurrency_levels: conc.length ? conc : [100],
+        concurrency_levels: [conc],
         mode: this.form.mode,
         max_tokens: parseInt(this.form.max_tokens) || 512,
         timeout: parseInt(this.form.timeout) || 120,
@@ -336,20 +472,13 @@ document.addEventListener('alpine:init', () => {
     },
 
     toggleConcurrency(val) {
-      if (this.selectedConcurrency.has(val)) {
-        this.selectedConcurrency.delete(val);
-      } else {
-        this.selectedConcurrency.add(val);
-      }
-      // Force Alpine reactivity by reassigning
-      this.selectedConcurrency = new Set(this.selectedConcurrency);
+      this.selectedConcurrency = val;
     },
 
     addCustomConcurrency() {
       const val = parseInt(this.customConcurrency);
       if (!val || val <= 0) return;
-      this.selectedConcurrency.add(val);
-      this.selectedConcurrency = new Set(this.selectedConcurrency);
+      this.selectedConcurrency = val;
       if (!this.concurrencyPresets.includes(val)) {
         this.concurrencyPresets = [...this.concurrencyPresets, val].sort((a, b) => a - b);
       }
