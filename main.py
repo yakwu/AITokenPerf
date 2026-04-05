@@ -152,19 +152,19 @@ async def main():
     config_path = args.config
     if os.path.exists(config_path):
         with open(config_path) as f:
-            config = yaml.safe_load(f) or {}
+            raw_config = yaml.safe_load(f) or {}
     else:
-        config = {}
+        raw_config = {}
 
-    # 环境变量覆盖
-    from server import _apply_env_overrides
-    _apply_env_overrides(config)
-
-    # Web 模式
+    # Web 模式传入原始配置
     if args.web:
         from server import start_server
-        await start_server(config, args.port)
+        await start_server(raw_config, args.port)
         return
+
+    # 合并 profiles + benchmark 为扁平运行配置
+    from server import _resolve_config
+    config = _resolve_config(raw_config)
 
     # 命令行参数覆盖
     if args.concurrency:

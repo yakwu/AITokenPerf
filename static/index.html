@@ -15,7 +15,6 @@
 <script src="/js/dashboard.js"></script>
 <script src="/js/benchmark.js"></script>
 <script src="/js/history.js"></script>
-<script src="/js/config.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 </head>
 <body x-data>
@@ -36,7 +35,6 @@
   <button class="tab-btn" :class="{'active': $store.app.tab === 'dashboard'}" @click="$store.app.switchTab('dashboard')">总览</button>
   <button class="tab-btn" :class="{'active': $store.app.tab === 'benchmark'}" @click="$store.app.switchTab('benchmark')">新建测试</button>
   <button class="tab-btn" :class="{'active': $store.app.tab === 'history'}" @click="$store.app.switchTab('history')">历史记录</button>
-  <button class="tab-btn" :class="{'active': $store.app.tab === 'config'}" @click="$store.app.switchTab('config')">配置</button>
 </nav>
 
 <!-- Main -->
@@ -68,22 +66,6 @@
             </template>
           </div>
           <span class="profile-empty-hint" x-show="!profiles.length">填写下方配置后可保存为 Profile，方便切换</span>
-          <div class="profile-bar-actions">
-            <button class="btn btn-ghost btn-sm" @click="toggleProfileComposer()" :class="{'active': profileComposerOpen}">
-              <span x-text="profileComposerOpen ? '收起' : '+ 保存 Profile'"></span>
-            </button>
-            <button class="btn btn-ghost btn-sm profile-del-btn" x-show="currentProfileName && !profileComposerOpen" x-cloak @click="requestDeleteProfile(currentProfileName)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- 内联保存面板 -->
-        <div class="profile-save-row" x-show="profileComposerOpen" x-cloak x-transition.opacity.duration.150ms>
-          <input class="form-input profile-name-input" x-ref="profileNameInput" x-model="profileDraftName" placeholder="输入名称，如：生产环境" @keydown.enter.prevent="saveProfile()">
-          <span class="profile-save-preview" x-text="form.base_url ? profileHost(form.base_url) + ' · ' + (form.model || '未填模型') : '当前表单为空'"></span>
-          <button class="btn btn-primary btn-sm" @click="saveProfile()" :disabled="!canSaveProfile()" x-text="profileDraftExists ? '覆盖更新' : '保存'"></button>
-          <button class="btn btn-ghost btn-sm" @click="closeProfileComposer()">取消</button>
         </div>
 
         <!-- 删除确认 -->
@@ -98,13 +80,20 @@
           <label class="form-label">目标地址</label>
           <input class="form-input" x-model="form.base_url" placeholder="https://api.anthropic.com">
         </div>
-        <div class="form-group">
+        <div class="form-group full">
           <label class="form-label">API Key</label>
-          <div style="position:relative">
-            <input class="form-input" x-model="form.api_key" :type="showApiKey ? 'text' : 'password'" placeholder="sk-..." style="width:100%;padding-right:40px">
-            <button type="button" @click="showApiKey = !showApiKey" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-tertiary);padding:4px;line-height:1" title="Show/Hide">
-              <svg x-show="!showApiKey" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <svg x-show="showApiKey" x-cloak width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <div class="apikey-row">
+            <div style="position:relative;flex:1;min-width:0">
+              <input class="form-input" x-model="form.api_key" :type="showApiKey ? 'text' : 'password'" placeholder="sk-..." autocomplete="off" data-1p-ignore style="width:100%;padding-right:40px">
+              <button type="button" @click="showApiKey = !showApiKey" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-tertiary);padding:4px;line-height:1" title="Show/Hide">
+                <svg x-show="!showApiKey" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg x-show="showApiKey" x-cloak width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+            <input class="form-input profile-name-input" x-model="profileDraftName" placeholder="Profile 名称，如：生产环境" @keydown.enter.prevent="saveProfile()" style="flex:0 0 200px">
+            <button class="btn btn-primary btn-sm" @click="saveProfile()" :disabled="!canSaveProfile()" x-text="profileDraftExists ? '覆盖更新' : '保存 Profile'" style="white-space:nowrap"></button>
+            <button class="btn btn-ghost btn-sm profile-del-btn" x-show="currentProfileName" x-cloak @click="requestDeleteProfile(currentProfileName)" title="删除当前 Profile">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
             </button>
           </div>
         </div>
@@ -241,17 +230,17 @@
           <thead>
             <tr>
               <th style="width:30px"></th>
-              <th class="sortable" data-sort="test_id" @click="toggleSort('test_id')">测试 ID <span class="sort-arrow"></span></th>
-              <th class="sortable active-sort desc" data-sort="timestamp" @click="toggleSort('timestamp')">时间 <span class="sort-arrow">&#9660;</span></th>
-              <th>模型</th>
+              <th style="width:90px" class="sortable" data-sort="test_id" @click="toggleSort('test_id')">测试 ID <span class="sort-arrow"></span></th>
+              <th style="width:155px" class="sortable active-sort desc" data-sort="timestamp" @click="toggleSort('timestamp')">时间 <span class="sort-arrow">&#9660;</span></th>
+              <th style="width:160px">模型</th>
               <th>目标地址</th>
-              <th class="sortable" data-sort="concurrency" @click="toggleSort('concurrency')">并发 <span class="sort-arrow"></span></th>
-              <th>模式</th>
-              <th class="sortable" data-sort="success_rate" @click="toggleSort('success_rate')">成功率 <span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="ttft" @click="toggleSort('ttft')">TTFT P50 <span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="e2e" @click="toggleSort('e2e')">E2E P50 <span class="sort-arrow"></span></th>
-              <th class="sortable" data-sort="throughput" @click="toggleSort('throughput')">吞吐量 <span class="sort-arrow"></span></th>
-              <th></th>
+              <th style="width:60px" class="sortable" data-sort="concurrency" @click="toggleSort('concurrency')">并发 <span class="sort-arrow"></span></th>
+              <th style="width:80px">模式</th>
+              <th style="width:72px" class="sortable" data-sort="success_rate" @click="toggleSort('success_rate')">成功率 <span class="sort-arrow"></span></th>
+              <th style="width:82px" class="sortable" data-sort="ttft" @click="toggleSort('ttft')">TTFT P50 <span class="sort-arrow"></span></th>
+              <th style="width:82px" class="sortable" data-sort="e2e" @click="toggleSort('e2e')">E2E P50 <span class="sort-arrow"></span></th>
+              <th style="width:100px" class="sortable" data-sort="throughput" @click="toggleSort('throughput')">吞吐量 <span class="sort-arrow"></span></th>
+              <th style="width:36px"></th>
             </tr>
           </thead>
           <tbody x-ref="historyBody"></tbody>
@@ -260,19 +249,6 @@
     </div>
   </section>
 
-  <!-- Config Tab -->
-  <section class="tab-content" :class="{'active': $store.app.tab === 'config'}" x-data="configTab()" x-show="$store.app.tab === 'config'" x-init="$watch('$store.app.tab', val => { if (val === 'config') load() })">
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">config.yaml</div>
-        <div class="btn-group">
-          <button class="btn btn-ghost btn-sm" @click="load()">重新加载</button>
-          <button class="btn btn-primary btn-sm" @click="save()">保存</button>
-        </div>
-      </div>
-      <textarea class="config-editor" x-model="configText" spellcheck="false"></textarea>
-    </div>
-  </section>
 </main>
 
 <!-- Compare Modal -->

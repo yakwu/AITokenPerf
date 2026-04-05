@@ -22,6 +22,10 @@ CONFIG_PATH = BASE_DIR / "config.yaml"
 RESULTS_DIR = BASE_DIR / "results"
 STATIC_DIR = BASE_DIR / "static"
 
+CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version")
+BENCHMARK_KEYS = ("mode", "concurrency_levels", "duration", "max_tokens",
+                   "timeout", "connector_limit", "system_prompt", "user_prompt")
+
 
 @dataclass
 class BenchState:
@@ -80,48 +84,104 @@ def _load_config() -> dict:
     return _apply_env_overrides(config)
 
 
-# ---- Config routes ----
-
-async def get_config(request):
-    config = _load_config()
-    if "api_key" in config:
-        key = config["api_key"]
-        config["api_key_display"] = f"...{key[-4:]}" if len(key) > 4 else "****"
-    return web.json_response(config)
-
-
-async def update_config(request):
-    data = await request.json()
-    existing = _load_config()
-    # 如果 api_key 是脱敏的占位，保留原值
-    if not data.get("api_key") or data["api_key"].startswith("..."):
-        data["api_key"] = existing.get("api_key", "")
-    with open(CONFIG_PATH, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
-    return web.json_response({"status": "ok"})
-
-
-# ---- Profiles routes ----
-
-def _get_profiles(config: dict) -> dict:
-    """从配置中提取 profiles 信息"""
-    return {
-        "profiles": config.get("profiles", []),
-        "active_profile": config.get("active_profile", ""),
-    }
+def _resolve_config(config: dict) -> dict:
+    """将 profiles + benchmark 结构合并为扁平运行时配置"""
+    resolved = {}
+    # 1. benchmark 参数
+    benchmark = config.get("benchmark", {})
+    for k in BENCHMARK_KEYS:
+        if k in benchmark:
+            resolved[k] = benchmark[k]
+    # 2. output_dir
+    resolved["output_dir"] = config.get("output_dir", "./results")
+    # 3. 兼容旧格式：如果顶层有 benchmark 参数（没有 benchmark 区块），从顶层读
+    if not benchmark:
+        for k in BENCHMARK_KEYS:
+            if k in config:
+                resolved[k] = config[k]
+    # 4. active profile 连接信息
+    profiles = config.get("profiles", [])
+    active_name = config.get("active_profile", "")
+    active = next((p for p in profiles if p.get("name") == active_name), None)
+    if active:
+        for k in CONNECTION_KEYS:
+            if active.get(k):
+                resolved[k] = active[k]
+    # 5. 兼容旧格式：顶层连接字段
+    for k in CONNECTION_KEYS:
+        if k not in resolved and k in config:
+            resolved[k] = config[k]
+    # 6. 环境变量最终覆盖
+    _apply_env_overrides(resolved)
+    return resolved
 
 
 def _write_config(config: dict):
     """将完整配置写回 config.yaml"""
-    # 不写入 api_key_display 这类临时字段
     config.pop("api_key_display", None)
     with open(CONFIG_PATH, "w") as f:
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 
 
+# ---- Config routes ----
+
+async def get_config(request):
+    config = _load_config()
+    resolved = _resolve_config(config)
+    # 脱敏展示
+    if "api_key" in resolved:
+        key = resolved["api_key"]
+        resolved["api_key_display"] = f"...{key[-4:]}" if len(key) > 4 else "****"
+    return web.json_response(resolved)
+
+
+async def update_config(request):
+    """前端提交扁平配置，拆分写入 benchmark 区块 + 更新 active profile"""
+    data = await request.json()
+    data.pop("api_key_display", None)
+
+    raw = {}
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            raw = yaml.safe_load(f) or {}
+
+    # api_key 脱敏占位 → 保留原值
+    if not data.get("api_key") or data["api_key"].startswith("..."):
+        # 从当前 active profile 取
+        profiles = raw.get("profiles", [])
+        active_name = raw.get("active_profile", "")
+        active = next((p for p in profiles if p.get("name") == active_name), None)
+        data["api_key"] = active.get("api_key", "") if active else ""
+
+    # 写入 benchmark 区块
+    benchmark = {}
+    for k in BENCHMARK_KEYS:
+        if k in data:
+            benchmark[k] = data[k]
+    raw["benchmark"] = benchmark
+    raw["output_dir"] = data.get("output_dir", raw.get("output_dir", "./results"))
+
+    # 更新 active profile 的连接信息
+    profiles = raw.get("profiles", [])
+    active_name = raw.get("active_profile", "")
+    idx = next((i for i, p in enumerate(profiles) if p.get("name") == active_name), -1)
+    if idx >= 0:
+        for k in CONNECTION_KEYS:
+            if k in data:
+                profiles[idx][k] = data[k]
+
+    _write_config(raw)
+    return web.json_response({"status": "ok"})
+
+
+# ---- Profiles routes ----
+
 async def get_profiles(request):
     config = _load_config()
-    return web.json_response(_get_profiles(config))
+    return web.json_response({
+        "profiles": config.get("profiles", []),
+        "active_profile": config.get("active_profile", ""),
+    })
 
 
 async def save_profile(request):
@@ -130,15 +190,10 @@ async def save_profile(request):
     if not name:
         return web.json_response({"error": "Profile name is required"}, status=400)
 
-    profile = {
-        "name": name,
-        "base_url": data.get("base_url", ""),
-        "api_key": data.get("api_key", ""),
-        "model": data.get("model", ""),
-        "api_version": data.get("api_version", "2023-06-01"),
-    }
+    profile = {"name": name}
+    for k in CONNECTION_KEYS:
+        profile[k] = data.get(k, "")
 
-    # 读取原始 YAML 文件（不经过 env override）
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
             raw = yaml.safe_load(f) or {}
@@ -178,12 +233,9 @@ async def switch_profile(request):
     raw["active_profile"] = name
     _write_config(raw)
 
-    # 返回合并后的配置（profile 字段覆盖顶层默认值）
-    config = _load_config()
-    for key in ("base_url", "api_key", "model", "api_version"):
-        if target.get(key):
-            config[key] = target[key]
-    return web.json_response({"status": "ok", "config": config})
+    # 返回合并后的配置
+    resolved = _resolve_config(raw)
+    return web.json_response({"status": "ok", "config": resolved})
 
 
 async def delete_profile(request):
@@ -245,9 +297,9 @@ async def start_bench(request):
     body = await request.json() if request.content_length else {}
 
     config = _load_config()
+    config = _resolve_config(config)
     # 允许前端覆盖部分配置
-    for key in ("concurrency_levels", "mode", "duration", "model", "base_url", "max_tokens",
-                "system_prompt", "user_prompt", "timeout", "api_key", "requests_per_level"):
+    for key in BENCHMARK_KEYS + CONNECTION_KEYS + ("requests_per_level",):
         if key in body and body[key] is not None:
             config[key] = body[key]
 

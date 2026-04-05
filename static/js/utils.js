@@ -5,9 +5,9 @@ function fmtTime(s) {
 
 function fmtTimestamp(ts) {
   if (!ts) return '-';
-  const y = ts.slice(0,4), mo = ts.slice(4,6), d = ts.slice(6,8);
-  const h = ts.slice(9,11), mi = ts.slice(11,13), sc = ts.slice(13,15);
-  return `${y}-${mo}-${d} ${h}:${mi}:${sc}`;
+  const mo = ts.slice(4,6), d = ts.slice(6,8);
+  const h = ts.slice(9,11), mi = ts.slice(11,13);
+  return `${mo}-${d} ${h}:${mi}`;
 }
 
 function fmtPct(v) { return v != null ? v.toFixed(1) + '%' : '-'; }

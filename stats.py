@@ -191,9 +191,14 @@ def build_report_dict(result: BenchmarkResult, config: dict) -> dict:
         "config": {
             "model": config.get("model"),
             "base_url": config.get("base_url"),
+            "api_version": config.get("api_version"),
             "max_tokens": config.get("max_tokens"),
             "concurrency": result.concurrency,
             "mode": result.mode,
+            "duration": config.get("duration"),
+            "timeout": config.get("timeout"),
+            "system_prompt": config.get("system_prompt"),
+            "user_prompt": config.get("user_prompt"),
         },
         "summary": {
             "total_requests": result.total_requests,

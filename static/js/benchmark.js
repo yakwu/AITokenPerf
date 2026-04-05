@@ -25,7 +25,6 @@ document.addEventListener('alpine:init', () => {
     // Profile management
     profiles: [],
     currentProfileName: '',
-    profileComposerOpen: false,
     profileDraftName: '',
     profileDeleteCandidate: '',
 
@@ -47,24 +46,6 @@ document.addEventListener('alpine:init', () => {
       } catch {
         this.profiles = [];
       }
-    },
-
-    toggleProfileComposer() {
-      if (this.profileComposerOpen) {
-        this.closeProfileComposer();
-        return;
-      }
-      this.profileComposerOpen = true;
-      this.profileDraftName = this.currentProfileName || this.profileDraftName || '';
-      this.profileDeleteCandidate = '';
-      this.$nextTick(() => {
-        this.$refs.profileNameInput?.focus();
-      });
-    },
-
-    closeProfileComposer() {
-      this.profileComposerOpen = false;
-      this.profileDraftName = this.currentProfileName || '';
     },
 
     get currentProfile() {
@@ -130,7 +111,6 @@ document.addEventListener('alpine:init', () => {
         });
         this.currentProfileName = trimmed;
         this.profileDeleteCandidate = '';
-        this.closeProfileComposer();
         toast(this.profileDraftExists ? 'Profile 已更新' : 'Profile 已保存', 'success');
         await this.loadProfiles();
       } catch (e) {
@@ -152,7 +132,6 @@ document.addEventListener('alpine:init', () => {
         this.form.model = c.model || '';
         this.currentProfileName = name;
         this.profileDraftName = name;
-        this.profileComposerOpen = false;
         this.profileDeleteCandidate = '';
       } catch (e) {
         toast('切换失败: ' + e.message, 'error');
@@ -161,7 +140,6 @@ document.addEventListener('alpine:init', () => {
 
     requestDeleteProfile(name) {
       this.profileDeleteCandidate = this.profileDeleteCandidate === name ? '' : name;
-      this.profileComposerOpen = false;
     },
 
     cancelDeleteProfile() {

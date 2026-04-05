@@ -233,7 +233,6 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  table-layout: fixed;
 }
 
 thead th {
@@ -354,19 +353,6 @@ tbody tr:last-child td { border-bottom: none; }
   color: var(--text-tertiary);
 }
 
-.profile-bar-actions {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.profile-bar-actions .btn.active {
-  background: var(--accent-light);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .profile-del-btn {
   color: var(--text-tertiary) !important;
   border-color: transparent !important;
@@ -374,31 +360,17 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .profile-del-btn:hover { color: var(--danger) !important; }
 
-.profile-save-row {
+.apikey-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 12px;
-  flex-wrap: wrap;
 }
 
-.profile-name-input {
+.apikey-row .profile-name-input {
   width: auto;
-  min-width: 180px;
-  max-width: 260px;
+  min-width: 0;
   padding: 8px 12px;
   font-size: 13px;
-}
-
-.profile-save-preview {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-tertiary);
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .profile-delete-row {
@@ -1328,5 +1300,6 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   .detail-content { grid-template-columns: 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
   .profile-bar { flex-direction: column; gap: 8px; }
-  .profile-save-row { flex-direction: column; }
+  .apikey-row { flex-wrap: wrap; }
+  .apikey-row .profile-name-input { flex: 1 1 100%; }
 }
