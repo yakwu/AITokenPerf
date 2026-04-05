@@ -84,7 +84,7 @@ document.addEventListener('alpine:init', () => {
           </div>
           <div class="hero-stat">
             <div class="hero-stat-value">${endpoints.size}</div>
-            <div class="hero-stat-label">Endpoint</div>
+            <div class="hero-stat-label">\u76ee\u6807\u670d\u52a1\u5668</div>
           </div>
           <div class="hero-stat">
             <div class="hero-stat-value">${totalRequests.toLocaleString()}</div>
@@ -147,7 +147,7 @@ document.addEventListener('alpine:init', () => {
       }
 
       html += '</div>';
-      return this._renderSectionCard('\u5e73\u53f0\u6027\u80fd\u6982\u89c8', html, 'globe');
+      return this._renderSectionCard('\u76ee\u6807\u670d\u52a1\u5668\u6982\u89c8', html, 'globe');
     },
 
     // ---- Module 3: Model Overview (grid, 2 per row) ----
@@ -193,7 +193,7 @@ document.addEventListener('alpine:init', () => {
             ${this._renderGroupMeta(md.count, mdRateClass, md.avgRate)}
           </div>
           <div class="table-wrap"><table class="matrix-table"><thead><tr>
-            <th>Endpoint</th><th>\u6d4b\u8bd5</th><th>\u6210\u529f\u7387</th>
+            <th>\u76ee\u6807\u670d\u52a1\u5668</th><th>\u6d4b\u8bd5</th><th>\u6210\u529f\u7387</th>
             <th>TTFT P50 ${infoIcon('TTFT')}</th><th>Token/s</th>
           </tr></thead><tbody>`;
 
@@ -249,7 +249,7 @@ document.addEventListener('alpine:init', () => {
     _renderRecentTests(results) {
       const recent = results.slice(0, 5);
       let html = `<div class="table-wrap"><table class="recent-table"><thead><tr>
-          <th>ID</th><th>\u65f6\u95f4</th><th>\u6a21\u578b</th><th>Endpoint</th>
+          <th>ID</th><th>\u65f6\u95f4</th><th>\u6a21\u578b</th><th>\u76ee\u6807\u670d\u52a1\u5668</th>
           <th>\u5e76\u53d1</th><th>\u6a21\u5f0f</th><th>\u6210\u529f\u7387</th>
           <th>TTFT P50</th><th>Token/s</th>
         </tr></thead><tbody>`;
