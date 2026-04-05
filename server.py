@@ -16,6 +16,7 @@ import aiohttp as aiohttp_lib
 
 from client import send_streaming_request
 from stats import aggregate_metrics, build_report_dict, save_report
+from logger import log_access, log_security
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.yaml"
@@ -46,6 +47,128 @@ class BenchState:
 
 
 state = BenchState()
+
+
+# ---- Security ----
+
+# 恶意扫描路径特征
+SCAN_PATTERNS = [
+    "/wp-admin", "/wp-login", "/.env", "/.git", "/.git/config",
+    "/actuator", "/phpmyadmin", "/.well-known/security.txt",
+    "/xmlrpc.php", "/wp-content", "/wp-includes",
+]
+
+# IP 封禁表 {ip: ban_until_timestamp}
+_ip_ban: dict[str, float] = {}
+
+# 限流表 {ip: [timestamp, ...]}
+_rate_store: dict[str, list[float]] = {}
+
+# 限流规则 (max_requests, window_seconds)
+RATE_LIMITS = {
+    "/api/bench/start": (5, 60),
+    "/api/bench/stop": (5, 60),
+    "/api/bench/status": (120, 60),
+}
+RATE_LIMIT_DEFAULT = (60, 60)  # 其他 API
+
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "")
+
+
+def _check_ban(ip: str) -> bool:
+    until = _ip_ban.get(ip)
+    if until is None:
+        return False
+    if time.time() < until:
+        return True
+    del _ip_ban[ip]
+    return False
+
+
+def _ban_ip(ip: str, duration: int = 86400):
+    _ip_ban[ip] = time.time() + duration
+
+
+def _check_rate_limit(ip: str, path: str) -> bool:
+    max_req, window = RATE_LIMIT_DEFAULT
+    for pattern, limits in RATE_LIMITS.items():
+        if path.startswith(pattern):
+            max_req, window = limits
+            break
+
+    now = time.time()
+    key = f"{ip}:{path}"
+    hits = _rate_store.get(key, [])
+    hits = [t for t in hits if now - t < window]
+    if len(hits) >= max_req:
+        return False
+    hits.append(now)
+    _rate_store[key] = hits
+    return True
+
+
+@web.middleware
+async def security_middleware(request: web.Request, handler):
+    ip = request.remote or "unknown"
+    path = request.path
+    start = time.monotonic()
+
+    # 1. 检查封禁
+    if _check_ban(ip):
+        log_security("ip_banned_request", ip=ip, path=path)
+        return web.json_response({"error": "Forbidden"}, status=403)
+
+    # 2. 检查恶意扫描路径
+    for pattern in SCAN_PATTERNS:
+        if path.startswith(pattern):
+            _ban_ip(ip)
+            log_security("scan_detected", ip=ip, path=path)
+            return web.json_response({"error": "Forbidden"}, status=403)
+
+    # 3. CORS 预检
+    if request.method == "OPTIONS":
+        resp = web.Response(status=204)
+        _set_cors_headers(resp, request)
+        return resp
+
+    # 4. 限流（仅 API 路径）
+    if path.startswith("/api/") and not _check_rate_limit(ip, path):
+        log_security("rate_limited", ip=ip, path=path)
+        return web.json_response({"error": "Too Many Requests"}, status=429)
+
+    # 5. 处理请求
+    try:
+        resp = await handler(request)
+    except web.HTTPException:
+        raise
+    except Exception as e:
+        duration_ms = (time.monotonic() - start) * 1000
+        log_access(request.method, path, 500, ip, duration_ms)
+        raise
+
+    duration_ms = (time.monotonic() - start) * 1000
+
+    # 6. 安全响应头
+    if path.startswith("/api/"):
+        _set_cors_headers(resp, request)
+    resp.headers.pop("Server", None)
+
+    # 7. 记录访问日志
+    log_access(request.method, path, resp.status, ip, duration_ms)
+
+    return resp
+
+
+def _set_cors_headers(resp: web.Response, request: web.Request):
+    origin = request.headers.get("Origin", "")
+    if CORS_ORIGINS:
+        allowed = [o.strip() for o in CORS_ORIGINS.split(",")]
+        if origin in allowed:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
 
 
 # ---- Helpers ----
@@ -297,6 +420,29 @@ async def start_bench(request):
 
     body = await request.json() if request.content_length else {}
 
+    # 输入校验
+    errors = []
+    levels = body.get("concurrency_levels")
+    if levels:
+        if not isinstance(levels, list):
+            levels = [levels]
+        if len(levels) > 20:
+            errors.append("concurrency_levels 最多 20 项")
+        for v in levels:
+            if not isinstance(v, int) or v < 1 or v > 2000:
+                errors.append(f"concurrency 值 {v} 超出范围 (1-2000)")
+    duration = body.get("duration")
+    if duration is not None and (not isinstance(duration, int) or duration < 1 or duration > 3600):
+        errors.append("duration 超出范围 (1-3600)")
+    max_tokens = body.get("max_tokens")
+    if max_tokens is not None and (not isinstance(max_tokens, int) or max_tokens < 1 or max_tokens > 8192):
+        errors.append("max_tokens 超出范围 (1-8192)")
+    rpl = body.get("requests_per_level")
+    if rpl is not None and (not isinstance(rpl, int) or rpl < 1 or rpl > 50000):
+        errors.append("requests_per_level 超出范围 (1-50000)")
+    if errors:
+        return web.json_response({"error": "; ".join(errors)}, status=400)
+
     config = _load_config()
     config = _resolve_config(config)
     # 允许前端覆盖部分配置
@@ -459,7 +605,10 @@ async def favicon_handler(request):
 # ---- App ----
 
 def create_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(
+        middlewares=[security_middleware],
+        client_max_size=1024 * 1024,  # 1MB
+    )
     app.router.add_get("/", index_handler)
     app.router.add_get("/favicon.ico", favicon_handler)
     app.router.add_static("/css/", STATIC_DIR / "css")

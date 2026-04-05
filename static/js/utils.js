@@ -31,7 +31,7 @@ function toast(msg, type='info') {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, opts);
+  const res = await fetch((window.__API_BASE__ || '') + path, opts);
   return res.json();
 }
 
