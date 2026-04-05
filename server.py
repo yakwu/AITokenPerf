@@ -107,6 +107,8 @@ def _resolve_config(config: dict) -> dict:
         for k in CONNECTION_KEYS:
             if active.get(k):
                 resolved[k] = active[k]
+    if active_name:
+        resolved["profile_name"] = active_name
     # 5. 兼容旧格式：顶层连接字段
     for k in CONNECTION_KEYS:
         if k not in resolved and k in config:

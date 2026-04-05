@@ -72,7 +72,7 @@
                 </template>
                 <span class="profile-chip-meta" x-text="profileHost(p.base_url)" @click.stop="switchProfile(p.name)"></span>
                 <div class="profile-chip-actions" x-show="profileMode === 'selected' && currentProfileName === p.name && profileDirty" x-cloak @click.stop>
-                  <button class="profile-chip-btn profile-chip-btn-overwrite" @click="saveProfile()" title="覆盖当前 Profile">覆盖</button>
+                  <button class="profile-chip-btn profile-chip-btn-overwrite" @click="saveProfile()" title="更新当前 Profile">更新</button>
                   <button class="profile-chip-btn profile-chip-btn-saveas" @click="saveAsNewProfile()" title="另存为新 Profile">另存</button>
                 </div>
               </div>

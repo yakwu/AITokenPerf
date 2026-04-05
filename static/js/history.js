@@ -198,6 +198,7 @@ document.addEventListener('alpine:init', () => {
     rerunResult(r) {
       const c = r.config || {};
       window._rerunConfig = {
+        profile_name: c.profile_name || '',
         base_url: c.base_url || '',
         model: c.model || '',
         max_tokens: c.max_tokens || 512,

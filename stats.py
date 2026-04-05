@@ -189,6 +189,7 @@ def build_report_dict(result: BenchmarkResult, config: dict) -> dict:
         "test_id": test_id,
         "timestamp": timestamp,
         "config": {
+            "profile_name": config.get("profile_name", ""),
             "model": config.get("model"),
             "base_url": config.get("base_url"),
             "api_version": config.get("api_version"),

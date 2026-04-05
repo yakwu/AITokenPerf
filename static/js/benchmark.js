@@ -41,11 +41,29 @@ document.addEventListener('alpine:init', () => {
     profileDirty: false,
     savedProfileConfig: null,
 
-    applyRerunConfig() {
+    async applyRerunConfig() {
       const rc = window._rerunConfig;
       if (!rc) return;
       window._rerunConfig = null;
-      this.form.base_url = rc.base_url;
+
+      // 优先用 profile_name 匹配，fallback 到 base_url
+      let matched = null;
+      if (rc.profile_name) {
+        matched = this.profiles.find(p => p.name === rc.profile_name);
+      }
+      if (!matched && rc.base_url) {
+        matched = this.profiles.find(p => p.base_url === rc.base_url);
+      }
+
+      if (matched) {
+        await this.switchProfile(matched.name);
+      } else {
+        // 没有对应主机，新建一个 Profile
+        this.newProfile();
+        this.form.base_url = rc.base_url;
+      }
+
+      // 填入测试参数（不覆盖 api_key）
       this.form.model = rc.model;
       this.form.max_tokens = rc.max_tokens;
       this.form.mode = rc.mode;
@@ -62,8 +80,8 @@ document.addEventListener('alpine:init', () => {
         this.loadProfiles().then(() => {
           this.profileMode = this.currentProfileName ? 'selected' : 'new';
           this.snapshotProfileConfig();
+          if (hasRerun) this.applyRerunConfig();
         });
-        if (hasRerun) this.applyRerunConfig();
       });
       this.loadKnownModels();
       this.checkRunningStatus();
@@ -73,7 +91,7 @@ document.addEventListener('alpine:init', () => {
       // Apply rerun config when switching to benchmark tab (after first init)
       this.$watch('$store.app.tab', val => {
         if (val === 'benchmark' && window._rerunConfig) {
-          this.applyRerunConfig();
+          this.loadProfiles().then(() => this.applyRerunConfig());
         }
       });
     },
