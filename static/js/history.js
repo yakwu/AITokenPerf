@@ -122,7 +122,7 @@ document.addEventListener('alpine:init', () => {
           <td>${fmtTime(p.TTFT?.P50)}</td>
           <td>${fmtTime(p.E2E?.P50)}</td>
           <td>${fmtNum(s.throughput_rps)} /s</td>
-          <td><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.deleteResult('${fn}')" title="\u5220\u9664" style="color:var(--danger)">&#10005;</button></td>`;
+          <td style="white-space:nowrap"><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.rerunResult(window._historyComponent.filtered[${idx}])" title="\u91cd\u65b0\u8fd0\u884c" style="color:var(--accent)">&#8635;</button><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.deleteResult('${fn}')" title="\u5220\u9664" style="color:var(--danger)">&#10005;</button></td>`;
         tbody.appendChild(tr);
 
         const detailTr = document.createElement('tr');
@@ -175,6 +175,22 @@ document.addEventListener('alpine:init', () => {
       this.$el.querySelectorAll('.compare-check').forEach(c => c.checked = false);
       const wrap = this.$refs.compareBtnWrap;
       if (wrap) wrap.classList.remove('visible');
+    },
+
+    rerunResult(r) {
+      const c = r.config || {};
+      window._rerunConfig = {
+        base_url: c.base_url || '',
+        model: c.model || '',
+        max_tokens: c.max_tokens || 512,
+        concurrency: c.concurrency || 100,
+        mode: c.mode || 'burst',
+        duration: c.duration || 120,
+        timeout: c.timeout || 120,
+        system_prompt: c.system_prompt || '',
+        user_prompt: c.user_prompt || '',
+      };
+      Alpine.store('app').switchTab('benchmark');
     },
 
     async deleteResult(filename) {

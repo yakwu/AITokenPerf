@@ -33,18 +33,41 @@ document.addEventListener('alpine:init', () => {
     profileDirty: false,
     savedProfileConfig: null,
 
+    applyRerunConfig() {
+      const rc = window._rerunConfig;
+      if (!rc) return;
+      window._rerunConfig = null;
+      this.form.base_url = rc.base_url;
+      this.form.model = rc.model;
+      this.form.max_tokens = rc.max_tokens;
+      this.form.mode = rc.mode;
+      this.form.duration = rc.duration;
+      this.form.timeout = rc.timeout;
+      this.form.system_prompt = rc.system_prompt;
+      this.form.user_prompt = rc.user_prompt;
+      this.selectedConcurrency = rc.concurrency;
+    },
+
     init() {
+      const hasRerun = !!window._rerunConfig;
       this.loadConfig().then(() => {
         this.loadProfiles().then(() => {
           this.profileMode = this.currentProfileName ? 'selected' : 'new';
           this.snapshotProfileConfig();
         });
+        if (hasRerun) this.applyRerunConfig();
       });
       this.loadKnownModels();
       this.checkRunningStatus();
       this.$watch('form.base_url', () => this.checkProfileDirty());
       this.$watch('form.api_key', () => this.checkProfileDirty());
       this.$watch('form.model', () => this.checkProfileDirty());
+      // Apply rerun config when switching to benchmark tab (after first init)
+      this.$watch('$store.app.tab', val => {
+        if (val === 'benchmark' && window._rerunConfig) {
+          this.applyRerunConfig();
+        }
+      });
     },
 
     // ---- Profile methods ----
