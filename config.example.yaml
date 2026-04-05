@@ -1,0 +1,15 @@
+api_key: your-api-key-here
+api_version: '2023-06-01'
+base_url: https://api.example.com
+concurrency_levels:
+- 10
+connector_limit: 1200
+duration: 30
+max_tokens: 512
+mode: burst
+model: claude-sonnet-4-6
+output_dir: ./results
+system_prompt: You are a helpful assistant.
+timeout: 60
+user_prompt: Write a short essay about the future of artificial intelligence in exactly
+  200 words.
