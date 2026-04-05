@@ -39,4 +39,4 @@ python3 main.py --web
 
 ## License
 
-MIT
+Apache 2.0
