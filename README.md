@@ -23,15 +23,9 @@ pip install -r requirements.txt
 
 ### 配置
 
-复制配置模板：
+启动 Web UI 后在页面上直接创建 Profile、填写 API Key 和目标地址即可。
 
-```bash
-cp config.example.yaml config.yaml
-```
-
-编辑 `config.yaml`，填入你的 API Key 和目标地址。
-
-或者使用环境变量（优先级高于 config.yaml）：
+CLI 模式可通过环境变量配置：
 
 ```bash
 export API_KEY=sk-your-key-here
