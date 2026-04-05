@@ -265,6 +265,10 @@ document.addEventListener('alpine:init', () => {
         ['E2E P95', r => fmtTime(r.percentiles?.E2E?.P95)],
         ['E2E P99', r => fmtTime(r.percentiles?.E2E?.P99)],
         ['Avg Tokens', r => fmtNum(r.summary?.avg_output_tokens)],
+        ['输入 Tokens (Avg)', r => fmtNum(r.summary?.input_tokens?.Avg, 0)],
+        ['输出 Tokens (Avg)', r => fmtNum(r.summary?.output_tokens?.Avg, 0)],
+        ['总输入 Tokens', r => fmtBigNum(r.summary?.total_input_tokens)],
+        ['总输出 Tokens', r => fmtBigNum(r.summary?.total_output_tokens)],
       ];
 
       rows.forEach(([label, fn]) => {

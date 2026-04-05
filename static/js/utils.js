@@ -14,6 +14,12 @@ function fmtPct(v) { return v != null ? v.toFixed(1) + '%' : '-'; }
 
 function fmtNum(v, d=1) { return v != null ? v.toFixed(d) : '-'; }
 
+function fmtBigNum(v) {
+  if (v == null) return '-';
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  return String(v);
+}
+
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function toast(msg, type='info') {

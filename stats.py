@@ -67,6 +67,14 @@ class BenchmarkResult:
         return self.total_output_tokens / self.duration
 
 
+def _token_percentiles(values: list) -> Optional[dict]:
+    """计算 token 数的百分位分布，返回不含 label 的字典"""
+    p = compute_percentiles(values, "")
+    if p:
+        del p["label"]
+    return p
+
+
 def compute_percentiles(values: list, label: str) -> Optional[dict]:
     """计算百分位数"""
     if not values:
@@ -212,6 +220,8 @@ def build_report_dict(result: BenchmarkResult, config: dict) -> dict:
             "avg_output_tokens": result.avg_tokens_per_request,
             "total_input_tokens": result.total_input_tokens,
             "total_output_tokens": result.total_output_tokens,
+            "input_tokens": _token_percentiles(result.input_tokens_list),
+            "output_tokens": _token_percentiles(result.output_tokens_list),
         },
         "percentiles": {},
         "errors": result.error_counts,

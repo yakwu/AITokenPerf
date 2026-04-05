@@ -26,9 +26,14 @@ function renderResultDetail(r) {
         <div class="metric-sub">tokens/s</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">平均 Tokens/请求</div>
-        <div class="metric-value">${fmtNum(s.avg_output_tokens)}</div>
-        <div class="metric-sub">输出 tokens</div>
+        <div class="metric-label">输出 Tokens</div>
+        <div class="metric-value">${fmtNum(s.output_tokens?.Avg, 0)}</div>
+        <div class="metric-sub">总计 ${fmtBigNum(s.total_output_tokens)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">输入 Tokens</div>
+        <div class="metric-value">${fmtNum(s.input_tokens?.Avg, 0)}</div>
+        <div class="metric-sub">总计 ${fmtBigNum(s.total_input_tokens)}</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">TTFT P50 ${infoIcon('TTFT')}</div>
@@ -62,6 +67,23 @@ function renderResultDetail(r) {
       html += `<tr><td>${name} ${infoIcon(name)}</td><td>${fmtTime(vals.Min)}</td><td>${fmtTime(vals.P50)}</td><td>${fmtTime(vals.P95)}</td><td>${fmtTime(vals.P99)}</td><td>${fmtTime(vals['P99.5'])}</td><td>${fmtTime(vals.Max)}</td><td>${fmtTime(vals.Avg)}</td></tr>`;
     }
     html += '</tbody></table></div></div>';
+
+  // Token distribution table
+  const tokIn = s.input_tokens;
+  const tokOut = s.output_tokens;
+  if (tokIn || tokOut) {
+    html += `<div class="card" style="margin-bottom:20px"><div class="card-title" style="margin-bottom:12px">Token \u5206\u5e03</div>
+      <div class="table-wrap"><table class="pct-table"><thead><tr>
+        <th>\u7c7b\u578b</th><th>Min</th><th>P50</th><th>P95</th><th>P99</th><th>Max</th><th>Avg</th><th>\u603b\u8ba1</th>
+      </tr></thead><tbody>`;
+    if (tokIn) {
+      html += `<tr><td>输入 Tokens</td><td>${fmtNum(tokIn.Min, 0)}</td><td>${fmtNum(tokIn.P50, 0)}</td><td>${fmtNum(tokIn.P95, 0)}</td><td>${fmtNum(tokIn.P99, 0)}</td><td>${fmtNum(tokIn.Max, 0)}</td><td>${fmtNum(tokIn.Avg, 0)}</td><td>${fmtBigNum(s.total_input_tokens)}</td></tr>`;
+    }
+    if (tokOut) {
+      html += `<tr><td>输出 Tokens</td><td>${fmtNum(tokOut.Min, 0)}</td><td>${fmtNum(tokOut.P50, 0)}</td><td>${fmtNum(tokOut.P95, 0)}</td><td>${fmtNum(tokOut.P99, 0)}</td><td>${fmtNum(tokOut.Max, 0)}</td><td>${fmtNum(tokOut.Avg, 0)}</td><td>${fmtBigNum(s.total_output_tokens)}</td></tr>`;
+    }
+    html += '</tbody></table></div></div>';
+  }
   }
 
   // Request distribution bar
