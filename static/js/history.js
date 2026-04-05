@@ -97,12 +97,12 @@ document.addEventListener('alpine:init', () => {
       tbody.innerHTML = '';
 
       // Update sort header display
-      this.$el.querySelectorAll('th.sortable').forEach(t => {
+      document.querySelectorAll('th.sortable').forEach(t => {
         t.classList.remove('active-sort', 'asc', 'desc');
         const arrow = t.querySelector('.sort-arrow');
         if (arrow) arrow.innerHTML = '';
       });
-      const activeTh = this.$el.querySelector(`th.sortable[data-sort="${this.sortKey}"]`);
+      const activeTh = document.querySelector(`th.sortable[data-sort="${this.sortKey}"]`);
       if (activeTh) {
         activeTh.classList.add('active-sort', this.sortDir);
         const arrow = activeTh.querySelector('.sort-arrow');
@@ -187,13 +187,13 @@ document.addEventListener('alpine:init', () => {
       const wrap = this.$refs.compareBtnWrap;
       if (wrap) wrap.classList.toggle('visible', this.compareSet.size >= 2);
       // Update checkbox
-      const cb = this.$el.querySelector(`.compare-check[data-idx="${idx}"]`);
+      const cb = document.querySelector(`.compare-check[data-idx="${idx}"]`);
       if (cb) cb.checked = this.compareSet.has(idx);
     },
 
     clearCompare() {
       this.compareSet = new Set();
-      this.$el.querySelectorAll('.compare-check').forEach(c => c.checked = false);
+      document.querySelectorAll('.compare-check').forEach(c => c.checked = false);
       const wrap = this.$refs.compareBtnWrap;
       if (wrap) wrap.classList.remove('visible');
     },
