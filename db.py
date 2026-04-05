@@ -7,7 +7,7 @@ from typing import Optional
 
 import aiosqlite
 
-DB_PATH = Path(__file__).parent / "data.db"
+DB_PATH = Path(__file__).parent / "data" / "data.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     benchmark_json TEXT NOT NULL DEFAULT '{}',
-    output_dir     TEXT NOT NULL DEFAULT './results',
+    output_dir     TEXT NOT NULL DEFAULT './data/results',
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -70,6 +70,7 @@ _db: Optional[aiosqlite.Connection] = None
 async def get_db() -> aiosqlite.Connection:
     global _db
     if _db is None:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         _db = await aiosqlite.connect(str(DB_PATH))
         _db.row_factory = aiosqlite.Row
         await _db.execute("PRAGMA journal_mode=WAL")

@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-LOG_DIR = Path(os.environ.get("LOG_DIR", "logs"))
+LOG_DIR = Path(os.environ.get("LOG_DIR", "data/logs"))
 LOG_FILE = LOG_DIR / "app.log"
 
 

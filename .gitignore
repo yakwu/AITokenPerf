@@ -3,13 +3,8 @@ config.yaml
 config.yaml.bak
 .env
 
-# Database
-data.db
-data.db-shm
-data.db-wal
-
-# Secret
-data.secret
+# Runtime data
+data/
 
 # Node
 node_modules/
@@ -21,12 +16,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-
-# Test results
-results/
-
-# Logs
-logs/
 
 # OS
 .DS_Store

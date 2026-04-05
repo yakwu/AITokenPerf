@@ -28,7 +28,7 @@ from auth import auth_middleware, hash_password, verify_password, create_jwt_tok
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.yaml"
-RESULTS_DIR = BASE_DIR / "results"
+RESULTS_DIR = BASE_DIR / "data" / "results"
 STATIC_DIR = BASE_DIR / "static"
 
 CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version")
@@ -224,7 +224,7 @@ def _resolve_config(config: dict) -> dict:
         if k in benchmark:
             resolved[k] = benchmark[k]
     # 2. output_dir
-    resolved["output_dir"] = config.get("output_dir", "./results")
+    resolved["output_dir"] = config.get("output_dir", "./data/results")
     # 3. 兼容旧格式：如果顶层有 benchmark 参数（没有 benchmark 区块），从顶层读
     if not benchmark:
         for k in BENCHMARK_KEYS:
@@ -265,7 +265,7 @@ async def get_config(request):
     active = await get_active_profile(user_id)
 
     resolved = dict(benchmark) if benchmark else {}
-    resolved["output_dir"] = "./results"
+    resolved["output_dir"] = "./data/results"
 
     if active:
         for k in CONNECTION_KEYS:
@@ -296,7 +296,7 @@ async def update_config(request):
     for k in BENCHMARK_KEYS:
         if k in data:
             benchmark[k] = data[k]
-    output_dir = data.get("output_dir", "./results")
+    output_dir = data.get("output_dir", "./data/results")
     await save_settings(user_id, benchmark, output_dir)
 
     # 更新活跃 profile 的连接信息
@@ -505,7 +505,7 @@ async def _run_benchmark_task(config: dict, owner_id: int):
         concurrency_levels = config.get("concurrency_levels", [100])
         if isinstance(concurrency_levels, int):
             concurrency_levels = [concurrency_levels]
-        output_dir = config.get("output_dir", "./results")
+        output_dir = config.get("output_dir", "./data/results")
 
         state.total_levels = len(concurrency_levels)
         saved_reports = []

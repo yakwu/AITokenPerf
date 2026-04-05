@@ -11,7 +11,7 @@ import bcrypt
 import jwt
 from aiohttp import web
 
-_SECRET_FILE = Path(__file__).parent / "data.secret"
+_SECRET_FILE = Path(__file__).parent / "data" / "data.secret"
 
 
 def _load_or_create_secret() -> str:
@@ -25,6 +25,7 @@ def _load_or_create_secret() -> str:
         return _SECRET_FILE.read_text().strip()
 
     secret = os.urandom(32).hex()
+    _SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
     _SECRET_FILE.write_text(secret)
     return secret
 
