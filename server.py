@@ -380,6 +380,19 @@ async def delete_profile_handler(request):
 async def list_results(request):
     user_id = request["user_id"]
     results = await db_get_results(user_id)
+
+    # Fallback: 兼容旧文件系统中的 results
+    db_filenames = {r.get("_filename") or r.get("filename") for r in results}
+    if RESULTS_DIR.exists():
+        for f in sorted(RESULTS_DIR.glob("*.json"), reverse=True):
+            if f.name not in db_filenames:
+                try:
+                    data = json.loads(f.read_text())
+                    data["_filename"] = f.name
+                    results.append(data)
+                except (json.JSONDecodeError, OSError):
+                    pass
+
     return web.json_response(results)
 
 
@@ -387,6 +400,15 @@ async def get_result(request):
     user_id = request["user_id"]
     filename = request.match_info["filename"]
     result = await get_result_by_filename(user_id, filename)
+    if not result:
+        # Fallback: 从文件系统读取
+        filepath = RESULTS_DIR / filename
+        if filepath.exists():
+            try:
+                result = json.loads(filepath.read_text())
+                result["_filename"] = filename
+            except (json.JSONDecodeError, OSError):
+                pass
     if not result:
         return web.json_response({"error": "Not found"}, status=404)
     return web.json_response(result)
