@@ -30,6 +30,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+[x-cloak] { display: none !important; }
 
 body {
   font-family: var(--font-body);
@@ -174,8 +175,8 @@ html, body { overflow-x: hidden; }
 /* ---- Metric Cards ---- */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
   margin-bottom: 24px;
 }
 
@@ -232,6 +233,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
 
 thead th {
@@ -279,23 +281,139 @@ tbody tr:last-child td { border-bottom: none; }
   gap: 20px;
 }
 
-/* ---- Profile Selector ---- */
-.profile-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* ---- Profile Section ---- */
+.profile-section {
   margin-bottom: 20px;
-  padding-bottom: 16px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.profile-select-wrap { flex: 1; max-width: 280px; }
+.profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
-.profile-select {
-  width: 100%;
+.profile-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+  max-width: 200px;
+}
+
+.profile-chip:hover {
+  border-color: var(--text-tertiary);
+  background: var(--bg);
+}
+
+.profile-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.profile-chip-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-chip.active .profile-chip-name { color: var(--accent); }
+
+.profile-chip-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-empty-hint {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.profile-bar-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.profile-bar-actions .btn.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.profile-del-btn {
+  color: var(--text-tertiary) !important;
+  border-color: transparent !important;
+  padding: 6px 8px !important;
+}
+.profile-del-btn:hover { color: var(--danger) !important; }
+
+.profile-save-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.profile-name-input {
+  width: auto;
+  min-width: 180px;
+  max-width: 260px;
   padding: 8px 12px;
   font-size: 13px;
-  cursor: pointer;
+}
+
+.profile-save-preview {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-delete-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--danger-light);
+}
+
+.profile-delete-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .form-group { display: flex; flex-direction: column; gap: 6px; }
@@ -782,6 +900,11 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   padding: 20px;
   background: var(--bg);
 }
+.detail-row td > div {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
 
 .detail-content {
   display: grid;
@@ -1203,4 +1326,6 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   .form-grid { grid-template-columns: 1fr; }
   .detail-content { grid-template-columns: 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .profile-bar { flex-direction: column; gap: 8px; }
+  .profile-save-row { flex-direction: column; }
 }

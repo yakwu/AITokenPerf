@@ -25,6 +25,9 @@ document.addEventListener('alpine:init', () => {
     // Profile management
     profiles: [],
     currentProfileName: '',
+    profileComposerOpen: false,
+    profileDraftName: '',
+    profileDeleteCandidate: '',
 
     init() {
       this.loadProfiles();
@@ -35,18 +38,84 @@ document.addEventListener('alpine:init', () => {
     // ---- Profile methods ----
     loadProfiles() {
       try {
-        this.profiles = JSON.parse(localStorage.getItem('aitokenperf_profiles') || '[]');
-      } catch { this.profiles = []; }
+        const raw = JSON.parse(localStorage.getItem('aitokenperf_profiles') || '[]');
+        this.profiles = Array.isArray(raw) ? raw : [];
+      } catch {
+        this.profiles = [];
+      }
     },
 
     _saveProfiles() {
       localStorage.setItem('aitokenperf_profiles', JSON.stringify(this.profiles));
     },
 
-    saveAsProfile() {
-      const name = prompt('输入 Profile 名称：', this.currentProfileName || '');
-      if (!name || !name.trim()) return;
-      const trimmed = name.trim();
+    toggleProfileComposer() {
+      if (this.profileComposerOpen) {
+        this.closeProfileComposer();
+        return;
+      }
+      this.profileComposerOpen = true;
+      this.profileDraftName = this.currentProfileName || this.profileDraftName || '';
+      this.profileDeleteCandidate = '';
+      this.$nextTick(() => {
+        this.$refs.profileNameInput?.focus();
+      });
+    },
+
+    closeProfileComposer() {
+      this.profileComposerOpen = false;
+      this.profileDraftName = this.currentProfileName || '';
+    },
+
+    get currentProfile() {
+      return this.profiles.find(p => p.name === this.currentProfileName) || null;
+    },
+
+    get orderedProfiles() {
+      return [...this.profiles].sort((a, b) => {
+        if (a.name === this.currentProfileName) return -1;
+        if (b.name === this.currentProfileName) return 1;
+        return a.name.localeCompare(b.name, 'zh-Hans-CN', { sensitivity: 'base' });
+      });
+    },
+
+    get profileDraftExists() {
+      const trimmed = this.profileDraftName.trim();
+      if (!trimmed) return false;
+      return this.profiles.some(p => p.name === trimmed);
+    },
+
+    profileReadyFieldCount() {
+      return [
+        this.form.base_url,
+        this.form.api_key,
+        this.form.model,
+      ].filter(v => String(v || '').trim()).length;
+    },
+
+    canSaveProfile() {
+      return Boolean(
+        this.profileDraftName.trim() &&
+        this.form.base_url.trim() &&
+        this.form.model.trim()
+      );
+    },
+
+    saveProfile() {
+      const trimmed = this.profileDraftName.trim();
+      if (!trimmed) {
+        toast('请输入 Profile 名称', 'info');
+        return;
+      }
+      if (!this.form.base_url.trim()) {
+        toast('请先填写目标地址', 'info');
+        return;
+      }
+      if (!this.form.model.trim()) {
+        toast('请先填写模型名称', 'info');
+        return;
+      }
+
       const profile = {
         name: trimmed,
         base_url: this.form.base_url,
@@ -54,6 +123,7 @@ document.addEventListener('alpine:init', () => {
         model: this.form.model,
         api_version: '2023-06-01',
       };
+
       const idx = this.profiles.findIndex(p => p.name === trimmed);
       if (idx >= 0) {
         this.profiles[idx] = profile;
@@ -63,7 +133,9 @@ document.addEventListener('alpine:init', () => {
       this.profiles = [...this.profiles];
       this._saveProfiles();
       this.currentProfileName = trimmed;
-      toast('Profile 已保存', 'success');
+      this.profileDeleteCandidate = '';
+      this.closeProfileComposer();
+      toast(idx >= 0 ? 'Profile 已更新' : 'Profile 已保存', 'success');
     },
 
     switchProfile(name) {
@@ -73,15 +145,45 @@ document.addEventListener('alpine:init', () => {
       this.form.api_key = p.api_key || '';
       this.form.model = p.model || '';
       this.currentProfileName = name;
+      this.profileDraftName = name;
+      this.profileComposerOpen = false;
+      this.profileDeleteCandidate = '';
     },
 
-    deleteProfile() {
-      if (!this.currentProfileName) return;
-      if (!confirm(`删除 Profile "${this.currentProfileName}"？`)) return;
-      this.profiles = this.profiles.filter(p => p.name !== this.currentProfileName);
+    requestDeleteProfile(name) {
+      this.profileDeleteCandidate = this.profileDeleteCandidate === name ? '' : name;
+      this.profileComposerOpen = false;
+    },
+
+    cancelDeleteProfile() {
+      this.profileDeleteCandidate = '';
+    },
+
+    confirmDeleteProfile(name) {
+      this.profiles = this.profiles.filter(p => p.name !== name);
       this._saveProfiles();
-      this.currentProfileName = '';
+      if (this.currentProfileName === name) {
+        this.currentProfileName = '';
+      }
+      if (this.profileDraftName === name) {
+        this.profileDraftName = '';
+      }
+      this.profileDeleteCandidate = '';
       toast('Profile 已删除', 'info');
+    },
+
+    profileHost(baseUrl) {
+      if (!baseUrl) return '未设置目标地址';
+      try {
+        return new URL(baseUrl).host;
+      } catch {
+        return baseUrl;
+      }
+    },
+
+    maskProfileKey(apiKey) {
+      if (!apiKey) return '未填写 Key';
+      return apiKey.length > 4 ? `Key ••••${apiKey.slice(-4)}` : 'Key 已填写';
     },
 
     async checkRunningStatus() {

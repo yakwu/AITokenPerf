@@ -56,18 +56,42 @@
           <button class="btn btn-ghost btn-sm" @click="loadConfig()">从配置加载</button>
         </div>
       </div>
-      <!-- Profile Selector -->
-      <div class="profile-bar">
-        <div class="profile-select-wrap">
-          <select class="form-input profile-select" x-model="currentProfileName" @change="switchProfile(currentProfileName)">
-            <option value="">-- 选择 Profile --</option>
+      <!-- Profile 快捷切换 -->
+      <div class="profile-section">
+        <div class="profile-bar">
+          <div class="profile-chips" x-show="profiles.length">
             <template x-for="p in profiles" :key="p.name">
-              <option :value="p.name" x-text="p.name"></option>
+              <button class="profile-chip" :class="{'active': currentProfileName === p.name}" @click="switchProfile(p.name)" :title="p.base_url">
+                <span class="profile-chip-name" x-text="p.name"></span>
+                <span class="profile-chip-meta" x-text="profileHost(p.base_url)"></span>
+              </button>
             </template>
-          </select>
+          </div>
+          <span class="profile-empty-hint" x-show="!profiles.length">填写下方配置后可保存为 Profile，方便切换</span>
+          <div class="profile-bar-actions">
+            <button class="btn btn-ghost btn-sm" @click="toggleProfileComposer()" :class="{'active': profileComposerOpen}">
+              <span x-text="profileComposerOpen ? '收起' : '+ 保存 Profile'"></span>
+            </button>
+            <button class="btn btn-ghost btn-sm profile-del-btn" x-show="currentProfileName && !profileComposerOpen" x-cloak @click="requestDeleteProfile(currentProfileName)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button>
+          </div>
         </div>
-        <button class="btn btn-ghost btn-sm" @click="saveAsProfile()">保存为 Profile</button>
-        <button class="btn btn-ghost btn-sm" x-show="currentProfileName" @click="deleteProfile()" style="color:var(--danger)">删除</button>
+
+        <!-- 内联保存面板 -->
+        <div class="profile-save-row" x-show="profileComposerOpen" x-cloak x-transition.opacity.duration.150ms>
+          <input class="form-input profile-name-input" x-ref="profileNameInput" x-model="profileDraftName" placeholder="输入名称，如：生产环境" @keydown.enter.prevent="saveProfile()">
+          <span class="profile-save-preview" x-text="form.base_url ? profileHost(form.base_url) + ' · ' + (form.model || '未填模型') : '当前表单为空'"></span>
+          <button class="btn btn-primary btn-sm" @click="saveProfile()" :disabled="!canSaveProfile()" x-text="profileDraftExists ? '覆盖更新' : '保存'"></button>
+          <button class="btn btn-ghost btn-sm" @click="closeProfileComposer()">取消</button>
+        </div>
+
+        <!-- 删除确认 -->
+        <div class="profile-delete-row" x-show="profileDeleteCandidate" x-cloak x-transition.opacity.duration.150ms>
+          <span class="profile-delete-text">确认删除「<strong x-text="profileDeleteCandidate"></strong>」？不影响已有测试结果。</span>
+          <button class="btn btn-danger btn-sm" @click="confirmDeleteProfile(profileDeleteCandidate)">删除</button>
+          <button class="btn btn-ghost btn-sm" @click="cancelDeleteProfile()">取消</button>
+        </div>
       </div>
       <div class="form-grid">
         <div class="form-group">
