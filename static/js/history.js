@@ -140,7 +140,7 @@ document.addEventListener('alpine:init', () => {
           <td>${fmtTime(p.TTFT?.P50)}</td>
           <td>${fmtTime(p.E2E?.P50)}</td>
           <td>${fmtNum(s.throughput_rps)} /s</td>
-          <td style="white-space:nowrap"><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.rerunResult(window._historyComponent.filtered[${idx}])" title="\u91cd\u65b0\u8fd0\u884c" style="color:var(--accent)">&#8635;</button><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.deleteResult('${fn}')" title="\u5220\u9664" style="color:var(--danger)">&#10005;</button></td>`;
+          <td style="white-space:nowrap"><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.rerunResult(window._historyComponent.filtered[${idx}])" title="\u91cd\u65b0\u8fd0\u884c" style="color:var(--accent)">&#8635;</button><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.deleteResult('${fn}')" title="\u5220\u9664" style="color:var(--danger)">${window._historyComponent?.pendingDelete === fn ? '<span class="delete-undo">\u64a4\u56de</span>' : '&#10005;'}</button></td>`;
         tbody.appendChild(tr);
 
         const detailTr = document.createElement('tr');
@@ -212,11 +212,27 @@ document.addEventListener('alpine:init', () => {
       Alpine.store('app').switchTab('benchmark');
     },
 
+    pendingDelete: null,
+    deleteTimer: null,
+
     async deleteResult(filename) {
-      if (!confirm('\u786e\u5b9a\u5220\u9664\u8be5\u8bb0\u5f55\uff1f')) return;
-      await api('/api/results/' + filename, { method: 'DELETE' });
-      toast('\u5df2\u5220\u9664', 'info');
-      this.refresh();
+      if (this.pendingDelete === filename) {
+        // 第二次点击：取消删除
+        clearTimeout(this.deleteTimer);
+        this.pendingDelete = null;
+        this.renderTable();
+        return;
+      }
+      this.pendingDelete = filename;
+      this.renderTable();
+      this.deleteTimer = setTimeout(async () => {
+        const fn = this.pendingDelete;
+        this.pendingDelete = null;
+        if (!fn) return;
+        await api('/api/results/' + fn, { method: 'DELETE' });
+        toast('\u5df2\u5220\u9664', 'info');
+        this.refresh();
+      }, 3000);
     },
 
     openCompare() {
