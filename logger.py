@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""结构化日志模块 - JSONL 格式写入 /var/log/aitokenperf/app.log"""
+"""结构化日志模块 - JSONL 格式写入 logs/app.log"""
 
 import json
 import os
 import time
 from pathlib import Path
 
-LOG_DIR = Path(os.environ.get("LOG_DIR", "/var/log/aitokenperf"))
+LOG_DIR = Path(os.environ.get("LOG_DIR", "logs"))
 LOG_FILE = LOG_DIR / "app.log"
 
 

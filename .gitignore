@@ -13,6 +13,9 @@ build/
 # Test results
 results/
 
+# Logs
+logs/
+
 # OS
 .DS_Store
 Thumbs.db
