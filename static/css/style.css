@@ -355,6 +355,31 @@ tbody tr:last-child td { border-bottom: none; }
   color: var(--text-tertiary);
 }
 
+.profile-new-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.profile-new-name {
+  flex: 1;
+  max-width: 260px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: var(--font-body);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-primary);
+  outline: none;
+  transition: var(--transition);
+}
+.profile-new-name:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
 .profile-chip-name-edit {
   width: 100%;
   padding: 1px 4px;
@@ -476,6 +501,74 @@ tbody tr:last-child td { border-bottom: none; }
   font-size: 13px;
   resize: vertical;
   min-height: 100px;
+}
+
+/* ---- Combobox ---- */
+.combobox {
+  position: relative;
+}
+
+.combobox .form-input {
+  width: 100%;
+  padding-right: 36px;
+}
+
+.combobox-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  padding: 4px;
+  line-height: 1;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+}
+
+.combobox-toggle:hover { color: var(--accent); }
+
+.combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.combobox-option {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.combobox-option:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.combobox-option.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.combobox-empty {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 /* ---- Buttons ---- */
@@ -871,6 +964,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 .progress-log {
   max-height: 200px;
   overflow-y: auto;
+  overflow-x: hidden;
   background: #1A1A18;
   color: #C8C8C0;
   border-radius: var(--radius);
@@ -879,6 +973,9 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   font-size: 12px;
   line-height: 1.8;
   margin-top: 16px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .progress-log .ok { color: #6BCB77; }
@@ -926,9 +1023,16 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 .detail-row td {
   padding: 20px;
   background: var(--bg);
+  max-width: 0;
 }
 .detail-row td > div {
   width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.detail-row td > div details {
   max-width: 100%;
   overflow: hidden;
 }

@@ -57,7 +57,7 @@
       <!-- Profile 快捷切换 -->
       <div class="profile-section">
         <div class="profile-bar">
-          <div class="profile-chips" x-show="profiles.length">
+          <div class="profile-chips">
             <button class="profile-chip profile-chip-add" :class="{'active': profileMode === 'new'}" @click="newProfile()" title="新建目标服务器">
               <span class="profile-chip-add-icon">+</span>
               <span class="profile-chip-meta">新建服务器</span>
@@ -78,7 +78,12 @@
               </div>
             </template>
           </div>
-          <span class="profile-empty-hint" x-show="!profiles.length">填写下方配置后可保存为 Profile，方便切换</span>
+        </div>
+
+        <!-- 新建模式：名称输入 + 保存 -->
+        <div class="profile-new-bar" x-show="profileMode === 'new' && profileReadyFieldCount() >= 2" x-transition.opacity.duration.150ms>
+          <input class="profile-new-name" x-model="profileDraftName" placeholder="输入 Profile 名称" @keydown.enter.prevent="saveProfile()">
+          <button class="btn btn-primary btn-sm" @click="saveProfile()" :disabled="!canSaveProfile()">保存为 Profile</button>
         </div>
 
         <!-- 删除确认 -->
@@ -105,12 +110,18 @@
         </div>
         <div class="form-group">
           <label class="form-label">模型</label>
-          <input class="form-input" x-model="form.model" placeholder="claude-sonnet-4-20250514" list="model-list">
-          <datalist id="model-list">
-            <template x-for="m in knownModels" :key="m">
-              <option :value="m"></option>
-            </template>
-          </datalist>
+          <div class="combobox" @click.outside="modelDropdownOpen = false">
+            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" placeholder="claude-sonnet-4-20250514" @focus="modelSearch = ''; modelDropdownOpen = true" @input="modelSearch = $event.target.value; modelDropdownOpen = true" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
+            <button class="combobox-toggle" type="button" @click.stop="if(modelDropdownOpen){modelDropdownOpen=false}else{modelSearch='';modelDropdownOpen=true}" @mousedown.prevent>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+            </button>
+            <div class="combobox-dropdown" x-show="modelDropdownOpen" x-cloak>
+              <template x-for="m in filteredModels" :key="m">
+                <div class="combobox-option" :class="{'active': form.model === m}" @mousedown.prevent="form.model = m; modelDropdownOpen = false" x-text="m"></div>
+              </template>
+              <div class="combobox-empty" x-show="!filteredModels.length && modelSearch">无匹配模型，将使用输入值</div>
+            </div>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">最大输出 Tokens</label>

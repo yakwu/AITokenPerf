@@ -29,6 +29,14 @@ document.addEventListener('alpine:init', () => {
     profileDeleteCandidate: '',
     profileMode: 'selected', // 'selected' | 'new'
     knownModels: [],
+    modelDropdownOpen: false,
+    modelSearch: '',
+
+    get filteredModels() {
+      const q = (this.modelSearch || '').toLowerCase();
+      if (!q) return this.knownModels;
+      return this.knownModels.filter(m => m.toLowerCase().includes(q));
+    },
     editingProfileName: false,
     profileDirty: false,
     savedProfileConfig: null,
@@ -252,6 +260,7 @@ document.addEventListener('alpine:init', () => {
           }),
         });
         this.currentProfileName = trimmed;
+        this.profileMode = 'selected';
         this.profileDeleteCandidate = '';
         toast(this.profileDraftExists ? 'Profile 已更新' : 'Profile 已保存', 'success');
         this.snapshotProfileConfig();
