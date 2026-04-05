@@ -27,7 +27,7 @@ pip install -r requirements.txt
 python3 main.py --web
 ```
 
-访问 http://localhost:8080，在页面上直接创建 Profile、填写 API Key 和目标地址即可开始测试。
+访问 <http://localhost:8080>，在页面上直接创建 Profile、填写 API Key 和目标地址即可开始测试。
 
 ## 环境变量
 
