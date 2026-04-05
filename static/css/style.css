@@ -314,7 +314,8 @@ tbody tr:last-child td { border-bottom: none; }
   cursor: pointer;
   transition: var(--transition);
   text-align: left;
-  max-width: 200px;
+  width: 160px;
+  flex-shrink: 0;
 }
 
 .profile-chip:hover {
