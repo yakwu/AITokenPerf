@@ -438,12 +438,7 @@ tbody tr:last-child td { border-bottom: none; }
 
 .delete-undo {
   font-size: 0.75rem;
-  animation: undoPulse 3s linear;
-}
-@keyframes undoPulse {
-  0% { color: var(--danger); }
-  70% { color: var(--danger); }
-  100% { color: var(--text-tertiary); }
+  color: var(--danger);
 }
 
 .profile-chip {
