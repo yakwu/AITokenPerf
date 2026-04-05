@@ -111,7 +111,7 @@
         <div class="form-group">
           <label class="form-label">模型</label>
           <div class="combobox" @click.outside="modelDropdownOpen = false">
-            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" placeholder="claude-sonnet-4-20250514" @focus="modelSearch = ''; modelDropdownOpen = true" @input="modelSearch = $event.target.value; modelDropdownOpen = true" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
+            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" :placeholder="form.model || '请选择模型'" @focus="modelSearch = ''; modelDropdownOpen = true" @input="modelSearch = $event.target.value; modelDropdownOpen = true" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
             <button class="combobox-toggle" type="button" @click.stop="if(modelDropdownOpen){modelDropdownOpen=false}else{modelSearch='';modelDropdownOpen=true}" @mousedown.prevent>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
             </button>
