@@ -707,8 +707,8 @@ tbody tr:last-child td { border-bottom: none; }
 /* ---- Search Input with Icon ---- */
 .search-input-wrap {
   position: relative;
-  flex: 1;
-  min-width: 200px;
+  flex: 0 1 240px;
+  min-width: 180px;
 }
 
 .search-input-wrap svg {
@@ -729,6 +729,59 @@ tbody tr:last-child td { border-bottom: none; }
 .filter-chips {
   display: flex;
   gap: 4px;
+  align-items: center;
+  flex: 1;
+}
+
+.filter-dropdown {
+  position: relative;
+}
+
+.filter-dropdown--wide .filter-dropdown-btn {
+  flex-shrink: 0;
+  min-width: 160px;
+}
+
+.filter-dropdown-btn {
+  display: flex;
+  align-items: center;
+  padding: 8px 30px 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+  position: relative;
+}
+
+.filter-dropdown-btn:hover { border-color: var(--text-tertiary); }
+
+.filter-dropdown-btn svg {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.filter-dropdown-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: max-content;
+  width: max-content;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 50;
 }
 
 .filter-chip {
@@ -994,8 +1047,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   flex-wrap: wrap;
 }
 
-.history-toolbar .form-input,
-.history-toolbar .form-select {
+.history-toolbar .form-input {
   padding: 8px 12px;
   font-size: 13px;
 }

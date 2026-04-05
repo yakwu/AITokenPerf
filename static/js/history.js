@@ -3,15 +3,33 @@ document.addEventListener('alpine:init', () => {
     results: [],
     search: '',
     modeFilter: '',
+    modelFilter: '',
+    urlFilter: '',
+    concurrencyFilter: '',
     sortKey: 'timestamp',
     sortDir: 'desc',
     compareSet: new Set(),
     expandedRows: new Set(),
+    ddOpen: '',
+
+    get uniqueModels() {
+      return [...new Set(this.results.map(r => r.config?.model).filter(Boolean))].sort();
+    },
+    get uniqueUrls() {
+      const norm = u => u.replace(/\/+$/, '');
+      return [...new Set(this.results.map(r => r.config?.base_url).filter(Boolean).map(norm))].sort();
+    },
+    get uniqueConcurrencies() {
+      return [...new Set(this.results.map(r => r.config?.concurrency).filter(Boolean))].sort((a, b) => a - b);
+    },
 
     get filtered() {
       let filtered = this.results.filter(r => {
         const c = r.config || {};
         if (this.modeFilter && c.mode !== this.modeFilter) return false;
+        if (this.modelFilter && c.model !== this.modelFilter) return false;
+        if (this.urlFilter && (c.base_url || '').replace(/\/+$/, '') !== this.urlFilter) return false;
+        if (this.concurrencyFilter && String(c.concurrency) !== this.concurrencyFilter) return false;
         if (this.search) {
           const hay = `${c.model} ${c.base_url} ${r.timestamp} ${r.test_id || ''}`.toLowerCase();
           if (!hay.includes(this.search.toLowerCase())) return false;

@@ -236,9 +236,57 @@
         <input class="form-input" type="text" x-model="search" @input="renderTable()" placeholder="搜索模型 / 目标地址...">
       </div>
       <div class="filter-chips">
-        <button class="filter-chip" :class="{'active': modeFilter === ''}" @click="modeFilter = ''; renderTable()">全部</button>
-        <button class="filter-chip" :class="{'active': modeFilter === 'burst'}" @click="modeFilter = 'burst'; renderTable()">Burst</button>
-        <button class="filter-chip" :class="{'active': modeFilter === 'sustained'}" @click="modeFilter = 'sustained'; renderTable()">Sustained</button>
+        <!-- 模型 -->
+        <div class="filter-dropdown filter-dropdown--wide" @click.outside="ddOpen = (ddOpen === 'model' ? '' : ddOpen)">
+          <button class="filter-dropdown-btn" @click="ddOpen = ddOpen === 'model' ? '' : 'model'">
+            <span x-text="modelFilter || '全部模型'"></span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+          </button>
+          <div class="filter-dropdown-list" x-show="ddOpen === 'model'" x-cloak>
+            <div class="combobox-option" :class="{'active': !modelFilter}" @mousedown.prevent="modelFilter = ''; ddOpen = ''; renderTable()">全部模型</div>
+            <template x-for="m in uniqueModels" :key="m">
+              <div class="combobox-option" :class="{'active': modelFilter === m}" @mousedown.prevent="modelFilter = m; ddOpen = ''; renderTable()" x-text="m"></div>
+            </template>
+          </div>
+        </div>
+        <!-- 地址 -->
+        <div class="filter-dropdown filter-dropdown--wide" @click.outside="ddOpen = (ddOpen === 'url' ? '' : ddOpen)">
+          <button class="filter-dropdown-btn" @click="ddOpen = ddOpen === 'url' ? '' : 'url'">
+            <span x-text="urlFilter || '全部地址'"></span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+          </button>
+          <div class="filter-dropdown-list" x-show="ddOpen === 'url'" x-cloak>
+            <div class="combobox-option" :class="{'active': !urlFilter}" @mousedown.prevent="urlFilter = ''; ddOpen = ''; renderTable()">全部地址</div>
+            <template x-for="u in uniqueUrls" :key="u">
+              <div class="combobox-option" :class="{'active': urlFilter === u}" @mousedown.prevent="urlFilter = u; ddOpen = ''; renderTable()" x-text="u"></div>
+            </template>
+          </div>
+        </div>
+        <!-- 并发 -->
+        <div class="filter-dropdown" @click.outside="ddOpen = (ddOpen === 'concurrency' ? '' : ddOpen)">
+          <button class="filter-dropdown-btn" @click="ddOpen = ddOpen === 'concurrency' ? '' : 'concurrency'">
+            <span x-text="concurrencyFilter ? concurrencyFilter + ' 并发' : '全部并发'"></span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+          </button>
+          <div class="filter-dropdown-list" x-show="ddOpen === 'concurrency'" x-cloak>
+            <div class="combobox-option" :class="{'active': !concurrencyFilter}" @mousedown.prevent="concurrencyFilter = ''; ddOpen = ''; renderTable()">全部并发</div>
+            <template x-for="c in uniqueConcurrencies" :key="c">
+              <div class="combobox-option" :class="{'active': concurrencyFilter === String(c)}" @mousedown.prevent="concurrencyFilter = String(c); ddOpen = ''; renderTable()" x-text="c"></div>
+            </template>
+          </div>
+        </div>
+        <!-- 模式 -->
+        <div class="filter-dropdown" @click.outside="ddOpen = (ddOpen === 'mode' ? '' : ddOpen)">
+          <button class="filter-dropdown-btn" @click="ddOpen = ddOpen === 'mode' ? '' : 'mode'">
+            <span x-text="modeFilter === 'burst' ? 'Burst' : modeFilter === 'sustained' ? 'Sustained' : '全部模式'"></span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+          </button>
+          <div class="filter-dropdown-list" x-show="ddOpen === 'mode'" x-cloak>
+            <div class="combobox-option" :class="{'active': !modeFilter}" @mousedown.prevent="modeFilter = ''; ddOpen = ''; renderTable()">全部模式</div>
+            <div class="combobox-option" :class="{'active': modeFilter === 'burst'}" @mousedown.prevent="modeFilter = 'burst'; ddOpen = ''; renderTable()">Burst</div>
+            <div class="combobox-option" :class="{'active': modeFilter === 'sustained'}" @mousedown.prevent="modeFilter = 'sustained'; ddOpen = ''; renderTable()">Sustained</div>
+          </div>
+        </div>
       </div>
       <div class="compare-btn-wrap" x-ref="compareBtnWrap">
         <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
