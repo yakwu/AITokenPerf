@@ -262,6 +262,7 @@ tbody td {
 
 tbody tr:hover { background: rgba(232, 93, 38, 0.03); }
 tbody tr.history-row:hover { background: rgba(232, 93, 38, 0.05); }
+tbody tr.history-row.expanded { background: rgba(232, 93, 38, 0.06); }
 tbody tr:last-child td { border-bottom: none; }
 
 /* ---- Percentile Table ---- */

@@ -168,13 +168,16 @@ document.addEventListener('alpine:init', () => {
       const row = document.getElementById(`detail-${idx}`);
       if (!row) return;
       const isOpen = row.classList.toggle('open');
+      const historyRow = row.previousElementSibling;
       if (isOpen) {
         this.expandedRows.add(idx);
+        if (historyRow) historyRow.classList.add('expanded');
         const r = this.filtered[idx];
         const el = document.getElementById(`detail-content-${idx}`);
         if (el) el.innerHTML = renderResultDetail(r);
       } else {
         this.expandedRows.delete(idx);
+        if (historyRow) historyRow.classList.remove('expanded');
       }
     },
 
