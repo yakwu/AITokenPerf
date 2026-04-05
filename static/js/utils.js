@@ -31,7 +31,16 @@ function toast(msg, type='info') {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch((window.__API_BASE__ || '') + path, opts);
+  const headers = { ...(opts.headers || {}) };
+  const token = localStorage.getItem('token');
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch((window.__API_BASE__ || '') + path, { ...opts, headers });
+  if (res.status === 401) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    location.hash = 'auth';
+    throw new Error('Unauthorized');
+  }
   return res.json();
 }
 

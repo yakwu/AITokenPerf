@@ -17,6 +17,14 @@ import aiohttp as aiohttp_lib
 from client import send_streaming_request
 from stats import aggregate_metrics, build_report_dict, save_report
 from logger import log_access, log_security
+from db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
+from db import switch_active_profile, delete_profile as db_delete_profile
+from db import save_result as db_save_result, get_results as db_get_results
+from db import get_result_by_filename, delete_result as db_delete_result
+from db import get_settings, save_settings
+from db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
+from db import list_users, update_user_display_name, delete_user as db_delete_user
+from auth import auth_middleware, hash_password, verify_password, create_jwt_token
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.yaml"
@@ -34,6 +42,7 @@ class BenchState:
     current_task: Optional[asyncio.Task] = None
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
     task_id: str = ""
+    owner_id: Optional[int] = None
     events: list = field(default_factory=list)
     event_seq: int = 0
     current_concurrency: int = 0
@@ -250,162 +259,144 @@ def _write_config(config: dict):
 # ---- Config routes ----
 
 async def get_config(request):
-    config = _load_config()
-    resolved = _resolve_config(config)
-    # 脱敏展示
-    if "api_key" in resolved:
-        key = resolved["api_key"]
-        resolved["api_key_display"] = f"...{key[-4:]}" if len(key) > 4 else "****"
+    user_id = request["user_id"]
+    # 从 DB 加载用户配置和活跃 profile
+    benchmark = await get_settings(user_id)
+    active = await get_active_profile(user_id)
+
+    resolved = dict(benchmark) if benchmark else {}
+    resolved["output_dir"] = "./results"
+
+    if active:
+        for k in CONNECTION_KEYS:
+            if active.get(k):
+                resolved[k] = active[k]
+        resolved["profile_name"] = active["name"]
+        # 脱敏
+        if "api_key" in resolved:
+            key = resolved["api_key"]
+            resolved["api_key_display"] = f"...{key[-4:]}" if len(key) > 4 else "****"
+
     return web.json_response(resolved)
 
 
 async def update_config(request):
-    """前端提交扁平配置，拆分写入 benchmark 区块 + 更新 active profile"""
+    """前端提交扁平配置，拆分写入 user_settings + 更新 active profile"""
+    user_id = request["user_id"]
     data = await request.json()
     data.pop("api_key_display", None)
 
-    raw = {}
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            raw = yaml.safe_load(f) or {}
-
-    # api_key 脱敏占位 → 保留原值
+    # api_key 脱敏占位 → 从活跃 profile 保留原值
     if not data.get("api_key") or data["api_key"].startswith("..."):
-        # 从当前 active profile 取
-        profiles = raw.get("profiles", [])
-        active_name = raw.get("active_profile", "")
-        active = next((p for p in profiles if p.get("name") == active_name), None)
+        active = await get_active_profile(user_id)
         data["api_key"] = active.get("api_key", "") if active else ""
 
-    # 写入 benchmark 区块
+    # 写入 benchmark 配置
     benchmark = {}
     for k in BENCHMARK_KEYS:
         if k in data:
             benchmark[k] = data[k]
-    raw["benchmark"] = benchmark
-    raw["output_dir"] = data.get("output_dir", raw.get("output_dir", "./results"))
+    output_dir = data.get("output_dir", "./results")
+    await save_settings(user_id, benchmark, output_dir)
 
-    # 更新 active profile 的连接信息
-    profiles = raw.get("profiles", [])
-    active_name = raw.get("active_profile", "")
-    idx = next((i for i, p in enumerate(profiles) if p.get("name") == active_name), -1)
-    if idx >= 0:
-        for k in CONNECTION_KEYS:
-            if k in data:
-                profiles[idx][k] = data[k]
+    # 更新活跃 profile 的连接信息
+    active = await get_active_profile(user_id)
+    if active:
+        profile_data = {
+            "name": active["name"],
+            "base_url": data.get("base_url", active["base_url"]),
+            "api_key": data.get("api_key", active["api_key"]),
+            "api_version": data.get("api_version", active["api_version"]),
+            "model": data.get("model", active["model"]),
+        }
+        await upsert_profile(user_id, set_active=False, **profile_data)
 
-    _write_config(raw)
     return web.json_response({"status": "ok"})
 
 
 # ---- Profiles routes ----
 
-async def get_profiles(request):
-    config = _load_config()
+async def get_profiles_handler(request):
+    user_id = request["user_id"]
+    profiles = await get_profiles(user_id)
+    active = await get_active_profile(user_id)
+    active_name = active["name"] if active else ""
     return web.json_response({
-        "profiles": config.get("profiles", []),
-        "active_profile": config.get("active_profile", ""),
+        "profiles": profiles,
+        "active_profile": active_name,
     })
 
 
 async def save_profile(request):
+    user_id = request["user_id"]
     data = await request.json()
     name = (data.get("name") or "").strip()
     if not name:
         return web.json_response({"error": "Profile name is required"}, status=400)
 
-    profile = {"name": name}
-    for k in CONNECTION_KEYS:
-        profile[k] = data.get(k, "")
-
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            raw = yaml.safe_load(f) or {}
-    else:
-        raw = {}
-
-    profiles = raw.get("profiles", [])
-    idx = next((i for i, p in enumerate(profiles) if p.get("name") == name), -1)
-    if idx >= 0:
-        profiles[idx] = profile
-    else:
-        profiles.append(profile)
-
-    raw["profiles"] = profiles
-    raw["active_profile"] = name
-    _write_config(raw)
+    await upsert_profile(
+        user_id, name,
+        base_url=data.get("base_url", ""),
+        api_key=data.get("api_key", ""),
+        api_version=data.get("api_version", "2023-06-01"),
+        model=data.get("model", ""),
+        set_active=True,
+    )
     return web.json_response({"status": "ok"})
 
 
 async def switch_profile(request):
+    user_id = request["user_id"]
     data = await request.json()
     name = (data.get("name") or "").strip()
     if not name:
         return web.json_response({"error": "Profile name is required"}, status=400)
 
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            raw = yaml.safe_load(f) or {}
-    else:
-        raw = {}
-
-    profiles = raw.get("profiles", [])
-    target = next((p for p in profiles if p.get("name") == name), None)
-    if not target:
+    ok = await switch_active_profile(user_id, name)
+    if not ok:
         return web.json_response({"error": "Profile not found"}, status=404)
 
-    raw["active_profile"] = name
-    _write_config(raw)
-
     # 返回合并后的配置
-    resolved = _resolve_config(raw)
+    active = await get_active_profile(user_id)
+    benchmark = await get_settings(user_id)
+    resolved = dict(benchmark) if benchmark else {}
+    if active:
+        for k in CONNECTION_KEYS:
+            if active.get(k):
+                resolved[k] = active[k]
+        resolved["profile_name"] = active["name"]
     return web.json_response({"status": "ok", "config": resolved})
 
 
-async def delete_profile(request):
+async def delete_profile_handler(request):
+    user_id = request["user_id"]
     name = request.match_info["name"]
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            raw = yaml.safe_load(f) or {}
-    else:
-        raw = {}
-
-    profiles = raw.get("profiles", [])
-    raw["profiles"] = [p for p in profiles if p.get("name") != name]
-    if raw.get("active_profile") == name:
-        raw["active_profile"] = ""
-    _write_config(raw)
+    await db_delete_profile(user_id, name)
     return web.json_response({"status": "deleted"})
 
 
 # ---- Results routes ----
 
 async def list_results(request):
-    RESULTS_DIR.mkdir(exist_ok=True)
-    results = []
-    for f in RESULTS_DIR.glob("bench_*.json"):
-        try:
-            with open(f) as fh:
-                data = json.load(fh)
-                data["_filename"] = f.name
-                results.append(data)
-        except (json.JSONDecodeError, IOError):
-            continue
-    results.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+    user_id = request["user_id"]
+    results = await db_get_results(user_id)
     return web.json_response(results)
 
 
 async def get_result(request):
+    user_id = request["user_id"]
     filename = request.match_info["filename"]
-    filepath = RESULTS_DIR / filename
-    if not filepath.exists():
+    result = await get_result_by_filename(user_id, filename)
+    if not result:
         return web.json_response({"error": "Not found"}, status=404)
-    with open(filepath) as f:
-        return web.json_response(json.load(f))
+    return web.json_response(result)
 
 
-async def delete_result(request):
+async def delete_result_handler(request):
+    user_id = request["user_id"]
     filename = request.match_info["filename"]
+    await db_delete_result(user_id, filename)
+    # 同时删除文件（如果存在）
     filepath = RESULTS_DIR / filename
     if filepath.exists():
         filepath.unlink()
@@ -415,6 +406,8 @@ async def delete_result(request):
 # ---- Benchmark routes ----
 
 async def start_bench(request):
+    user_id = request["user_id"]
+
     if state.status == "running":
         return web.json_response({"error": "Benchmark already running"}, status=409)
 
@@ -443,8 +436,16 @@ async def start_bench(request):
     if errors:
         return web.json_response({"error": "; ".join(errors)}, status=400)
 
-    config = _load_config()
-    config = _resolve_config(config)
+    # 从 DB 加载用户配置
+    benchmark = await get_settings(user_id)
+    active = await get_active_profile(user_id)
+    config = dict(benchmark) if benchmark else {}
+    if active:
+        for k in CONNECTION_KEYS:
+            if active.get(k):
+                config[k] = active[k]
+    _apply_env_overrides(config)
+
     # 允许前端覆盖部分配置
     for key in BENCHMARK_KEYS + CONNECTION_KEYS + ("requests_per_level",):
         if key in body and body[key] is not None:
@@ -452,19 +453,23 @@ async def start_bench(request):
 
     import uuid
     state.task_id = uuid.uuid4().hex[:12]
+    state.owner_id = user_id
     state.events = []
     state.event_seq = 0
     state.status = "running"
     state.stop_event = asyncio.Event()
     state.start_time = time.monotonic()
-    state.current_task = asyncio.create_task(_run_benchmark_task(config))
+    state.current_task = asyncio.create_task(_run_benchmark_task(config, user_id))
 
     return web.json_response({"status": "started", "task_id": state.task_id})
 
 
 async def stop_bench(request):
+    user_id = request["user_id"]
     if state.status != "running":
         return web.json_response({"error": "No benchmark running"}, status=400)
+    if state.owner_id is not None and state.owner_id != user_id:
+        return web.json_response({"error": "Not your benchmark"}, status=403)
     state.status = "stopping"
     state.stop_event.set()
     return web.json_response({"status": "stopping"})
@@ -492,7 +497,7 @@ async def bench_status(request):
 
 # ---- Core benchmark task ----
 
-async def _run_benchmark_task(config: dict):
+async def _run_benchmark_task(config: dict, owner_id: int):
     from main import run_burst, run_sustained
 
     try:
@@ -566,7 +571,24 @@ async def _run_benchmark_task(config: dict):
                 result = aggregate_metrics(metrics, level, mode, bench_duration)
                 report_dict = build_report_dict(result, config)
                 filepath = save_report(result, output_dir, config)
-                saved_reports.append(os.path.basename(filepath))
+                filename = os.path.basename(filepath)
+                saved_reports.append(filename)
+
+                # 保存到 DB
+                try:
+                    await db_save_result(
+                        user_id=owner_id,
+                        test_id=report_dict.get("test_id", ""),
+                        filename=filename,
+                        timestamp=report_dict.get("timestamp", ""),
+                        config_json=json.dumps(report_dict.get("config", {})),
+                        summary_json=json.dumps(report_dict.get("summary", {})),
+                        percentiles_json=json.dumps(report_dict.get("percentiles", {})),
+                        errors_json=json.dumps(report_dict.get("errors", {})),
+                        error_details_json=json.dumps(report_dict.get("error_details", [])),
+                    )
+                except Exception as db_err:
+                    print(f"Warning: failed to save result to DB: {db_err}")
 
                 await _publish("bench:level_complete", {
                     "concurrency": level,
@@ -592,6 +614,115 @@ async def _run_benchmark_task(config: dict):
         state.current_task = None
 
 
+# ---- Auth routes ----
+
+async def auth_register(request):
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+    display_name = (body.get("display_name") or "").strip()
+
+    if not email or "@" not in email:
+        return web.json_response({"error": "请输入有效的邮箱地址"}, status=400)
+    if len(password) < 6:
+        return web.json_response({"error": "密码至少 6 位"}, status=400)
+
+    existing = await get_user_by_email(email)
+    if existing:
+        return web.json_response({"error": "该邮箱已注册"}, status=409)
+
+    # 首个用户自动成为 admin
+    user_count = await count_users()
+    role = "admin" if user_count == 0 else "user"
+    user_id = await create_user(email, hash_password(password), display_name, role)
+
+    token = create_jwt_token(user_id, email, role)
+    return web.json_response({
+        "token": token,
+        "user": {"id": user_id, "email": email, "role": role, "display_name": display_name},
+    })
+
+
+async def auth_login(request):
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+
+    if not email or not password:
+        return web.json_response({"error": "请输入邮箱和密码"}, status=400)
+
+    user = await get_user_by_email(email)
+    if not user or not verify_password(password, user["password_hash"]):
+        return web.json_response({"error": "邮箱或密码错误"}, status=401)
+
+    token = create_jwt_token(user["id"], user["email"], user["role"])
+    return web.json_response({
+        "token": token,
+        "user": {"id": user["id"], "email": user["email"], "role": user["role"],
+                 "display_name": user["display_name"]},
+    })
+
+
+async def auth_me(request):
+    user_id = request["user_id"]
+    user = await get_user_by_id(user_id)
+    if not user:
+        return web.json_response({"error": "User not found"}, status=404)
+    return web.json_response({
+        "id": user["id"], "email": user["email"],
+        "role": user["role"], "display_name": user["display_name"],
+    })
+
+
+async def auth_change_password(request):
+    user_id = request["user_id"]
+    body = await request.json()
+    old_password = body.get("old_password", "")
+    new_password = body.get("new_password", "")
+
+    if len(new_password) < 6:
+        return web.json_response({"error": "新密码至少 6 位"}, status=400)
+
+    user = await get_user_by_id(user_id)
+    if not user or not verify_password(old_password, user["password_hash"]):
+        return web.json_response({"error": "原密码错误"}, status=401)
+
+    await update_user_password(user_id, hash_password(new_password))
+    return web.json_response({"status": "ok"})
+
+
+async def auth_update_profile(request):
+    user_id = request["user_id"]
+    body = await request.json()
+    display_name = (body.get("display_name") or "").strip()
+    await update_user_display_name(user_id, display_name)
+    user = await get_user_by_id(user_id)
+    return web.json_response({
+        "id": user["id"], "email": user["email"],
+        "role": user["role"], "display_name": user["display_name"],
+    })
+
+
+# ---- Admin routes ----
+
+async def admin_list_users(request):
+    if request.get("user_role") != "admin":
+        return web.json_response({"error": "Forbidden"}, status=403)
+    users = await list_users()
+    return web.json_response({"users": users})
+
+
+async def admin_delete_user(request):
+    if request.get("user_role") != "admin":
+        return web.json_response({"error": "Forbidden"}, status=403)
+    target_id = int(request.match_info["user_id"])
+    current_id = request["user_id"]
+    if target_id == current_id:
+        return web.json_response({"error": "不能删除自己"}, status=400)
+    await db_delete_user(target_id)
+    return web.json_response({"status": "deleted"})
+
+
 # ---- Static files ----
 
 async def index_handler(request):
@@ -606,25 +737,57 @@ async def favicon_handler(request):
 
 def create_app() -> web.Application:
     app = web.Application(
-        middlewares=[security_middleware],
+        middlewares=[security_middleware, auth_middleware],
         client_max_size=1024 * 1024,  # 1MB
     )
+
+    async def on_startup(app):
+        from migrate import migrate
+        await migrate()
+
+    async def on_cleanup(app):
+        await close_db()
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
+
     app.router.add_get("/", index_handler)
     app.router.add_get("/favicon.ico", favicon_handler)
     app.router.add_static("/css/", STATIC_DIR / "css")
     app.router.add_static("/js/", STATIC_DIR / "js")
+
+    # Auth routes
+    app.router.add_post("/api/auth/register", auth_register)
+    app.router.add_post("/api/auth/login", auth_login)
+    app.router.add_post("/api/auth/logout", lambda r: web.json_response({"status": "ok"}))
+    app.router.add_get("/api/auth/me", auth_me)
+    app.router.add_put("/api/auth/password", auth_change_password)
+    app.router.add_put("/api/auth/profile", auth_update_profile)
+
+    # Admin routes
+    app.router.add_get("/api/admin/users", admin_list_users)
+    app.router.add_delete("/api/admin/users/{user_id}", admin_delete_user)
+
+    # Config routes
     app.router.add_get("/api/config", get_config)
     app.router.add_put("/api/config", update_config)
-    app.router.add_get("/api/profiles", get_profiles)
+
+    # Profile routes
+    app.router.add_get("/api/profiles", get_profiles_handler)
     app.router.add_post("/api/profiles/save", save_profile)
     app.router.add_post("/api/profiles/switch", switch_profile)
-    app.router.add_delete("/api/profiles/{name}", delete_profile)
+    app.router.add_delete("/api/profiles/{name}", delete_profile_handler)
+
+    # Result routes
     app.router.add_get("/api/results", list_results)
     app.router.add_get("/api/results/{filename}", get_result)
-    app.router.add_delete("/api/results/{filename}", delete_result)
+    app.router.add_delete("/api/results/{filename}", delete_result_handler)
+
+    # Benchmark routes
     app.router.add_post("/api/bench/start", start_bench)
     app.router.add_post("/api/bench/stop", stop_bench)
     app.router.add_get("/api/bench/status", bench_status)
+
     return app
 
 

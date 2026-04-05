@@ -59,6 +59,7 @@ document.addEventListener('alpine:init', () => {
     init() {
       // Expose component reference for inline onclick handlers in innerHTML
       window._historyComponent = this;
+      if (!localStorage.getItem('token')) return;
       this.refresh();
     },
 

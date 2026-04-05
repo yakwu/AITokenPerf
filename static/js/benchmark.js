@@ -77,6 +77,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     init() {
+      if (!localStorage.getItem('token')) return;
       const hasRerun = !!window._rerunConfig;
       this.loadConfig().then(() => {
         this.loadProfiles().then(() => {

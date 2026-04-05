@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""数据迁移脚本 — 从 config.yaml + results/*.json 迁移到 SQLite"""
+
+import glob
+import json
+import os
+import secrets
+import shutil
+from pathlib import Path
+
+import yaml
+
+from auth import hash_password
+from db import (
+    init_db, close_db,
+    create_user, count_users,
+    upsert_profile, save_settings,
+    save_result as db_save_result,
+    get_user_by_email,
+)
+
+BASE_DIR = Path(__file__).parent
+CONFIG_PATH = BASE_DIR / "config.yaml"
+RESULTS_DIR = BASE_DIR / "results"
+
+
+async def migrate():
+    """首次启动时自动迁移数据"""
+    # 初始化 DB
+    await init_db()
+
+    # 检查是否已有数据
+    if await count_users() > 0:
+        print("  数据库已有数据，跳过迁移")
+        return
+
+    # 检查是否有旧数据
+    has_config = CONFIG_PATH.exists()
+    has_results = RESULTS_DIR.exists() and any(RESULTS_DIR.glob("bench_*.json"))
+
+    if not has_config and not has_results:
+        print("  无旧数据需要迁移，创建默认管理员账号...")
+        await _create_default_admin()
+        return
+
+    print("  检测到旧数据，开始迁移...")
+
+    # 1. 创建管理员用户
+    admin_password = secrets.token_urlsafe(12)
+    admin_email = "admin@local"
+    user_id = await create_user(admin_email, hash_password(admin_password), "Admin", "admin")
+    print(f"\n  管理员账号已创建:")
+    print(f"    邮箱: {admin_email}")
+    print(f"    密码: {admin_password}")
+    print(f"    (请登录后尽快修改密码)\n")
+
+    # 2. 迁移 profiles
+    if has_config:
+        with open(CONFIG_PATH) as f:
+            raw_config = yaml.safe_load(f) or {}
+
+        profiles = raw_config.get("profiles", [])
+        active_name = raw_config.get("active_profile", "")
+
+        for p in profiles:
+            name = p.get("name", "")
+            if not name:
+                continue
+            is_active = name == active_name
+            await upsert_profile(
+                user_id, name,
+                base_url=p.get("base_url", ""),
+                api_key=p.get("api_key", ""),
+                api_version=p.get("api_version", "2023-06-01"),
+                model=p.get("model", ""),
+                set_active=is_active,
+            )
+        print(f"  迁移 {len(profiles)} 个 profiles")
+
+        # 3. 迁移 benchmark 配置
+        benchmark = raw_config.get("benchmark", {})
+        if benchmark:
+            output_dir = raw_config.get("output_dir", "./results")
+            await save_settings(user_id, benchmark, output_dir)
+            print(f"  迁移 benchmark 配置")
+
+    # 4. 迁移 results
+    if has_results:
+        count = 0
+        for filepath in sorted(RESULTS_DIR.glob("bench_*.json")):
+            try:
+                with open(filepath) as f:
+                    data = json.load(f)
+                await db_save_result(
+                    user_id=user_id,
+                    test_id=data.get("test_id", ""),
+                    filename=filepath.name,
+                    timestamp=data.get("timestamp", ""),
+                    config_json=json.dumps(data.get("config", {})),
+                    summary_json=json.dumps(data.get("summary", {})),
+                    percentiles_json=json.dumps(data.get("percentiles", {})),
+                    errors_json=json.dumps(data.get("errors", {})),
+                    error_details_json=json.dumps(data.get("error_details", [])),
+                )
+                count += 1
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"  警告: 跳过 {filepath.name}: {e}")
+        print(f"  迁移 {count} 个历史结果")
+
+    # 5. 备份 config.yaml
+    if has_config:
+        bak_path = CONFIG_PATH.with_suffix(".yaml.bak")
+        shutil.copy2(CONFIG_PATH, bak_path)
+        print(f"  备份 config.yaml → {bak_path.name}")
+
+    print("  数据迁移完成\n")
+
+
+async def _create_default_admin():
+    """无旧数据时创建默认管理员"""
+    admin_password = secrets.token_urlsafe(12)
+    admin_email = "admin@local"
+    await create_user(admin_email, hash_password(admin_password), "Admin", "admin")
+    print(f"\n  管理员账号已创建:")
+    print(f"    邮箱: {admin_email}")
+    print(f"    密码: {admin_password}")
+    print(f"    (请登录后尽快修改密码)\n")

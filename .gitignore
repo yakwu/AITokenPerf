@@ -1,6 +1,18 @@
 # Sensitive config
 config.yaml
+config.yaml.bak
 .env
+
+# Database
+data.db
+data.db-shm
+data.db-wal
+
+# Secret
+data.secret
+
+# Node
+node_modules/
 
 # Python
 __pycache__/

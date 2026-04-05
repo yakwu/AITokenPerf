@@ -171,21 +171,42 @@ function renderResultDetail(r) {
 }
 
 // ============ Alpine Store ============
-const VALID_TABS = ['dashboard', 'benchmark', 'history', 'config'];
+const VALID_TABS = ['dashboard', 'benchmark', 'history', 'config', 'auth', 'settings', 'admin-users'];
+
+function isLoggedIn() {
+  return !!localStorage.getItem('token');
+}
 
 function getTabFromHash() {
+  if (!isLoggedIn()) return 'auth';
   const hash = location.hash.replace('#', '');
+  if (hash === 'auth') return 'dashboard';
   return VALID_TABS.includes(hash) ? hash : 'dashboard';
 }
 
 document.addEventListener('alpine:init', () => {
+  const userStr = localStorage.getItem('user');
   Alpine.store('app', {
     tab: getTabFromHash(),
     status: 'idle',
     statusLabels: { idle: '\u7a7a\u95f2', running: '\u8fd0\u884c\u4e2d', stopping: '\u505c\u6b62\u4e2d' },
+    user: userStr ? JSON.parse(userStr) : null,
     switchTab(t) {
+      if (!isLoggedIn() && t !== 'auth') return;
       this.tab = t;
       location.hash = t === 'dashboard' ? '' : t;
+    },
+    setUser(user, token) {
+      this.user = user;
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+    },
+    logout() {
+      this.user = null;
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      this.tab = 'auth';
+      location.hash = 'auth';
     },
   });
 });

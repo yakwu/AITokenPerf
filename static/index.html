@@ -11,11 +11,14 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/style.css">
 <script src="/js/utils.js"></script>
+<script src="/js/auth.js"></script>
 <script src="/js/charts.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/dashboard.js"></script>
 <script src="/js/benchmark.js"></script>
 <script src="/js/history.js"></script>
+<script src="/js/settings.js"></script>
+<script src="/js/admin-users.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 </head>
 <body x-data>
@@ -24,22 +27,74 @@
 <header class="header">
   <div class="header-left">
     <div class="logo">AIToken<span>Perf</span></div>
-    <div class="status-badge" :class="$store.app.status">
+    <div class="status-badge" :class="$store.app.status" x-show="$store.app.user">
       <div class="status-dot"></div>
       <span x-text="$store.app.statusLabels[$store.app.status] || $store.app.status"></span>
+    </div>
+  </div>
+  <div class="header-right" x-show="$store.app.user">
+    <div class="user-menu" @click.outside="userMenuOpen = false" x-data="{ userMenuOpen: false }">
+      <button class="user-avatar" @click="userMenuOpen = !userMenuOpen" x-text="($store.app.user?.email || '?')[0].toUpperCase()"></button>
+      <div class="user-dropdown" x-show="userMenuOpen" x-cloak>
+        <div class="user-dropdown-email" x-text="$store.app.user?.email"></div>
+        <div class="user-dropdown-role" x-text="$store.app.user?.role === 'admin' ? '管理员' : '用户'" style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px"></div>
+        <button class="user-dropdown-item" @click="$store.app.switchTab('settings'); userMenuOpen = false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          个人资料
+        </button>
+        <button class="user-dropdown-item" x-show="$store.app.user?.role === 'admin'" @click="$store.app.switchTab('admin-users'); userMenuOpen = false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          用户管理
+        </button>
+        <div class="user-dropdown-divider"></div>
+        <button class="user-dropdown-item user-dropdown-logout" @click="$store.app.logout(); userMenuOpen = false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          退出登录
+        </button>
+      </div>
     </div>
   </div>
 </header>
 
 <!-- Tabs -->
-<nav class="tab-bar">
+<nav class="tab-bar" x-show="$store.app.user">
   <button class="tab-btn" :class="{'active': $store.app.tab === 'dashboard'}" @click="$store.app.switchTab('dashboard')">总览</button>
   <button class="tab-btn" :class="{'active': $store.app.tab === 'benchmark'}" @click="$store.app.switchTab('benchmark')">新建测试</button>
   <button class="tab-btn" :class="{'active': $store.app.tab === 'history'}" @click="$store.app.switchTab('history')">历史记录</button>
 </nav>
 
+<!-- Auth Page -->
+<section class="auth-page" x-show="$store.app.tab === 'auth'" x-data="authPage()">
+  <div class="auth-card">
+    <div class="auth-logo">AIToken<span>Perf</span></div>
+    <div class="auth-tabs">
+      <button class="auth-tab" :class="{'active': mode === 'login'}" @click="switchMode('login')">登录</button>
+      <button class="auth-tab" :class="{'active': mode === 'register'}" @click="switchMode('register')">注册</button>
+    </div>
+    <div class="auth-error" x-show="error" x-text="error" x-transition></div>
+    <div class="auth-form">
+      <div class="form-group" x-show="mode === 'register'">
+        <label class="form-label">昵称</label>
+        <input class="form-input" x-model="displayName" placeholder="可选">
+      </div>
+      <div class="form-group">
+        <label class="form-label">邮箱</label>
+        <input class="form-input" type="email" x-model="email" placeholder="your@email.com" @keydown.enter="submit()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">密码</label>
+        <input class="form-input" type="password" x-model="password" placeholder="至少 6 位" @keydown.enter="submit()">
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px" @click="submit()" :disabled="loading">
+        <span x-show="!loading" x-text="mode === 'login' ? '登录' : '注册'"></span>
+        <span x-show="loading">处理中...</span>
+      </button>
+    </div>
+  </div>
+</section>
+
 <!-- Main -->
-<main class="main">
+<main class="main" x-show="$store.app.user">
 
   <!-- Dashboard Tab -->
   <section class="tab-content" :class="{'active': $store.app.tab === 'dashboard'}" x-data="dashboardTab()" x-show="$store.app.tab === 'dashboard'" x-init="$watch('$store.app.tab', val => { if (val === 'dashboard') refreshDashboard() })">
@@ -314,6 +369,116 @@
             </tr>
           </thead>
           <tbody x-ref="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Settings Tab -->
+  <section class="tab-content" :class="{'active': $store.app.tab === 'settings'}" x-data="settingsTab()" x-show="$store.app.tab === 'settings'">
+    <div class="settings-page">
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <div class="card-title">个人资料</div>
+        </div>
+        <div class="form-grid" style="max-width:500px">
+          <div class="form-group full">
+            <label class="form-label">邮箱</label>
+            <input class="form-input" :value="$store.app.user?.email || ''" disabled style="opacity:0.6">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">昵称</label>
+            <input class="form-input" x-model="displayName" placeholder="输入昵称">
+          </div>
+        </div>
+        <div class="btn-group" style="margin-top:16px">
+          <button class="btn btn-primary" @click="saveProfile()" :disabled="profileLoading">
+            <span x-show="!profileLoading">保存资料</span>
+            <span x-show="profileLoading">保存中...</span>
+          </button>
+        </div>
+        <div class="settings-msg" x-show="profileMsg" :class="profileMsgType" x-text="profileMsg" x-transition></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">修改密码</div>
+        </div>
+        <div class="form-grid" style="max-width:500px">
+          <div class="form-group full">
+            <label class="form-label">当前密码</label>
+            <input class="form-input" type="password" x-model="oldPassword" placeholder="输入当前密码">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">新密码</label>
+            <input class="form-input" type="password" x-model="newPassword" placeholder="至少 6 位">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">确认新密码</label>
+            <input class="form-input" type="password" x-model="confirmPassword" placeholder="再次输入新密码" @keydown.enter="changePassword()">
+          </div>
+        </div>
+        <div class="btn-group" style="margin-top:16px">
+          <button class="btn btn-primary" @click="changePassword()" :disabled="passwordLoading">
+            <span x-show="!passwordLoading">修改密码</span>
+            <span x-show="passwordLoading">修改中...</span>
+          </button>
+        </div>
+        <div class="settings-msg" x-show="passwordMsg" :class="passwordMsgType" x-text="passwordMsg" x-transition></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Admin Users Tab -->
+  <section class="tab-content" :class="{'active': $store.app.tab === 'admin-users'}" x-data="adminUsersTab()" x-show="$store.app.tab === 'admin-users' && $store.app.user?.role === 'admin'">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="card-header" style="padding:20px 24px 0">
+        <div class="card-title">注册用户</div>
+        <span class="admin-user-count" x-text="users.length + ' 位用户'"></span>
+      </div>
+      <div class="table-wrap" style="border:none;border-radius:0;margin-top:12px">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:60px">ID</th>
+              <th>邮箱</th>
+              <th style="width:120px">昵称</th>
+              <th style="width:80px">角色</th>
+              <th style="width:155px">注册时间</th>
+              <th style="width:155px">最后活跃</th>
+              <th style="width:80px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="u in users" :key="u.id">
+              <tr>
+                <td x-text="u.id"></td>
+                <td x-text="u.email"></td>
+                <td x-text="u.display_name || '-'"></td>
+                <td>
+                  <span class="role-badge" :class="u.role" x-text="u.role === 'admin' ? '管理员' : '用户'"></span>
+                </td>
+                <td x-text="formatDate(u.created_at)"></td>
+                <td x-text="formatDate(u.updated_at)"></td>
+                <td>
+                  <template x-if="deleteCandidate === u.id">
+                    <div class="inline-confirm">
+                      <button class="btn btn-danger btn-sm" @click="confirmDelete(u.id)">确认</button>
+                      <button class="btn btn-ghost btn-sm" @click="deleteCandidate = null">取消</button>
+                    </div>
+                  </template>
+                  <template x-if="deleteCandidate !== u.id">
+                    <button class="btn btn-ghost btn-sm" @click="requestDelete(u)" title="删除用户">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </template>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="!loading && users.length === 0">
+              <td colspan="7" style="text-align:center;color:var(--text-tertiary);padding:32px">暂无用户数据</td>
+            </tr>
+          </tbody>
         </table>
       </div>
     </div>

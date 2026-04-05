@@ -3,6 +3,7 @@ document.addEventListener('alpine:init', () => {
     contentHtml: '',
 
     init() {
+      if (!localStorage.getItem('token')) return;
       this.refreshDashboard();
     },
 
