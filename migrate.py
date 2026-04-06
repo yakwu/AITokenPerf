@@ -143,5 +143,10 @@ async def _migrate_schema():
         await db.commit()
         print("  schema 迁移: results 表添加 group_id 列")
 
+    if "scheduled_task_id" not in columns:
+        await db.execute("ALTER TABLE results ADD COLUMN scheduled_task_id INTEGER NOT NULL DEFAULT 0")
+        await db.commit()
+        print("  schema 迁移: results 表添加 scheduled_task_id 列")
+
     # scheduled_tasks 表由 init_db 中的 CREATE TABLE IF NOT EXISTS 处理
     # 无需额外迁移

@@ -9,6 +9,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/dist/phosphor.js"></script>
 <link rel="stylesheet" href="/css/style.css">
 <script src="/js/utils.js"></script>
 <script src="/js/auth.js"></script>
@@ -386,6 +388,20 @@
             <div class="combobox-option" :class="{'active': modeFilter === 'sustained'}" @mousedown.prevent="modeFilter = 'sustained'; ddOpen = ''; renderTable()">Sustained</div>
           </div>
         </div>
+        <!-- 来源 -->
+        <div class="filter-dropdown" @click.outside="ddOpen = (ddOpen === 'source' ? '' : ddOpen)">
+          <button class="filter-dropdown-btn" @click="ddOpen = ddOpen === 'source' ? '' : 'source'">
+            <span x-text="sourceFilter ? sourceFilter : '全部来源'"></span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+          </button>
+          <div class="filter-dropdown-list" x-show="ddOpen === 'source'" x-cloak>
+            <div class="combobox-option" :class="{'active': !sourceFilter}" @mousedown.prevent="sourceFilter = ''; ddOpen = ''; renderTable()">全部来源</div>
+            <div class="combobox-option" :class="{'active': sourceFilter === '手动'}" @mousedown.prevent="sourceFilter = '手动'; ddOpen = ''; renderTable()">手动</div>
+            <template x-for="sn in uniqueScheduleNames" :key="sn">
+              <div class="combobox-option" :class="{'active': sourceFilter === sn}" @mousedown.prevent="sourceFilter = sn; ddOpen = ''; renderTable()" x-text="sn"></div>
+            </template>
+          </div>
+        </div>
       </div>
       <div class="compare-btn-wrap" x-ref="compareBtnWrap">
         <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
@@ -404,6 +420,7 @@
               <th>目标地址</th>
               <th style="width:60px" class="sortable" data-sort="concurrency" @click="toggleSort('concurrency')">并发 <span class="sort-arrow"></span></th>
               <th style="width:80px">模式</th>
+              <th style="width:100px">来源</th>
               <th style="width:72px" class="sortable" data-sort="success_rate" @click="toggleSort('success_rate')">成功率 <span class="sort-arrow"></span></th>
               <th style="width:82px" class="sortable" data-sort="ttft" @click="toggleSort('ttft')">TTFT P50 <span class="sort-arrow"></span></th>
               <th style="width:82px" class="sortable" data-sort="e2e" @click="toggleSort('e2e')">E2E P50 <span class="sort-arrow"></span></th>
@@ -491,18 +508,24 @@
           <tbody>
             <template x-for="s in schedules" :key="s.id">
               <tr>
-                <td style="font-weight:600" x-text="s.name"></td>
+                <td style="font-weight:600">
+                  <span x-text="s.name" style="cursor:pointer" @click="toggleHistory(s.id)" :title="expandedScheduleId === s.id ? '收起执行记录' : '查看执行记录'"></span>
+                  <span style="font-size:11px;color:var(--text-tertiary);margin-left:4px;cursor:pointer" @click="toggleHistory(s.id)"><i class="ph" :class="expandedScheduleId === s.id ? 'ph-caret-up' : 'ph-caret-down'"></i></span>
+                </td>
                 <td><span style="font-size:12px" x-text="(s.profile_ids || []).join(', ')"></span></td>
-                <td x-text="formatInterval(s.schedule_value)"></td>
+                <td>
+                  <span x-text="formatInterval(s.schedule_value)"></span>
+                </td>
                 <td>
                   <span class="status-badge" :class="s.status" x-text="s.status === 'active' ? '运行中' : s.status === 'paused' ? '已暂停' : s.status"></span>
                 </td>
                 <td style="font-size:12px;color:var(--text-tertiary)" x-text="formatTime(s.last_run_at)"></td>
                 <td x-text="s.run_count || 0"></td>
                 <td style="white-space:nowrap">
-                  <button class="btn btn-ghost btn-sm" x-show="s.status === 'active'" @click="pauseSchedule(s.id)" title="暂停">&#9646;&#9646;</button>
-                  <button class="btn btn-ghost btn-sm" x-show="s.status !== 'active'" @click="resumeSchedule(s.id)" title="恢复">&#9654;</button>
-                  <button class="btn btn-ghost btn-sm" @click="runNow(s.id)" title="立即执行">&#9889;</button>
+                  <button class="btn btn-ghost btn-sm" x-show="s.status === 'active'" @click="pauseSchedule(s.id)" title="暂停"><i class="ph ph-pause"></i></button>
+                  <button class="btn btn-ghost btn-sm" x-show="s.status !== 'active'" @click="resumeSchedule(s.id)" title="恢复"><i class="ph ph-play"></i></button>
+                  <button class="btn btn-ghost btn-sm" @click="runNow(s.id)" title="立即执行"><i class="ph ph-lightning"></i></button>
+                  <button class="btn btn-ghost btn-sm" @click="startEdit(s)" title="编辑" style="color:var(--accent)"><i class="ph ph-pencil-simple"></i></button>
                   <template x-if="deleteCandidate === s.id">
                     <span>
                       <button class="btn btn-danger btn-sm" @click="confirmDelete(s.id)">确认</button>
@@ -510,8 +533,47 @@
                     </span>
                   </template>
                   <template x-if="deleteCandidate !== s.id">
-                    <button class="btn btn-ghost btn-sm" @click="requestDelete(s.id)" title="删除" style="color:var(--danger)">&#10005;</button>
+                    <button class="btn btn-ghost btn-sm" @click="requestDelete(s.id)" title="删除" style="color:var(--danger)"><i class="ph ph-trash-simple"></i></button>
                   </template>
+                </td>
+              </tr>
+            </template>
+            <template x-if="expandedScheduleId">
+              <tr>
+                <td colspan="7" style="padding:16px 20px;background:var(--bg-secondary)">
+                  <div x-show="historyLoading" style="text-align:center;color:var(--text-tertiary);padding:20px">加载中...</div>
+                  <div x-show="!historyLoading && scheduleHistory.length === 0" style="text-align:center;color:var(--text-tertiary);padding:20px">暂无执行记录</div>
+                  <div x-show="!historyLoading && scheduleHistory.length > 0">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:8px">执行记录 (<span x-text="scheduleHistory.length"></span> 条)</div>
+                    <table class="pct-table" style="width:100%">
+                      <thead>
+                        <tr>
+                          <th>时间</th>
+                          <th>模型</th>
+                          <th>并发</th>
+                          <th>成功率</th>
+                          <th>TTFT P50</th>
+                          <th>E2E P50</th>
+                          <th>吞吐量</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="(r, ri) in scheduleHistory" :key="ri">
+                          <tr>
+                            <td style="font-size:12px" x-text="fmtTimestamp(r.timestamp)"></td>
+                            <td style="font-size:12px" x-text="r.config?.model || '-'"></td>
+                            <td style="font-size:12px" x-text="r.config?.concurrency || '-'"></td>
+                            <td style="font-size:12px;font-weight:600" :style="(r.summary?.success_rate || 0) >= 95 ? 'color:var(--success)' : (r.summary?.success_rate || 0) >= 80 ? 'color:var(--warning)' : 'color:var(--danger)'" x-text="fmtPct(r.summary?.success_rate)"></td>
+                            <td style="font-size:12px" x-text="fmtTime(r.percentiles?.TTFT?.P50)"></td>
+                            <td style="font-size:12px" x-text="fmtTime(r.percentiles?.E2E?.P50)"></td>
+                            <td style="font-size:12px" x-text="(fmtNum(r.summary?.throughput_rps) || '-') + ' /s'"></td>
+                            <td><button class="btn btn-ghost btn-sm" @click="viewResultInHistory(r)" title="查看详情" style="font-size:12px;color:var(--accent)">详情 &#8594;</button></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
                 </td>
               </tr>
             </template>
@@ -520,6 +582,76 @@
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- 编辑任务弹窗 -->
+    <div class="compare-overlay" :class="{'open': showEditForm}" @click.self="showEditForm = false">
+      <div class="compare-modal" style="max-width:620px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <h2 style="margin:0">编辑定时任务</h2>
+          <button class="btn btn-ghost btn-sm" @click="showEditForm = false" style="font-size:20px;line-height:1">&times;</button>
+        </div>
+        <div class="form-grid">
+          <div class="form-group full">
+            <label class="form-label">任务名称</label>
+            <input class="form-input" x-model="editForm.name">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">选择 Profile（可多选）</label>
+            <div class="profile-chips" style="margin-top:4px">
+              <template x-for="p in profiles" :key="p">
+                <button class="profile-chip" :class="{'active': editForm.profile_ids.includes(p)}" @click="toggleEditProfile(p)" style="width:auto;min-width:100px">
+                  <span class="profile-chip-name" x-text="p" style="font-size:13px"></span>
+                  <span class="profile-chip-check" x-show="editForm.profile_ids.includes(p)" style="font-size:12px">&#10003;</span>
+                </button>
+              </template>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">并发数</label>
+            <input class="form-input" type="number" x-model="editForm.concurrency" min="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">执行间隔（秒）</label>
+            <input class="form-input" type="number" x-model="editForm.schedule_value" min="10">
+            <span style="font-size:11px;color:var(--text-tertiary)" x-text="'每 ' + formatInterval(editForm.schedule_value) + ' 执行一次'"></span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">测试模式</label>
+            <div class="radio-group-inline">
+              <label class="radio-pill" :class="{'active': editForm.mode === 'burst'}" @click="editForm.mode = 'burst'"><span>Burst</span></label>
+              <label class="radio-pill" :class="{'active': editForm.mode === 'sustained'}" @click="editForm.mode = 'sustained'"><span>Sustained</span></label>
+            </div>
+          </div>
+          <div class="form-group" x-show="editForm.mode === 'sustained'">
+            <label class="form-label">持续时长 (秒)</label>
+            <input class="form-input" type="number" x-model="editForm.duration">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Tokens</label>
+            <input class="form-input" type="number" x-model="editForm.max_tokens" min="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">超时 (秒)</label>
+            <input class="form-input" type="number" x-model="editForm.timeout" min="1">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">System Prompt</label>
+            <textarea class="form-input" x-model="editForm.system_prompt" rows="2" style="resize:vertical"></textarea>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">User Prompt</label>
+            <textarea class="form-input" x-model="editForm.user_prompt" rows="2" style="resize:vertical"></textarea>
+          </div>
+        </div>
+        <div class="btn-group" style="margin-top:20px">
+          <button class="btn btn-primary" @click="saveEdit()" :disabled="editLoading">
+            <span x-show="!editLoading">保存</span>
+            <span x-show="editLoading">保存中...</span>
+          </button>
+          <button class="btn btn-ghost" @click="showEditForm = false">取消</button>
+        </div>
       </div>
     </div>
   </section>

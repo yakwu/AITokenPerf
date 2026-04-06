@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS results (
     errors_json        TEXT NOT NULL DEFAULT '{}',
     error_details_json TEXT NOT NULL DEFAULT '[]',
     group_id           TEXT NOT NULL DEFAULT '',
+    scheduled_task_id  INTEGER NOT NULL DEFAULT 0,
     created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -231,14 +232,15 @@ async def delete_profile(user_id: int, name: str):
 async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
                        config_json: str, summary_json: str, percentiles_json: str,
                        errors_json: str = "{}", error_details_json: str = "[]",
-                       group_id: str = ""):
+                       group_id: str = "", scheduled_task_id: int = 0):
     db = await get_db()
     await db.execute(
         """INSERT INTO results (user_id, test_id, filename, timestamp, config_json,
-            summary_json, percentiles_json, errors_json, error_details_json, group_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            summary_json, percentiles_json, errors_json, error_details_json, group_id,
+            scheduled_task_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (user_id, test_id, filename, timestamp, config_json, summary_json,
-         percentiles_json, errors_json, error_details_json, group_id),
+         percentiles_json, errors_json, error_details_json, group_id, scheduled_task_id),
     )
     await db.commit()
 
@@ -246,7 +248,12 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
 async def get_results(user_id: int) -> list[dict]:
     db = await get_db()
     cur = await db.execute(
-        "SELECT * FROM results WHERE user_id=? ORDER BY created_at DESC", (user_id,)
+        """SELECT r.*, st.name AS schedule_name
+           FROM results r
+           LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+           WHERE r.user_id=?
+           ORDER BY r.created_at DESC""",
+        (user_id,),
     )
     rows = await cur.fetchall()
     results = []
@@ -258,6 +265,8 @@ async def get_results(user_id: int) -> list[dict]:
         d["percentiles"] = json.loads(d["percentiles_json"])
         d["errors"] = json.loads(d["errors_json"])
         d["error_details"] = json.loads(d["error_details_json"])
+        if not d.get("schedule_name"):
+            d["schedule_name"] = ""
         results.append(d)
     return results
 
@@ -284,6 +293,32 @@ async def delete_result(user_id: int, filename: str):
     db = await get_db()
     await db.execute("DELETE FROM results WHERE user_id=? AND filename=?", (user_id, filename))
     await db.commit()
+
+
+async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int) -> list[dict]:
+    db = await get_db()
+    cur = await db.execute(
+        """SELECT r.*, st.name AS schedule_name
+           FROM results r
+           LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+           WHERE r.user_id=? AND r.scheduled_task_id=?
+           ORDER BY r.created_at DESC""",
+        (user_id, scheduled_task_id),
+    )
+    rows = await cur.fetchall()
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["_filename"] = d["filename"]
+        d["config"] = json.loads(d["config_json"])
+        d["summary"] = json.loads(d["summary_json"])
+        d["percentiles"] = json.loads(d["percentiles_json"])
+        d["errors"] = json.loads(d["errors_json"])
+        d["error_details"] = json.loads(d["error_details_json"])
+        if not d.get("schedule_name"):
+            d["schedule_name"] = ""
+        results.append(d)
+    return results
 
 
 # ---- User Settings CRUD ----

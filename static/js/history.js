@@ -6,6 +6,7 @@ document.addEventListener('alpine:init', () => {
     modelFilter: '',
     urlFilter: '',
     concurrencyFilter: '',
+    sourceFilter: '',
     sortKey: 'timestamp',
     sortDir: 'desc',
     compareSet: new Set(),
@@ -22,6 +23,9 @@ document.addEventListener('alpine:init', () => {
     get uniqueConcurrencies() {
       return [...new Set(this.results.map(r => r.config?.concurrency).filter(Boolean))].sort((a, b) => a - b);
     },
+    get uniqueScheduleNames() {
+      return [...new Set(this.results.map(r => r.schedule_name).filter(Boolean))].sort();
+    },
 
     get filtered() {
       let filtered = this.results.filter(r => {
@@ -30,6 +34,10 @@ document.addEventListener('alpine:init', () => {
         if (this.modelFilter && c.model !== this.modelFilter) return false;
         if (this.urlFilter && (c.base_url || '').replace(/\/+$/, '') !== this.urlFilter) return false;
         if (this.concurrencyFilter && String(c.concurrency) !== this.concurrencyFilter) return false;
+        if (this.sourceFilter) {
+          const src = r.schedule_name || '手动';
+          if (src !== this.sourceFilter) return false;
+        }
         if (this.search) {
           const hay = `${c.model} ${c.base_url} ${r.timestamp} ${r.test_id || ''}`.toLowerCase();
           if (!hay.includes(this.search.toLowerCase())) return false;
@@ -131,7 +139,7 @@ document.addEventListener('alpine:init', () => {
       }
 
       if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--text-tertiary)">\u6682\u65e0\u8bb0\u5f55</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-tertiary)">\u6682\u65e0\u8bb0\u5f55</td></tr>';
         return;
       }
 
@@ -157,6 +165,7 @@ document.addEventListener('alpine:init', () => {
           <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${c.base_url || ''}">${c.base_url || '-'}</td>
           <td>${c.concurrency || '-'}</td>
           <td>${c.mode || '-'}</td>
+          <td style="font-size:12px;color:var(--text-tertiary)">${r.schedule_name || '<span style="color:var(--accent)">手动</span>'}</td>
           <td style="${successClass};font-weight:600">${fmtPct(s.success_rate)}</td>
           <td>${fmtTime(p.TTFT?.P50)}</td>
           <td>${fmtTime(p.E2E?.P50)}</td>
@@ -167,7 +176,7 @@ document.addEventListener('alpine:init', () => {
         const detailTr = document.createElement('tr');
         detailTr.className = 'detail-row' + (this.expandedRows.has(idx) ? ' open' : '');
         detailTr.id = `detail-${idx}`;
-        detailTr.innerHTML = `<td colspan="12"><div id="detail-content-${idx}"></div></td>`;
+        detailTr.innerHTML = `<td colspan="13"><div id="detail-content-${idx}"></div></td>`;
         tbody.appendChild(detailTr);
 
         if (this.expandedRows.has(idx)) {

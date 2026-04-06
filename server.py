@@ -43,6 +43,7 @@ class BenchTask:
     owner_id: Optional[int] = None
     profile_name: str = ""
     group_id: str = ""
+    scheduled_task_id: int = 0
     status: str = "idle"  # idle | running | stopping | error
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
     events: list = field(default_factory=list)
@@ -799,6 +800,7 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
                         errors_json=json.dumps(report_dict.get("errors", {})),
                         error_details_json=json.dumps(report_dict.get("error_details", [])),
                         group_id=task.group_id,
+                        scheduled_task_id=task.scheduled_task_id,
                     )
                 except Exception as db_err:
                     print(f"Warning: failed to save result to DB: {db_err}")
@@ -1055,6 +1057,30 @@ async def run_schedule_now(request):
     return web.json_response({"status": "triggered"})
 
 
+async def get_schedule_results(request):
+    from db import get_results_by_scheduled_task, get_scheduled_task
+    task_id = int(request.match_info["id"])
+    user_id = request["user_id"]
+    task_row = await get_scheduled_task(task_id)
+    if not task_row or task_row["user_id"] != user_id:
+        return web.json_response({"error": "Not found"}, status=404)
+    results = await get_results_by_scheduled_task(user_id, task_id)
+    # 清理 JSON 字段，只返回前端需要的结构
+    clean = []
+    for r in results:
+        clean.append({
+            "test_id": r.get("test_id", ""),
+            "filename": r.get("_filename", ""),
+            "timestamp": r.get("timestamp", ""),
+            "config": r.get("config", {}),
+            "summary": r.get("summary", {}),
+            "percentiles": r.get("percentiles", {}),
+            "scheduled_task_id": r.get("scheduled_task_id", 0),
+            "schedule_name": r.get("schedule_name", ""),
+        })
+    return web.json_response({"results": clean})
+
+
 # ---- App ----
 
 _scheduler = None
@@ -1131,6 +1157,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/schedules/{id}/pause", pause_schedule)
     app.router.add_post("/api/schedules/{id}/resume", resume_schedule)
     app.router.add_post("/api/schedules/{id}/run-now", run_schedule_now)
+    app.router.add_get("/api/schedules/{id}/results", get_schedule_results)
 
     return app
 
