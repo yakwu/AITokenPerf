@@ -314,7 +314,7 @@ document.addEventListener('alpine:init', () => {
         if (data.error) { toast(data.error, 'error'); return; }
         const c = data.config || {};
         this.form.base_url = c.base_url || '';
-        this.form.api_key = c.api_key || '';
+        this.form.api_key = c.api_key_display || '';
         this.form.model = c.model || '';
         this.currentProfileName = name;
         this.profileDraftName = name;
@@ -381,7 +381,7 @@ document.addEventListener('alpine:init', () => {
     async loadConfig() {
       const c = await api('/api/config');
       this.form.base_url = c.base_url || '';
-      this.form.api_key = c.api_key || '';
+      this.form.api_key = c.api_key_display || '';
       this.form.model = c.model || '';
       this.form.max_tokens = c.max_tokens || 512;
       this.form.timeout = c.timeout || 120;

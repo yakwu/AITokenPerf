@@ -272,10 +272,11 @@ async def get_config(request):
             if active.get(k):
                 resolved[k] = active[k]
         resolved["profile_name"] = active["name"]
-        # 脱敏
+        # 脱敏：返回 display 占位符，不返回完整 api_key
         if "api_key" in resolved:
             key = resolved["api_key"]
             resolved["api_key_display"] = f"...{key[-4:]}" if len(key) > 4 else "****"
+            del resolved["api_key"]
 
     return web.json_response(resolved)
 
@@ -321,6 +322,12 @@ async def get_profiles_handler(request):
     profiles = await get_profiles(user_id)
     active = await get_active_profile(user_id)
     active_name = active["name"] if active else ""
+    # api_key 脱敏
+    for p in profiles:
+        if "api_key" in p:
+            key = p["api_key"]
+            p["api_key_display"] = f"...{key[-4:]}" if len(key) > 4 else "****"
+            del p["api_key"]
     return web.json_response({
         "profiles": profiles,
         "active_profile": active_name,
@@ -334,10 +341,16 @@ async def save_profile(request):
     if not name:
         return web.json_response({"error": "Profile name is required"}, status=400)
 
+    api_key = data.get("api_key", "")
+    # 脱敏占位符 → 从当前活跃 profile 保留原值
+    if api_key.startswith("..."):
+        active = await get_active_profile(user_id)
+        api_key = active.get("api_key", "") if active else ""
+
     await upsert_profile(
         user_id, name,
         base_url=data.get("base_url", ""),
-        api_key=data.get("api_key", ""),
+        api_key=api_key,
         api_version=data.get("api_version", "2023-06-01"),
         model=data.get("model", ""),
         set_active=True,
@@ -356,7 +369,7 @@ async def switch_profile(request):
     if not ok:
         return web.json_response({"error": "Profile not found"}, status=404)
 
-    # 返回合并后的配置
+    # 返回合并后的配置（api_key 脱敏）
     active = await get_active_profile(user_id)
     benchmark = await get_settings(user_id)
     resolved = dict(benchmark) if benchmark else {}
@@ -365,6 +378,10 @@ async def switch_profile(request):
             if active.get(k):
                 resolved[k] = active[k]
         resolved["profile_name"] = active["name"]
+        if "api_key" in resolved:
+            key = resolved["api_key"]
+            resolved["api_key_display"] = f"...{key[-4:]}" if len(key) > 4 else "****"
+            del resolved["api_key"]
     return web.json_response({"status": "ok", "config": resolved})
 
 
@@ -468,9 +485,11 @@ async def start_bench(request):
                 config[k] = active[k]
     _apply_env_overrides(config)
 
-    # 允许前端覆盖部分配置
+    # 允许前端覆盖部分配置（api_key 脱敏占位符忽略）
     for key in BENCHMARK_KEYS + CONNECTION_KEYS + ("requests_per_level",):
         if key in body and body[key] is not None:
+            if key == "api_key" and isinstance(body[key], str) and body[key].startswith("..."):
+                continue
             config[key] = body[key]
 
     import uuid
