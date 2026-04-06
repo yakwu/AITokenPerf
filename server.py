@@ -477,7 +477,6 @@ async def list_results(request):
                         data = json.loads(f.read_text())
                         data["_filename"] = f.name
                         items.append(data)
-                        total += 1
                     except (json.JSONDecodeError, OSError):
                         pass
 

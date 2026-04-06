@@ -436,7 +436,7 @@
       <div>共 <span x-text="total"></span> 条记录</div>
       <div style="display:flex;align-items:center;gap:4px" x-show="totalPages > 1">
         <button class="btn btn-ghost btn-sm" :disabled="page <= 1" @click="goToPage(page - 1)">上一页</button>
-        <template x-for="p in totalPages <= 7 ? Array.from({length: totalPages}, (_, i) => i + 1) : [1, page - 2, page - 1, page, page + 1, page + 2, totalPages].filter((v, i, a) => v >= 1 && v <= totalPages && a.indexOf(v) === i)" :key="p">
+        <template x-for="p in (() => { const t = totalPages; if (t <= 7) return Array.from({length: t}, (_, i) => i + 1); const pages = new Set([1, t]); for (let i = page - 2; i <= page + 2; i++) { if (i >= 1 && i <= t) pages.add(i); } return [...pages].sort((a, b) => a - b); })()" :key="p">
           <button class="btn btn-sm" :class="p === page ? 'btn-primary' : 'btn-ghost'" @click="goToPage(p)" x-text="p"></button>
         </template>
         <button class="btn btn-ghost btn-sm" :disabled="page >= totalPages" @click="goToPage(page + 1)">下一页</button>
