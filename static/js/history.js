@@ -63,10 +63,30 @@ document.addEventListener('alpine:init', () => {
       this.refresh();
     },
 
+    tryAutoCompare() {
+      if (!window._autoCompareFilenames) return;
+      const filenames = window._autoCompareFilenames;
+      window._autoCompareFilenames = null;
+      this.$nextTick(() => {
+        const indices = [];
+        for (const fn of filenames) {
+          const idx = this.filtered.findIndex(r => (r._filename || r.filename) === fn);
+          if (idx >= 0) indices.push(idx);
+        }
+        if (indices.length >= 2) {
+          this.compareSet = new Set(indices);
+          this.compareSet = new Set(this.compareSet);
+          this.renderTable();
+          setTimeout(() => this.openCompare(), 200);
+        }
+      });
+    },
+
     async refresh() {
       this.results = await api('/api/results');
       this.$nextTick(() => {
         this.renderTable();
+        this.tryAutoCompare();
         // Auto-expand a specific test if navigated from dashboard
         if (window._autoExpandTestId) {
           const tid = window._autoExpandTestId;
@@ -249,36 +269,56 @@ document.addEventListener('alpine:init', () => {
       if (selected.length < 2) { toast('\u8bf7\u81f3\u5c11\u9009\u62e9 2 \u6761\u8bb0\u5f55', 'info'); return; }
 
       const el = document.getElementById('compareContent');
-      let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th>Metric</th>';
+      let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th>\u6307\u6807</th>';
       selected.forEach(r => {
         const c = r.config || {};
         html += `<th>${c.model || '?'}<br><small style="font-weight:400">${c.concurrency || '?'}c \u00b7 ${fmtTimestamp(r.timestamp).slice(5)}</small></th>`;
       });
       html += '</tr></thead><tbody>';
 
+      // higherIsBetter: true = 越大越好, false = 越小越好, null = 不比较
       const rows = [
-        ['Success Rate', r => fmtPct(r.summary?.success_rate)],
-        ['Throughput', r => fmtNum(r.summary?.throughput_rps) + ' /s'],
-        ['Token Rate', r => fmtNum(r.summary?.token_throughput_tps, 0) + ' t/s'],
-        ['TTFT P50', r => fmtTime(r.percentiles?.TTFT?.P50)],
-        ['TTFT P95', r => fmtTime(r.percentiles?.TTFT?.P95)],
-        ['TTFT P99', r => fmtTime(r.percentiles?.TTFT?.P99)],
-        ['TPOT P50', r => fmtTime(r.percentiles?.TPOT?.P50)],
-        ['TPOT P95', r => fmtTime(r.percentiles?.TPOT?.P95)],
-        ['E2E P50', r => fmtTime(r.percentiles?.E2E?.P50)],
-        ['E2E P95', r => fmtTime(r.percentiles?.E2E?.P95)],
-        ['E2E P99', r => fmtTime(r.percentiles?.E2E?.P99)],
-        ['Avg Tokens', r => fmtNum(r.summary?.avg_output_tokens)],
-        ['输入 Tokens (Avg)', r => fmtNum(r.summary?.input_tokens?.Avg, 0)],
-        ['输出 Tokens (Avg)', r => fmtNum(r.summary?.output_tokens?.Avg, 0)],
-        ['总输入 Tokens', r => fmtBigNum(r.summary?.total_input_tokens)],
-        ['总输出 Tokens', r => fmtBigNum(r.summary?.total_output_tokens)],
+        ['成功率', r => fmtPct(r.summary?.success_rate), r => r.summary?.success_rate, true],
+        ['吞吐量', r => fmtNum(r.summary?.throughput_rps) + ' /s', r => r.summary?.throughput_rps, true],
+        ['Token 速率', r => fmtNum(r.summary?.token_throughput_tps, 0) + ' t/s', r => r.summary?.token_throughput_tps, true],
+        ['TTFT P50', r => fmtTime(r.percentiles?.TTFT?.P50), r => r.percentiles?.TTFT?.P50, false],
+        ['TTFT P95', r => fmtTime(r.percentiles?.TTFT?.P95), r => r.percentiles?.TTFT?.P95, false],
+        ['TTFT P99', r => fmtTime(r.percentiles?.TTFT?.P99), r => r.percentiles?.TTFT?.P99, false],
+        ['TPOT P50', r => fmtTime(r.percentiles?.TPOT?.P50), r => r.percentiles?.TPOT?.P50, false],
+        ['TPOT P95', r => fmtTime(r.percentiles?.TPOT?.P95), r => r.percentiles?.TPOT?.P95, false],
+        ['E2E P50', r => fmtTime(r.percentiles?.E2E?.P50), r => r.percentiles?.E2E?.P50, false],
+        ['E2E P95', r => fmtTime(r.percentiles?.E2E?.P95), r => r.percentiles?.E2E?.P95, false],
+        ['E2E P99', r => fmtTime(r.percentiles?.E2E?.P99), r => r.percentiles?.E2E?.P99, false],
+        ['平均输出 Tokens', r => fmtNum(r.summary?.avg_output_tokens), r => r.summary?.avg_output_tokens, null],
+        ['输入 Tokens', r => fmtNum(r.summary?.input_tokens?.Avg, 0), r => r.summary?.input_tokens?.Avg, null],
+        ['输出 Tokens', r => fmtNum(r.summary?.output_tokens?.Avg, 0), r => r.summary?.output_tokens?.Avg, null],
+        ['总输入 Tokens', r => fmtBigNum(r.summary?.total_input_tokens), r => r.summary?.total_input_tokens, null],
+        ['总输出 Tokens', r => fmtBigNum(r.summary?.total_output_tokens), r => r.summary?.total_output_tokens, null],
       ];
 
-      rows.forEach(([label, fn]) => {
+      rows.forEach(([label, fmtFn, valFn, higherIsBetter]) => {
         html += `<tr><td>${label}</td>`;
-        selected.forEach(r => {
-          html += `<td>${fn(r)}</td>`;
+        // 计算 best/worst
+        let bestIdx = -1, worstIdx = -1;
+        if (higherIsBetter !== null && selected.length >= 2) {
+          const vals = selected.map(r => valFn(r) ?? null);
+          const hasAny = vals.some(v => v != null);
+          if (hasAny) {
+            const nonNull = vals.map((v, i) => [v, i]).filter(([v]) => v != null);
+            if (nonNull.length >= 2) {
+              nonNull.sort((a, b) => higherIsBetter ? b[0] - a[0] : a[0] - b[0]);
+              bestIdx = nonNull[0][1];
+              worstIdx = nonNull[nonNull.length - 1][1];
+              // 只有 best 和 worst 不同时才标记
+              if (bestIdx === worstIdx) { bestIdx = -1; worstIdx = -1; }
+            }
+          }
+        }
+        selected.forEach((r, i) => {
+          let cls = '';
+          if (i === bestIdx) cls = ' class="compare-best"';
+          else if (i === worstIdx) cls = ' class="compare-worst"';
+          html += `<td${cls}>${fmtFn(r)}</td>`;
         });
         html += '</tr>';
       });

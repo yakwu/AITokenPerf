@@ -17,6 +17,7 @@
 <script src="/js/dashboard.js"></script>
 <script src="/js/benchmark.js"></script>
 <script src="/js/history.js"></script>
+<script src="/js/schedules.js"></script>
 <script src="/js/settings.js"></script>
 <script src="/js/admin-users.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
@@ -61,6 +62,7 @@
   <button class="tab-btn" :class="{'active': $store.app.tab === 'dashboard'}" @click="$store.app.switchTab('dashboard')">总览</button>
   <button class="tab-btn" :class="{'active': $store.app.tab === 'benchmark'}" @click="$store.app.switchTab('benchmark')">新建测试</button>
   <button class="tab-btn" :class="{'active': $store.app.tab === 'history'}" @click="$store.app.switchTab('history')">历史记录</button>
+  <button class="tab-btn" :class="{'active': $store.app.tab === 'schedules'}" @click="$store.app.switchTab('schedules')">定时任务</button>
 </nav>
 
 <!-- Auth Page -->
@@ -106,44 +108,46 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">测试配置</div>
-        <div class="btn-group">
-          <button class="btn btn-ghost btn-sm" @click="loadConfig()">从配置加载</button>
-        </div>
       </div>
       <!-- Profile 快捷切换 -->
       <div class="profile-section">
         <div class="profile-bar">
           <div class="profile-chips">
-            <button class="profile-chip profile-chip-add" :class="{'active': profileMode === 'new'}" @click="newProfile()" title="新建目标服务器">
+            <button class="profile-chip profile-chip-add" x-show="!multiMode" :class="{'active': profileMode === 'new'}" @click="newProfile()" title="新建目标服务器">
               <span class="profile-chip-add-icon">+</span>
               <span class="profile-chip-meta">新建服务器</span>
             </button>
             <template x-for="p in profiles" :key="p.name">
-              <div class="profile-chip" :class="{'active': profileMode === 'selected' && currentProfileName === p.name}" @click.self="switchProfile(p.name)">
-                <template x-if="profileMode === 'selected' && currentProfileName === p.name && editingProfileName">
+              <div class="profile-chip" :class="{'active': multiMode ? multiSelectedProfiles.includes(p.name) : (profileMode === 'selected' && currentProfileName === p.name), 'multi-check': multiMode}" @click.self="multiMode ? toggleMultiProfile(p.name) : switchProfile(p.name)">
+                <span class="profile-chip-check" x-show="multiMode && multiSelectedProfiles.includes(p.name)">&#10003;</span>
+                <template x-if="!multiMode && profileMode === 'selected' && currentProfileName === p.name && editingProfileName">
                   <input class="profile-chip-name-edit" x-model="profileDraftName" @keydown.enter.prevent="finishRenameProfile()" @keydown.escape.prevent="cancelRenameProfile()" @blur="finishRenameProfile()" x-ref="renameInput" @click.stop>
                 </template>
-                <template x-if="!(profileMode === 'selected' && currentProfileName === p.name && editingProfileName)">
-                  <span class="profile-chip-name" @click.stop="startRenameProfile()" :title="'点击重命名'" x-text="p.name"></span>
+                <template x-if="!( !multiMode && profileMode === 'selected' && currentProfileName === p.name && editingProfileName )">
+                  <span class="profile-chip-name" @click.stop="multiMode ? toggleMultiProfile(p.name) : startRenameProfile()" :title="multiMode ? '' : '点击重命名'" x-text="p.name"></span>
                 </template>
-                <span class="profile-chip-meta" x-text="profileHost(p.base_url)" @click.stop="switchProfile(p.name)"></span>
-                <div class="profile-chip-actions" x-show="profileMode === 'selected' && currentProfileName === p.name && profileDirty" x-cloak @click.stop>
+                <span class="profile-chip-meta" x-text="profileHost(p.base_url)" @click.stop="multiMode ? toggleMultiProfile(p.name) : switchProfile(p.name)"></span>
+                <div class="profile-chip-actions" x-show="!multiMode && profileMode === 'selected' && currentProfileName === p.name && profileDirty" x-cloak @click.stop>
                   <button class="profile-chip-btn profile-chip-btn-overwrite" @click="saveProfile()" title="更新当前 Profile">更新</button>
                   <button class="profile-chip-btn profile-chip-btn-saveas" @click="saveAsNewProfile()" title="另存为新 Profile">另存</button>
                 </div>
               </div>
             </template>
           </div>
+          <button class="btn btn-ghost btn-sm" @click="toggleMultiMode()" x-show="!running && profiles.length >= 2" x-text="multiMode ? '切回单服务器' : '多服务器对比'" style="flex-shrink:0"></button>
+        </div>
+        <div class="profile-multi-hint" x-show="multiMode" x-transition>
+          <span>已选 <strong x-text="multiSelectedProfiles.length"></strong> 个服务器，至少需要 2 个</span>
         </div>
 
         <!-- 新建模式：名称输入 + 保存 -->
-        <div class="profile-new-bar" x-show="profileMode === 'new' && profileReadyFieldCount() >= 2" x-transition.opacity.duration.150ms>
+        <div class="profile-new-bar" x-show="!multiMode && profileMode === 'new' && profileReadyFieldCount() >= 2" x-transition.opacity.duration.150ms>
           <input class="profile-new-name" x-model="profileDraftName" placeholder="输入 Profile 名称" @keydown.enter.prevent="saveProfile()">
           <button class="btn btn-primary btn-sm" @click="saveProfile()" :disabled="!canSaveProfile()">保存为 Profile</button>
         </div>
 
         <!-- 删除确认 -->
-        <div class="profile-delete-row" x-show="profileDeleteCandidate" x-cloak x-transition.opacity.duration.150ms>
+        <div class="profile-delete-row" x-show="!multiMode && profileDeleteCandidate" x-cloak x-transition.opacity.duration.150ms>
           <span class="profile-delete-text">确认删除「<strong x-text="profileDeleteCandidate"></strong>」？不影响已有测试结果。</span>
           <button class="btn btn-danger btn-sm" @click="confirmDeleteProfile(profileDeleteCandidate)">删除</button>
           <button class="btn btn-ghost btn-sm" @click="cancelDeleteProfile()">取消</button>
@@ -230,9 +234,10 @@
         </div>
       </div>
       <div class="btn-group" style="margin-top:20px">
-        <button class="btn btn-primary" x-show="!running" @click="startBench()">开始测试</button>
+        <button class="btn btn-primary" x-show="!running && !multiMode" @click="startBench()">开始测试</button>
+        <button class="btn btn-primary" x-show="!running && multiMode" @click="startMultiBench()" :disabled="multiSelectedProfiles.length < 2">开始多服务器对比测试</button>
         <button class="btn btn-danger" x-show="running" x-cloak @click="stopBench()">停止</button>
-        <button class="btn btn-ghost" @click="dryRun()">连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span></button>
+        <button class="btn btn-ghost" x-show="!multiMode" @click="dryRun()">连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span></button>
       </div>
 
     <!-- Progress Panel -->
@@ -271,6 +276,44 @@
             <div x-html="log"></div>
           </template>
         </div>
+      </div>
+    </div>
+
+    <!-- Multi-Server Progress Panel -->
+    <div class="progress-panel" :class="{'active': running && multiMode}" x-show="running && multiMode" x-transition>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">多服务器并行测试</div>
+        </div>
+        <template x-for="tid in Object.keys(multiTasks)" :key="tid">
+          <div class="multi-task-progress" style="margin-bottom:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-weight:600;font-size:13px" x-text="multiTasks[tid]?.profile_name || tid"></span>
+              <span class="status-badge" :class="multiTasks[tid]?.status" x-text="multiTasks[tid]?.status === 'running' ? '运行中' : multiTasks[tid]?.status === 'completed' ? '已完成' : multiTasks[tid]?.status" style="font-size:11px"></span>
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-bar" :style="'width:' + (multiTasks[tid]?.progress.total > 0 ? (multiTasks[tid]?.progress.done / multiTasks[tid]?.progress.total * 100).toFixed(1) : 0) + '%'"></div>
+            </div>
+            <div class="progress-stats" style="padding:8px 0">
+              <div class="progress-stat">
+                <div class="progress-stat-value" x-text="multiTasks[tid]?.progress.done || 0" style="font-size:16px"></div>
+                <div class="progress-stat-label">已完成</div>
+              </div>
+              <div class="progress-stat">
+                <div class="progress-stat-value" style="color:var(--success);font-size:16px" x-text="multiTasks[tid]?.progress.success || 0"></div>
+                <div class="progress-stat-label">成功</div>
+              </div>
+              <div class="progress-stat">
+                <div class="progress-stat-value" style="color:var(--danger);font-size:16px" x-text="multiTasks[tid]?.progress.failed || 0"></div>
+                <div class="progress-stat-label">失败</div>
+              </div>
+              <div class="progress-stat">
+                <div class="progress-stat-value" x-text="(multiTasks[tid]?.progress.elapsed || 0) + 's'" style="font-size:16px"></div>
+                <div class="progress-stat-label">耗时</div>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -369,6 +412,113 @@
             </tr>
           </thead>
           <tbody x-ref="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Schedules Tab -->
+  <section class="tab-content" :class="{'active': $store.app.tab === 'schedules'}" x-data="schedulesTab()" x-show="$store.app.tab === 'schedules'" x-init="$watch('$store.app.tab', val => { if (val === 'schedules') refresh() })">
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div class="card-title">定时任务</div>
+        <button class="btn btn-primary btn-sm" @click="showCreateForm = !showCreateForm" x-text="showCreateForm ? '取消' : '新建定时任务'"></button>
+      </div>
+
+      <!-- 创建表单 -->
+      <div x-show="showCreateForm" x-transition style="margin-top:16px">
+        <div class="form-grid" style="max-width:600px">
+          <div class="form-group full">
+            <label class="form-label">任务名称</label>
+            <input class="form-input" x-model="createForm.name" placeholder="例如：每小时性能巡检">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">选择 Profile（可多选）</label>
+            <div class="profile-chips" style="margin-top:4px">
+              <template x-for="p in profiles" :key="p">
+                <button class="profile-chip" :class="{'active': createForm.profile_ids.includes(p)}" @click="toggleCreateProfile(p)" style="width:auto;min-width:100px">
+                  <span class="profile-chip-name" x-text="p" style="font-size:13px"></span>
+                  <span class="profile-chip-check" x-show="createForm.profile_ids.includes(p)" style="font-size:12px">&#10003;</span>
+                </button>
+              </template>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">并发数</label>
+            <input class="form-input" type="number" x-model="createForm.concurrency" min="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">执行间隔（秒）</label>
+            <input class="form-input" type="number" x-model="createForm.schedule_value" min="60">
+            <span style="font-size:11px;color:var(--text-tertiary)" x-text="'每 ' + formatInterval(createForm.schedule_value) + ' 执行一次'"></span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">测试模式</label>
+            <div class="radio-group-inline">
+              <label class="radio-pill" :class="{'active': createForm.mode === 'burst'}" @click="createForm.mode = 'burst'"><span>Burst</span></label>
+              <label class="radio-pill" :class="{'active': createForm.mode === 'sustained'}" @click="createForm.mode = 'sustained'"><span>Sustained</span></label>
+            </div>
+          </div>
+          <div class="form-group" x-show="createForm.mode === 'sustained'">
+            <label class="form-label">持续时长 (秒)</label>
+            <input class="form-input" type="number" x-model="createForm.duration">
+          </div>
+        </div>
+        <div class="btn-group" style="margin-top:16px">
+          <button class="btn btn-primary" @click="createSchedule()" :disabled="createLoading">
+            <span x-show="!createLoading">创建</span>
+            <span x-show="createLoading">创建中...</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 任务列表 -->
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>Profile</th>
+              <th>间隔</th>
+              <th>状态</th>
+              <th>上次运行</th>
+              <th>运行次数</th>
+              <th style="width:140px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="s in schedules" :key="s.id">
+              <tr>
+                <td style="font-weight:600" x-text="s.name"></td>
+                <td><span style="font-size:12px" x-text="(s.profile_ids || []).join(', ')"></span></td>
+                <td x-text="formatInterval(s.schedule_value)"></td>
+                <td>
+                  <span class="status-badge" :class="s.status" x-text="s.status === 'active' ? '运行中' : s.status === 'paused' ? '已暂停' : s.status"></span>
+                </td>
+                <td style="font-size:12px;color:var(--text-tertiary)" x-text="formatTime(s.last_run_at)"></td>
+                <td x-text="s.run_count || 0"></td>
+                <td style="white-space:nowrap">
+                  <button class="btn btn-ghost btn-sm" x-show="s.status === 'active'" @click="pauseSchedule(s.id)" title="暂停">&#9646;&#9646;</button>
+                  <button class="btn btn-ghost btn-sm" x-show="s.status !== 'active'" @click="resumeSchedule(s.id)" title="恢复">&#9654;</button>
+                  <button class="btn btn-ghost btn-sm" @click="runNow(s.id)" title="立即执行">&#9889;</button>
+                  <template x-if="deleteCandidate === s.id">
+                    <span>
+                      <button class="btn btn-danger btn-sm" @click="confirmDelete(s.id)">确认</button>
+                      <button class="btn btn-ghost btn-sm" @click="deleteCandidate = null">取消</button>
+                    </span>
+                  </template>
+                  <template x-if="deleteCandidate !== s.id">
+                    <button class="btn btn-ghost btn-sm" @click="requestDelete(s.id)" title="删除" style="color:var(--danger)">&#10005;</button>
+                  </template>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="!loading && schedules.length === 0">
+              <td colspan="7" style="text-align:center;color:var(--text-tertiary);padding:32px">暂无定时任务</td>
+            </tr>
+          </tbody>
         </table>
       </div>
     </div>

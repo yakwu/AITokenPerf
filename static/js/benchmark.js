@@ -17,12 +17,19 @@ document.addEventListener('alpine:init', () => {
     customConcurrency: '',
     requestsPerLevel: '',
     running: false,
+    multiMode: false,
+    multiSelectedProfiles: [],
     progress: { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' },
     logs: [],
     liveResults: [],
     pollTimer: null,
     eventCursor: 0,
     taskId: null,
+    groupId: null,
+    multiTasks: {},       // task_id → { profile_name, status, progress, events, event_seq }
+    multiLogs: {},        // task_id → [log lines]
+    multiResults: {},     // task_id → [liveResults]
+    multiResultFiles: [], // 所有完成任务的 result filenames
 
     // Profile management
     profiles: [],
@@ -79,12 +86,10 @@ document.addEventListener('alpine:init', () => {
     init() {
       if (!localStorage.getItem('token')) return;
       const hasRerun = !!window._rerunConfig;
-      this.loadConfig().then(() => {
-        this.loadProfiles().then(() => {
-          this.profileMode = this.currentProfileName ? 'selected' : 'new';
-          this.snapshotProfileConfig();
-          if (hasRerun) this.applyRerunConfig();
-        });
+      this.loadProfiles().then(() => {
+        this.profileMode = this.currentProfileName ? 'selected' : 'new';
+        this.snapshotProfileConfig();
+        if (hasRerun) this.applyRerunConfig();
       });
       this.loadKnownModels();
       this.checkRunningStatus();
@@ -378,23 +383,6 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    async loadConfig() {
-      const c = await api('/api/config');
-      this.form.base_url = c.base_url || '';
-      this.form.api_key = c.api_key_display || '';
-      this.form.model = c.model || '';
-      this.form.max_tokens = c.max_tokens || 512;
-      this.form.timeout = c.timeout || 120;
-      this.form.duration = c.duration || 120;
-      this.form.system_prompt = c.system_prompt || '';
-      this.form.user_prompt = c.user_prompt || '';
-      const mode = c.mode || 'burst';
-      this.form.mode = mode;
-      if (c.concurrency_levels && c.concurrency_levels.length) {
-        this.selectedConcurrency = c.concurrency_levels[0];
-      }
-    },
-
     getFormConfig() {
       const conc = this.selectedConcurrency || 100;
       const requests = parseInt(this.requestsPerLevel);
@@ -559,6 +547,108 @@ document.addEventListener('alpine:init', () => {
         this.concurrencyPresets = [...this.concurrencyPresets, val].sort((a, b) => a - b);
       }
       this.customConcurrency = '';
+    },
+
+    // ---- Multi-server methods ----
+    toggleMultiMode() {
+      this.multiMode = !this.multiMode;
+      if (this.multiMode) {
+        this.multiSelectedProfiles = this.currentProfileName ? [this.currentProfileName] : [];
+      } else {
+        this.multiSelectedProfiles = [];
+      }
+    },
+
+    toggleMultiProfile(name) {
+      const idx = this.multiSelectedProfiles.indexOf(name);
+      if (idx >= 0) {
+        this.multiSelectedProfiles = this.multiSelectedProfiles.filter(n => n !== name);
+      } else {
+        this.multiSelectedProfiles = [...this.multiSelectedProfiles, name];
+      }
+    },
+
+    async startMultiBench() {
+      if (this.multiSelectedProfiles.length < 2) {
+        toast('请至少选择 2 个 Profile', 'info');
+        return;
+      }
+      const conc = this.selectedConcurrency || 100;
+      const requests = parseInt(this.requestsPerLevel);
+      const config = {
+        concurrency_levels: [conc],
+        mode: this.form.mode,
+        max_tokens: parseInt(this.form.max_tokens) || 512,
+        timeout: parseInt(this.form.timeout) || 120,
+        duration: parseInt(this.form.duration) || 120,
+        system_prompt: this.form.system_prompt,
+        user_prompt: this.form.user_prompt,
+      };
+      if (!isNaN(requests) && requests > 0) config.requests_per_level = requests;
+
+      try {
+        const res = await api('/api/bench/start-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tasks: this.multiSelectedProfiles.map(name => ({ profile_name: name, config })),
+          }),
+        });
+        if (res.error) { toast(res.error, 'error'); return; }
+        this.groupId = res.group_id;
+        this.multiTasks = {};
+        this.multiLogs = {};
+        this.multiResults = {};
+        this.multiResultFiles = [];
+        for (const tid of res.task_ids) {
+          this.multiTasks[tid] = { profile_name: '', status: 'running', progress: { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' }, event_seq: 0 };
+          this.multiLogs[tid] = [];
+          this.multiResults[tid] = [];
+        }
+        this.setRunningState(true);
+        this.startMultiPolling();
+        toast('多服务器测试已启动', 'success');
+      } catch (e) { toast('启动失败: ' + e.message, 'error'); }
+    },
+
+    startMultiPolling() {
+      this.stopPolling();
+      this.pollTimer = setInterval(() => this.pollMultiStatus(), 1500);
+      this.pollMultiStatus();
+    },
+
+    async pollMultiStatus() {
+      if (!this.groupId) return;
+      try {
+        const data = await api(`/api/bench/status-multi?group_id=${this.groupId}`);
+        let allDone = true;
+        for (const t of (data.tasks || [])) {
+          const mt = this.multiTasks[t.task_id];
+          if (!mt) continue;
+          mt.profile_name = t.profile_name;
+          mt.status = t.status;
+          mt.progress = {
+            done: t.done, total: t.total, success: t.success,
+            failed: t.failed, elapsed: t.elapsed,
+            rate: t.elapsed > 0 ? (t.done / t.elapsed).toFixed(1) : '-',
+          };
+          if (t.status === 'running') allDone = false;
+          if (t.result_filenames) {
+            for (const fn of t.result_filenames) {
+              if (!this.multiResultFiles.includes(fn)) this.multiResultFiles.push(fn);
+            }
+          }
+        }
+        if (allDone && data.status === 'completed') {
+          this.stopPolling();
+          this.setRunningState(false);
+          toast('所有测试完成！', 'success');
+          if (this.multiResultFiles.length >= 2) {
+            window._autoCompareFilenames = [...this.multiResultFiles];
+            Alpine.store('app').switchTab('history');
+          }
+        }
+      } catch (e) {}
     },
   }));
 });

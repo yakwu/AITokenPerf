@@ -171,7 +171,7 @@ function renderResultDetail(r) {
 }
 
 // ============ Alpine Store ============
-const VALID_TABS = ['dashboard', 'benchmark', 'history', 'config', 'auth', 'settings', 'admin-users'];
+const VALID_TABS = ['dashboard', 'benchmark', 'history', 'schedules', 'config', 'auth', 'settings', 'admin-users'];
 
 function isLoggedIn() {
   return !!localStorage.getItem('token');
@@ -184,6 +184,9 @@ function getTabFromHash() {
   return VALID_TABS.includes(hash) ? hash : 'dashboard';
 }
 
+// 防止 switchTab 设置 location.hash 后 hashchange handler 覆盖 tab
+let _switchingTab = false;
+
 document.addEventListener('alpine:init', () => {
   const userStr = localStorage.getItem('user');
   Alpine.store('app', {
@@ -193,8 +196,11 @@ document.addEventListener('alpine:init', () => {
     user: userStr ? JSON.parse(userStr) : null,
     switchTab(t) {
       if (!isLoggedIn() && t !== 'auth') return;
+      _switchingTab = true;
       this.tab = t;
       location.hash = t === 'dashboard' ? '' : t;
+      // 短暂延迟后重置标志，确保 hashchange handler 不会覆盖
+      setTimeout(() => { _switchingTab = false; }, 50);
     },
     setUser(user, token) {
       this.user = user;
@@ -213,6 +219,7 @@ document.addEventListener('alpine:init', () => {
 
 // 浏览器前进/后退时同步 tab
 window.addEventListener('hashchange', () => {
+  if (_switchingTab) return;
   const store = Alpine.store('app');
   if (store) store.tab = getTabFromHash();
 });
