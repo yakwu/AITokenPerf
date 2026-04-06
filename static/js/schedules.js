@@ -153,6 +153,10 @@ document.addEventListener('alpine:init', () => {
     async toggleHistory(id) {
       if (this.expandedScheduleId === id) {
         this.expandedScheduleId = null;
+        if (window._scheduleTrendChart) {
+          window._scheduleTrendChart.destroy();
+          window._scheduleTrendChart = null;
+        }
         return;
       }
       this.expandedScheduleId = id;
@@ -169,6 +173,123 @@ document.addEventListener('alpine:init', () => {
         this.scheduleHistory = [];
       }
       this.historyLoading = false;
+      this.$nextTick(() => this.renderTrendChart());
+    },
+
+    renderTrendChart() {
+      const results = this.scheduleHistory;
+      if (!results || results.length < 2) return;
+      // Destroy previous chart if any
+      if (window._scheduleTrendChart) {
+        window._scheduleTrendChart.destroy();
+        window._scheduleTrendChart = null;
+      }
+      const canvas = document.getElementById('scheduleTrendCanvas');
+      if (!canvas) return;
+
+      // Sort by time ascending for the trend
+      const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      const labels = sorted.map(r => fmtTimestamp(r.timestamp));
+
+      const ttftP50 = sorted.map(r => (r.percentiles?.TTFT?.P50 || 0) * 1000);
+      const e2eP50 = sorted.map(r => (r.percentiles?.E2E?.P50 || 0) * 1000);
+      const throughput = sorted.map(r => r.summary?.throughput_rps || 0);
+      const successRate = sorted.map(r => r.summary?.success_rate ?? null);
+
+      window._scheduleTrendChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'TTFT P50 (ms)',
+              data: ttftP50,
+              borderColor: '#3B7DD6',
+              backgroundColor: '#3B7DD622',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3,
+              yAxisID: 'y',
+            },
+            {
+              label: 'E2E P50 (ms)',
+              data: e2eP50,
+              borderColor: '#E85D26',
+              backgroundColor: '#E85D2622',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3,
+              yAxisID: 'y',
+            },
+            {
+              label: '吞吐量 (req/s)',
+              data: throughput,
+              borderColor: '#2D8B55',
+              backgroundColor: '#2D8B5522',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3,
+              yAxisID: 'y1',
+            },
+            {
+              label: '成功率 (%)',
+              data: successRate,
+              borderColor: '#F59E3B',
+              backgroundColor: '#F59E3B22',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3,
+              yAxisID: 'y2',
+              borderDash: [5, 3],
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 },
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  if (ctx.dataset.yAxisID === 'y2') return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}%`;
+                  return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(0)} ms`;
+                },
+              },
+            },
+          },
+          scales: {
+            y: {
+              position: 'left',
+              title: { display: true, text: 'Latency (ms)', font: { size: 11 } },
+              grid: { color: '#F0EEE9' },
+              ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
+              beginAtZero: true,
+            },
+            y1: {
+              position: 'right',
+              title: { display: true, text: 'Throughput (req/s)', font: { size: 11 } },
+              grid: { drawOnChartArea: false },
+              ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
+              beginAtZero: true,
+            },
+            y2: {
+              display: false,
+              min: 0,
+              max: 105,
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45 },
+            },
+          },
+        },
+      });
     },
 
     viewResultInHistory(r) {

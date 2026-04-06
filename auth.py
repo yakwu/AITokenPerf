@@ -38,7 +38,7 @@ PUBLIC_PATHS = {
     "/", "/favicon.ico",
     "/api/auth/login", "/api/auth/register",
 }
-PUBLIC_PREFIXES = ["/css/", "/js/", "/fonts/"]
+PUBLIC_PREFIXES = ["/css/", "/js/", "/fonts/", "/vendor/"]
 
 
 def hash_password(password: str) -> str:

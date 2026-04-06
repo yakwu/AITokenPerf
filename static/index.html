@@ -506,10 +506,10 @@
           </thead>
           <tbody>
             <template x-for="s in schedules" :key="s.id">
-              <tr>
+              <tr style="cursor:pointer" @click="if(!$event.target.closest('button')) toggleHistory(s.id)">
                 <td style="font-weight:600">
-                  <span x-text="s.name" style="cursor:pointer" @click="toggleHistory(s.id)" :title="expandedScheduleId === s.id ? '收起执行记录' : '查看执行记录'"></span>
-                  <span style="font-size:11px;color:var(--text-tertiary);margin-left:4px;cursor:pointer" @click="toggleHistory(s.id)"><i class="ph" :class="expandedScheduleId === s.id ? 'ph-caret-up' : 'ph-caret-down'"></i></span>
+                  <span x-text="s.name"></span>
+                  <span style="font-size:11px;color:var(--text-tertiary);margin-left:4px"><i class="ph" :class="expandedScheduleId === s.id ? 'ph-caret-up' : 'ph-caret-down'"></i></span>
                 </td>
                 <td><span style="font-size:12px" x-text="(s.profile_ids || []).join(', ')"></span></td>
                 <td>
@@ -543,7 +543,11 @@
                   <div x-show="historyLoading" style="text-align:center;color:var(--text-tertiary);padding:20px">加载中...</div>
                   <div x-show="!historyLoading && scheduleHistory.length === 0" style="text-align:center;color:var(--text-tertiary);padding:20px">暂无执行记录</div>
                   <div x-show="!historyLoading && scheduleHistory.length > 0">
-                    <div style="font-size:13px;font-weight:600;margin-bottom:8px">执行记录 (<span x-text="scheduleHistory.length"></span> 条)</div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:12px">执行趋势 (<span x-text="scheduleHistory.length"></span> 次执行)</div>
+                    <div id="scheduleTrendChart" style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
+                      <canvas id="scheduleTrendCanvas" style="width:100%;height:260px;max-height:260px"></canvas>
+                    </div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:8px">执行记录</div>
                     <table class="pct-table" style="width:100%">
                       <thead>
                         <tr>

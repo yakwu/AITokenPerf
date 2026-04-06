@@ -15,7 +15,7 @@ from aiohttp import web
 import aiohttp as aiohttp_lib
 
 from client import send_streaming_request
-from stats import aggregate_metrics, build_report_dict, save_report
+from stats import aggregate_metrics, build_report_dict
 from logger import log_access, log_security
 from db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
 from db import switch_active_profile, delete_profile as db_delete_profile
@@ -783,8 +783,7 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
                 bench_duration = time.monotonic() - bench_start
                 result = aggregate_metrics(metrics, level, mode, bench_duration)
                 report_dict = build_report_dict(result, config)
-                filepath = save_report(result, output_dir, config)
-                filename = os.path.basename(filepath)
+                filename = f"bench_{result.concurrency}c_{result.mode}_{report_dict.get('timestamp', '')}.json"
                 task.result_filenames.append(filename)
 
                 # 保存到 DB
@@ -1114,6 +1113,7 @@ def create_app() -> web.Application:
     app.router.add_get("/favicon.ico", favicon_handler)
     app.router.add_static("/css/", STATIC_DIR / "css")
     app.router.add_static("/js/", STATIC_DIR / "js")
+    app.router.add_static("/vendor/", STATIC_DIR / "vendor")
 
     # Auth routes
     app.router.add_post("/api/auth/register", auth_register)

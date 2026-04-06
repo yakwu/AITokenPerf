@@ -1110,19 +1110,14 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 .detail-row td {
   padding: 20px;
   background: var(--bg);
-  max-width: 0;
 }
 .detail-row td > div {
   width: 100%;
-  max-width: 100%;
-  overflow: hidden;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-.detail-row td > div details {
-  max-width: 100%;
-  overflow: hidden;
-}
+.detail-row .table-wrap { overflow-x: auto; }
+.detail-row .charts-row { overflow: hidden; }
 
 .detail-content {
   display: grid;

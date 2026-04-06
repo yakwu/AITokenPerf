@@ -235,19 +235,3 @@ def build_report_dict(result: BenchmarkResult, config: dict) -> dict:
             report["percentiles"][name] = p
 
     return report
-
-
-def save_report(result: BenchmarkResult, output_dir: str, config: dict):
-    """保存报告到 JSON 文件"""
-    os.makedirs(output_dir, exist_ok=True)
-
-    report = build_report_dict(result, config)
-    timestamp = report["timestamp"]
-    filename = f"bench_{result.concurrency}c_{result.mode}_{timestamp}.json"
-    filepath = os.path.join(output_dir, filename)
-
-    with open(filepath, "w") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
-
-    print(f"\n  Report saved: {filepath}")
-    return filepath
