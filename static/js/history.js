@@ -107,15 +107,47 @@ document.addEventListener('alpine:init', () => {
       this.$nextTick(() => {
         this.renderTable();
         this.tryAutoCompare();
-        // Auto-expand a specific test if navigated from dashboard
-        if (window._autoExpandTestId) {
-          const tid = window._autoExpandTestId;
-          window._autoExpandTestId = null;
-          const idx = this.filtered.findIndex(r => r.test_id === tid);
-          if (idx >= 0) {
-            this.toggleDetail(idx);
-            const row = document.getElementById(`detail-${idx}`);
-            if (row) row.previousElementSibling.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Auto-expand a specific test if navigated from dashboard/schedules
+        if (window._autoExpandFilename) {
+          const fn = window._autoExpandFilename;
+          window._autoExpandFilename = null;
+          // 先在当前页找（可能在聚合组的 children 里）
+          let foundIdx = -1;
+          let foundChildIdx = -1;
+          for (let i = 0; i < this.filtered.length; i++) {
+            const r = this.filtered[i];
+            if ((r._filename || r.filename) === fn) { foundIdx = i; break; }
+            if (r.children) {
+              const ci = r.children.findIndex(c => (c._filename || c.filename) === fn);
+              if (ci >= 0) { foundIdx = i; foundChildIdx = ci; break; }
+            }
+          }
+          if (foundIdx >= 0) {
+            if (foundChildIdx >= 0) {
+              // 聚合组内的子记录，先展开组
+              this.toggleGroupExpand(foundIdx);
+              this.$nextTick(() => {
+                const row = document.getElementById(`detail-group-${foundIdx}-${foundChildIdx}`);
+                if (row) {
+                  row.classList.add('open');
+                  const el = document.getElementById(`detail-group-content-${foundIdx}-${foundChildIdx}`);
+                  if (el) el.innerHTML = renderResultDetail(this.filtered[foundIdx].children[foundChildIdx]);
+                  row.previousElementSibling.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              });
+            } else {
+              this.toggleDetail(foundIdx);
+              const row = document.getElementById(`detail-${foundIdx}`);
+              if (row) row.previousElementSibling.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else {
+            // 当前页没找到，直接用 API 获取单条展示
+            try {
+              const detail = await api('/api/results/' + encodeURIComponent(fn));
+              if (detail && !detail.error) {
+                this._showDetailOverlay(detail);
+              }
+            } catch {}
           }
         }
       });
@@ -444,6 +476,19 @@ document.addEventListener('alpine:init', () => {
           }
         });
       }, 50);
+    },
+
+    _showDetailOverlay(detail) {
+      const el = document.getElementById('detailOverlay');
+      const content = document.getElementById('detailOverlayContent');
+      if (el && content) {
+        content.innerHTML = renderResultDetail(detail);
+        el.classList.add('open');
+      }
+    },
+
+    closeDetailOverlay() {
+      document.getElementById('detailOverlay').classList.remove('open');
     },
 
     closeCompare() {

@@ -396,7 +396,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     viewResultInHistory(r) {
-      window._autoExpandTestId = r.test_id;
+      window._autoExpandFilename = r.filename || r.test_id;
       Alpine.store('app').switchTab('history');
     },
 
