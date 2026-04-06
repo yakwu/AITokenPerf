@@ -8,7 +8,8 @@ document.addEventListener('alpine:init', () => {
     },
 
     async refreshDashboard() {
-      const results = await api('/api/results');
+      const data = await api('/api/results?limit=500');
+      const results = data.items || [];
       if (!results.length) {
         this.contentHtml = `<div class="empty-state"><div class="empty-state-icon">&#9201;</div><div class="empty-state-text">\u6682\u65e0\u6d4b\u8bd5\u7ed3\u679c</div><p style="color:var(--text-tertiary);font-size:13px">\u8fd0\u884c\u4e00\u6b21\u538b\u6d4b\u540e\u7ed3\u679c\u5c06\u5728\u6b64\u5c55\u793a\u3002</p></div>`;
         return;

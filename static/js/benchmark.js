@@ -121,8 +121,9 @@ document.addEventListener('alpine:init', () => {
 
     async loadKnownModels() {
       try {
-        const data = await api('/api/results');
-        const models = (Array.isArray(data) ? data : [])
+        const data = await api('/api/results?limit=500');
+        const results = data.items || [];
+        const models = results
           .map(r => r.config?.model)
           .filter(Boolean);
         this.knownModels = [...new Set(models)].sort();
