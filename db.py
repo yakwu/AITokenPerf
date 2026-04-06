@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS results (
     percentiles_json   TEXT NOT NULL,
     errors_json        TEXT NOT NULL DEFAULT '{}',
     error_details_json TEXT NOT NULL DEFAULT '[]',
+    group_id           TEXT NOT NULL DEFAULT '',
     created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -61,6 +62,22 @@ CREATE TABLE IF NOT EXISTS user_settings (
     benchmark_json TEXT NOT NULL DEFAULT '{}',
     output_dir     TEXT NOT NULL DEFAULT './data/results',
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    profile_ids     TEXT NOT NULL DEFAULT '[]',
+    configs_json    TEXT NOT NULL DEFAULT '{}',
+    schedule_type   TEXT NOT NULL DEFAULT 'interval',
+    schedule_value  TEXT NOT NULL DEFAULT '300',
+    status          TEXT NOT NULL DEFAULT 'active',
+    last_run_at     TEXT,
+    next_run_at     TEXT,
+    run_count       INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 
@@ -213,14 +230,15 @@ async def delete_profile(user_id: int, name: str):
 
 async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
                        config_json: str, summary_json: str, percentiles_json: str,
-                       errors_json: str = "{}", error_details_json: str = "[]"):
+                       errors_json: str = "{}", error_details_json: str = "[]",
+                       group_id: str = ""):
     db = await get_db()
     await db.execute(
         """INSERT INTO results (user_id, test_id, filename, timestamp, config_json,
-            summary_json, percentiles_json, errors_json, error_details_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            summary_json, percentiles_json, errors_json, error_details_json, group_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (user_id, test_id, filename, timestamp, config_json, summary_json,
-         percentiles_json, errors_json, error_details_json),
+         percentiles_json, errors_json, error_details_json, group_id),
     )
     await db.commit()
 
@@ -291,3 +309,94 @@ async def save_settings(user_id: int, benchmark: dict, output_dir: str = "./resu
         (user_id, json.dumps(benchmark), output_dir),
     )
     await db.commit()
+
+
+# ---- Scheduled Tasks CRUD ----
+
+async def create_scheduled_task(user_id: int, name: str, profile_ids: list,
+                                 configs_json: dict, schedule_type: str,
+                                 schedule_value: str) -> int:
+    db = await get_db()
+    cur = await db.execute(
+        """INSERT INTO scheduled_tasks (user_id, name, profile_ids, configs_json,
+            schedule_type, schedule_value)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (user_id, name, json.dumps(profile_ids), json.dumps(configs_json),
+         schedule_type, schedule_value),
+    )
+    await db.commit()
+    return cur.lastrowid
+
+
+async def get_scheduled_tasks(user_id: int) -> list[dict]:
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM scheduled_tasks WHERE user_id=? ORDER BY created_at DESC",
+        (user_id,),
+    )
+    rows = await cur.fetchall()
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["profile_ids"] = json.loads(d["profile_ids"])
+        d["configs"] = json.loads(d["configs_json"])
+        results.append(d)
+    return results
+
+
+async def get_scheduled_task(task_id: int) -> Optional[dict]:
+    db = await get_db()
+    cur = await db.execute("SELECT * FROM scheduled_tasks WHERE id=?", (task_id,))
+    row = await cur.fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["profile_ids"] = json.loads(d["profile_ids"])
+    d["configs"] = json.loads(d["configs_json"])
+    return d
+
+
+async def update_scheduled_task(task_id: int, **fields):
+    db = await get_db()
+    allowed = {"name", "profile_ids", "configs_json", "schedule_type",
+               "schedule_value", "status", "last_run_at", "next_run_at", "run_count"}
+    set_parts = []
+    values = []
+    for k, v in fields.items():
+        if k in allowed:
+            set_parts.append(f"{k}=?")
+            if k == "profile_ids" and isinstance(v, list):
+                v = json.dumps(v)
+            elif k == "configs_json" and isinstance(v, dict):
+                v = json.dumps(v)
+            values.append(v)
+    if not set_parts:
+        return
+    set_parts.append("updated_at=datetime('now')")
+    values.append(task_id)
+    await db.execute(
+        f"UPDATE scheduled_tasks SET {', '.join(set_parts)} WHERE id=?",
+        values,
+    )
+    await db.commit()
+
+
+async def delete_scheduled_task(task_id: int):
+    db = await get_db()
+    await db.execute("DELETE FROM scheduled_tasks WHERE id=?", (task_id,))
+    await db.commit()
+
+
+async def get_all_active_scheduled_tasks() -> list[dict]:
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT * FROM scheduled_tasks WHERE status='active' ORDER BY id"
+    )
+    rows = await cur.fetchall()
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["profile_ids"] = json.loads(d["profile_ids"])
+        d["configs"] = json.loads(d["configs_json"])
+        results.append(d)
+    return results

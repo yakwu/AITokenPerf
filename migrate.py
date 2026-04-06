@@ -29,6 +29,9 @@ async def migrate():
     # 初始化 DB
     await init_db()
 
+    # 增量 schema 迁移（处理已有数据库的新增列/表）
+    await _migrate_schema()
+
     # 检查是否已有数据
     if await count_users() > 0:
         print("  数据库已有数据，跳过迁移")
@@ -125,3 +128,20 @@ async def _create_default_admin():
     print(f"    邮箱: {admin_email}")
     print(f"    密码: {admin_password}")
     print(f"    (请登录后尽快修改密码)\n")
+
+
+async def _migrate_schema():
+    """增量迁移：为已有数据库添加新列/表"""
+    from db import get_db
+    db = await get_db()
+
+    # 检查 results 表是否有 group_id 列
+    cur = await db.execute("PRAGMA table_info(results)")
+    columns = {row[1] for row in await cur.fetchall()}
+    if "group_id" not in columns:
+        await db.execute("ALTER TABLE results ADD COLUMN group_id TEXT NOT NULL DEFAULT ''")
+        await db.commit()
+        print("  schema 迁移: results 表添加 group_id 列")
+
+    # scheduled_tasks 表由 init_db 中的 CREATE TABLE IF NOT EXISTS 处理
+    # 无需额外迁移

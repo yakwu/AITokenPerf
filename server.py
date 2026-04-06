@@ -37,12 +37,14 @@ BENCHMARK_KEYS = ("mode", "concurrency_levels", "duration", "max_tokens",
 
 
 @dataclass
-class BenchState:
-    status: str = "idle"  # idle | running | stopping
-    current_task: Optional[asyncio.Task] = None
-    stop_event: asyncio.Event = field(default_factory=asyncio.Event)
+class BenchTask:
+    """单个基准测试任务的状态"""
     task_id: str = ""
     owner_id: Optional[int] = None
+    profile_name: str = ""
+    group_id: str = ""
+    status: str = "idle"  # idle | running | stopping | error
+    stop_event: asyncio.Event = field(default_factory=asyncio.Event)
     events: list = field(default_factory=list)
     event_seq: int = 0
     current_concurrency: int = 0
@@ -53,9 +55,62 @@ class BenchState:
     failed_count: int = 0
     total_count: int = 0
     start_time: float = 0.0
+    asyncio_task: Optional[asyncio.Task] = None
+    result_filenames: list = field(default_factory=list)
 
 
-state = BenchState()
+class BenchTaskManager:
+    MAX_PER_USER = 5
+    MAX_GLOBAL = 20
+
+    def __init__(self):
+        self._tasks: dict[str, BenchTask] = {}
+        self._group_tasks: dict[str, list[str]] = {}
+
+    def create_task(self, task_id: str, owner_id: int, profile_name: str = "", group_id: str = "") -> BenchTask:
+        task = BenchTask(task_id=task_id, owner_id=owner_id, profile_name=profile_name, group_id=group_id)
+        self._tasks[task_id] = task
+        if group_id:
+            self._group_tasks.setdefault(group_id, []).append(task_id)
+        return task
+
+    def get_task(self, task_id: str) -> Optional[BenchTask]:
+        return self._tasks.get(task_id)
+
+    def get_user_running_task(self, user_id: int) -> Optional[BenchTask]:
+        """返回用户最近一个运行中的任务（向后兼容）"""
+        for task in self._tasks.values():
+            if task.owner_id == user_id and task.status == "running":
+                return task
+        return None
+
+    def get_user_task_count(self, user_id: int) -> int:
+        return sum(1 for t in self._tasks.values() if t.owner_id == user_id and t.status == "running")
+
+    def get_running_count(self) -> int:
+        return sum(1 for t in self._tasks.values() if t.status == "running")
+
+    def get_group_tasks(self, group_id: str) -> list[BenchTask]:
+        task_ids = self._group_tasks.get(group_id, [])
+        return [self._tasks[tid] for tid in task_ids if tid in self._tasks]
+
+    def remove_task(self, task_id: str):
+        task = self._tasks.pop(task_id, None)
+        if task and task.group_id:
+            group = self._group_tasks.get(task.group_id)
+            if group and task_id in group:
+                group.remove(task_id)
+            if not group:
+                self._group_tasks.pop(task.group_id, None)
+
+    def cleanup_idle(self):
+        """清理已完成的任务，释放内存"""
+        to_remove = [tid for tid, t in self._tasks.items() if t.status == "idle" and t.asyncio_task is None]
+        for tid in to_remove:
+            self.remove_task(tid)
+
+
+manager = BenchTaskManager()
 
 
 # ---- Security ----
@@ -182,10 +237,10 @@ def _set_cors_headers(resp: web.Response, request: web.Request):
 
 # ---- Helpers ----
 
-async def _publish(event_type: str, data: dict):
-    state.event_seq += 1
-    state.events.append({
-        "seq": state.event_seq,
+async def _publish(task: BenchTask, event_type: str, data: dict):
+    task.event_seq += 1
+    task.events.append({
+        "seq": task.event_seq,
         "type": event_type,
         "data": data,
     })
@@ -401,7 +456,7 @@ async def list_results(request):
     # Fallback: 兼容旧文件系统中的 results
     db_filenames = {r.get("_filename") or r.get("filename") for r in results}
     if RESULTS_DIR.exists():
-        for f in sorted(RESULTS_DIR.glob("*.json"), reverse=True):
+        for f in sorted(RESULTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
             if f.name not in db_filenames:
                 try:
                     data = json.loads(f.read_text())
@@ -447,7 +502,8 @@ async def delete_result_handler(request):
 async def start_bench(request):
     user_id = request["user_id"]
 
-    if state.status == "running":
+    existing = manager.get_user_running_task(user_id)
+    if existing:
         return web.json_response({"error": "Benchmark already running"}, status=409)
 
     body = await request.json() if request.content_length else {}
@@ -493,52 +549,168 @@ async def start_bench(request):
             config[key] = body[key]
 
     import uuid
-    state.task_id = uuid.uuid4().hex[:12]
-    state.owner_id = user_id
-    state.events = []
-    state.event_seq = 0
-    state.status = "running"
-    state.stop_event = asyncio.Event()
-    state.start_time = time.monotonic()
-    state.current_task = asyncio.create_task(_run_benchmark_task(config, user_id))
+    task_id = uuid.uuid4().hex[:12]
+    profile_name = active["name"] if active else ""
+    task = manager.create_task(task_id, user_id, profile_name=profile_name)
+    task.status = "running"
+    task.stop_event = asyncio.Event()
+    task.start_time = time.monotonic()
+    task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
 
-    return web.json_response({"status": "started", "task_id": state.task_id})
+    return web.json_response({"status": "started", "task_id": task_id})
 
 
 async def stop_bench(request):
     user_id = request["user_id"]
-    if state.status != "running":
+    task_id = request.query.get("task_id", "")
+
+    if task_id:
+        task = manager.get_task(task_id)
+    else:
+        task = manager.get_user_running_task(user_id)
+
+    if not task or task.status != "running":
         return web.json_response({"error": "No benchmark running"}, status=400)
-    if state.owner_id is not None and state.owner_id != user_id:
+    if task.owner_id != user_id:
         return web.json_response({"error": "Not your benchmark"}, status=403)
-    state.status = "stopping"
-    state.stop_event.set()
+    task.status = "stopping"
+    task.stop_event.set()
     return web.json_response({"status": "stopping"})
 
 
 async def bench_status(request):
+    user_id = request["user_id"]
+    task_id = request.query.get("task_id", "")
+
+    if task_id:
+        task = manager.get_task(task_id)
+    else:
+        task = manager.get_user_running_task(user_id)
+
+    if not task:
+        return web.json_response({
+            "task_id": "", "status": "idle",
+            "concurrency": 0, "level": 0, "total_levels": 0,
+            "done": 0, "total": 0, "success": 0, "failed": 0,
+            "elapsed": 0, "events": [],
+        })
+
     since = int(request.query.get("since", 0))
-    new_events = [e for e in state.events if e["seq"] > since]
-    elapsed = round(time.monotonic() - state.start_time, 1) if state.start_time else 0
+    new_events = [e for e in task.events if e["seq"] > since]
+    elapsed = round(time.monotonic() - task.start_time, 1) if task.start_time else 0
 
     return web.json_response({
-        "task_id": state.task_id,
-        "status": state.status,
-        "concurrency": state.current_concurrency,
-        "level": state.current_level,
-        "total_levels": state.total_levels,
-        "done": state.done_count,
-        "total": state.total_count,
-        "success": state.success_count,
-        "failed": state.failed_count,
+        "task_id": task.task_id,
+        "status": task.status,
+        "concurrency": task.current_concurrency,
+        "level": task.current_level,
+        "total_levels": task.total_levels,
+        "done": task.done_count,
+        "total": task.total_count,
+        "success": task.success_count,
+        "failed": task.failed_count,
         "elapsed": elapsed,
         "events": new_events,
     })
 
 
+async def start_multi_bench(request):
+    """多服务器并行测试"""
+    import uuid
+    user_id = request["user_id"]
+    body = await request.json()
+
+    tasks_spec = body.get("tasks", [])
+    if not tasks_spec or len(tasks_spec) > 10:
+        return web.json_response({"error": "tasks 数量需在 1-10 之间"}, status=400)
+
+    # 检查并发限制
+    current_running = manager.get_running_count()
+    if current_running + len(tasks_spec) > BenchTaskManager.MAX_GLOBAL:
+        return web.json_response({"error": f"全局并发任务数已达上限 ({BenchTaskManager.MAX_GLOBAL})"}, status=429)
+    user_running = manager.get_user_task_count(user_id)
+    if user_running + len(tasks_spec) > BenchTaskManager.MAX_PER_USER:
+        return web.json_response({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status=429)
+
+    # 加载用户所有 profile
+    profiles = await get_profiles(user_id)
+    profile_map = {p["name"]: p for p in profiles}
+    benchmark = await get_settings(user_id)
+
+    group_id = f"grp_{uuid.uuid4().hex[:12]}"
+    task_ids = []
+
+    for spec in tasks_spec:
+        profile_name = spec.get("profile_name", "")
+        profile = profile_map.get(profile_name)
+        if not profile:
+            return web.json_response({"error": f"Profile '{profile_name}' 不存在"}, status=400)
+
+        # 合并配置：benchmark defaults -> profile connection -> 前端覆盖
+        config = dict(benchmark) if benchmark else {}
+        for k in CONNECTION_KEYS:
+            if profile.get(k):
+                config[k] = profile[k]
+        _apply_env_overrides(config)
+
+        overrides = spec.get("config", {})
+        for key in BENCHMARK_KEYS + CONNECTION_KEYS + ("requests_per_level",):
+            if key in overrides and overrides[key] is not None:
+                if key == "api_key" and isinstance(overrides[key], str) and overrides[key].startswith("..."):
+                    continue
+                config[key] = overrides[key]
+
+        task_id = uuid.uuid4().hex[:12]
+        task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
+        task.status = "running"
+        task.stop_event = asyncio.Event()
+        task.start_time = time.monotonic()
+        task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
+        task_ids.append(task_id)
+
+    return web.json_response({
+        "status": "started",
+        "group_id": group_id,
+        "task_ids": task_ids,
+    })
+
+
+async def status_multi(request):
+    """多服务器测试状态聚合"""
+    group_id = request.query.get("group_id", "")
+    if not group_id:
+        return web.json_response({"error": "group_id is required"}, status=400)
+
+    tasks = manager.get_group_tasks(group_id)
+    if not tasks:
+        return web.json_response({"error": "Group not found"}, status=404)
+
+    task_statuses = []
+    for task in tasks:
+        elapsed = round(time.monotonic() - task.start_time, 1) if task.start_time else 0
+        task_statuses.append({
+            "task_id": task.task_id,
+            "profile_name": task.profile_name,
+            "status": task.status,
+            "done": task.done_count,
+            "total": task.total_count,
+            "success": task.success_count,
+            "failed": task.failed_count,
+            "elapsed": elapsed,
+            "result_filenames": task.result_filenames,
+        })
+
+    all_done = all(t["status"] != "running" for t in task_statuses)
+    return web.json_response({
+        "group_id": group_id,
+        "status": "completed" if all_done else "running",
+        "tasks": task_statuses,
+    })
+
+
 # ---- Core benchmark task ----
 
-async def _run_benchmark_task(config: dict, owner_id: int):
+async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
     from main import run_burst, run_sustained
 
     try:
@@ -548,8 +720,7 @@ async def _run_benchmark_task(config: dict, owner_id: int):
             concurrency_levels = [concurrency_levels]
         output_dir = config.get("output_dir", "./data/results")
 
-        state.total_levels = len(concurrency_levels)
-        saved_reports = []
+        task.total_levels = len(concurrency_levels)
 
         connector = aiohttp_lib.TCPConnector(
             limit=config.get("connector_limit", 1200),
@@ -559,17 +730,17 @@ async def _run_benchmark_task(config: dict, owner_id: int):
 
         async with aiohttp_lib.ClientSession(connector=connector) as session:
             for idx, level in enumerate(concurrency_levels):
-                if state.stop_event.is_set():
+                if task.stop_event.is_set():
                     break
 
-                state.current_level = idx + 1
-                state.current_concurrency = level
-                state.done_count = 0
-                state.success_count = 0
-                state.failed_count = 0
-                state.total_count = level if mode == "burst" else 0
+                task.current_level = idx + 1
+                task.current_concurrency = level
+                task.done_count = 0
+                task.success_count = 0
+                task.failed_count = 0
+                task.total_count = level if mode == "burst" else 0
 
-                await _publish("bench:start", {
+                await _publish(task, "bench:start", {
                     "concurrency": level,
                     "mode": mode,
                     "current_level": idx + 1,
@@ -579,24 +750,24 @@ async def _run_benchmark_task(config: dict, owner_id: int):
                 bench_start = time.monotonic()
                 throttle_last = 0
 
-                async def on_progress(done, total, m):
+                async def on_progress(done, total, m, _task=task, _level=level, _bench_start=bench_start):
                     nonlocal throttle_last
-                    state.done_count = done
-                    state.total_count = total
+                    _task.done_count = done
+                    _task.total_count = total
                     if m.success:
-                        state.success_count += 1
+                        _task.success_count += 1
                     else:
-                        state.failed_count += 1
+                        _task.failed_count += 1
 
                     now = time.monotonic()
                     if now - throttle_last >= 0.1 or done == total:
                         throttle_last = now
-                        await _publish("bench:progress", {
+                        await _publish(_task, "bench:progress", {
                             "done": done, "total": total,
-                            "success": state.success_count,
-                            "failed": state.failed_count,
-                            "concurrency": level,
-                            "elapsed": round(now - bench_start, 1),
+                            "success": _task.success_count,
+                            "failed": _task.failed_count,
+                            "concurrency": _level,
+                            "elapsed": round(now - _bench_start, 1),
                         })
 
                 if mode == "burst":
@@ -605,7 +776,7 @@ async def _run_benchmark_task(config: dict, owner_id: int):
                     duration = config.get("duration", 120)
                     metrics = await run_sustained(
                         session, config, level, duration,
-                        on_complete=on_progress, stop_event=state.stop_event,
+                        on_complete=on_progress, stop_event=task.stop_event,
                     )
 
                 bench_duration = time.monotonic() - bench_start
@@ -613,7 +784,7 @@ async def _run_benchmark_task(config: dict, owner_id: int):
                 report_dict = build_report_dict(result, config)
                 filepath = save_report(result, output_dir, config)
                 filename = os.path.basename(filepath)
-                saved_reports.append(filename)
+                task.result_filenames.append(filename)
 
                 # 保存到 DB
                 try:
@@ -627,32 +798,33 @@ async def _run_benchmark_task(config: dict, owner_id: int):
                         percentiles_json=json.dumps(report_dict.get("percentiles", {})),
                         errors_json=json.dumps(report_dict.get("errors", {})),
                         error_details_json=json.dumps(report_dict.get("error_details", [])),
+                        group_id=task.group_id,
                     )
                 except Exception as db_err:
                     print(f"Warning: failed to save result to DB: {db_err}")
 
-                await _publish("bench:level_complete", {
+                await _publish(task, "bench:level_complete", {
                     "concurrency": level,
                     "result": report_dict,
-                    "filename": os.path.basename(filepath),
+                    "filename": filename,
                 })
 
-                if level != concurrency_levels[-1] and not state.stop_event.is_set():
+                if level != concurrency_levels[-1] and not task.stop_event.is_set():
                     await asyncio.sleep(5)
 
-        if state.stop_event.is_set():
-            await _publish("bench:stopped", {"message": "Benchmark stopped by user"})
+        if task.stop_event.is_set():
+            await _publish(task, "bench:stopped", {"message": "Benchmark stopped by user"})
         else:
-            await _publish("bench:complete", {
+            await _publish(task, "bench:complete", {
                 "message": "Benchmark complete",
-                "reports": saved_reports,
+                "reports": task.result_filenames,
             })
 
     except Exception as e:
-        await _publish("bench:error", {"error": str(e)})
+        await _publish(task, "bench:error", {"error": str(e)})
     finally:
-        state.status = "idle"
-        state.current_task = None
+        task.status = "idle"
+        task.asyncio_task = None
 
 
 # ---- Auth routes ----
@@ -774,19 +946,139 @@ async def favicon_handler(request):
     return web.FileResponse(STATIC_DIR / "favicon.ico")
 
 
+# ---- Schedule API ----
+
+async def list_schedules(request):
+    from db import get_scheduled_tasks
+    user_id = request["user_id"]
+    tasks = await get_scheduled_tasks(user_id)
+    return web.json_response({"schedules": tasks})
+
+
+async def create_schedule(request):
+    from db import create_scheduled_task
+    user_id = request["user_id"]
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        return web.json_response({"error": "名称不能为空"}, status=400)
+    profile_ids = body.get("profile_ids", [])
+    if not profile_ids:
+        return web.json_response({"error": "请至少选择一个 Profile"}, status=400)
+    configs_json = body.get("configs_json", {})
+    schedule_type = body.get("schedule_type", "interval")
+    schedule_value = str(body.get("schedule_value", "300"))
+    sid = await create_scheduled_task(
+        user_id, name, profile_ids, configs_json, schedule_type, schedule_value,
+    )
+    # 调度新任务
+    from db import get_scheduled_task
+    task_row = await get_scheduled_task(sid)
+    if task_row and _scheduler:
+        _scheduler._schedule(task_row)
+    return web.json_response({"id": sid, "status": "created"})
+
+
+async def update_schedule(request):
+    from db import update_scheduled_task, get_scheduled_task
+    task_id = int(request.match_info["id"])
+    user_id = request["user_id"]
+    task_row = await get_scheduled_task(task_id)
+    if not task_row or task_row["user_id"] != user_id:
+        return web.json_response({"error": "Not found"}, status=404)
+    body = await request.json()
+    allowed = {"name", "profile_ids", "configs_json", "schedule_type", "schedule_value", "status"}
+    fields = {k: v for k, v in body.items() if k in allowed}
+    if fields:
+        await update_scheduled_task(task_id, **fields)
+    # 重新调度
+    if _scheduler and fields.get("status", task_row.get("status")) == "active":
+        updated = await get_scheduled_task(task_id)
+        if updated:
+            _scheduler._schedule(updated)
+    return web.json_response({"status": "updated"})
+
+
+async def delete_schedule(request):
+    from db import delete_scheduled_task, get_scheduled_task
+    task_id = int(request.match_info["id"])
+    user_id = request["user_id"]
+    task_row = await get_scheduled_task(task_id)
+    if not task_row or task_row["user_id"] != user_id:
+        return web.json_response({"error": "Not found"}, status=404)
+    # 取消 timer
+    if _scheduler and task_id in _scheduler._timers:
+        _scheduler._timers[task_id].cancel()
+        del _scheduler._timers[task_id]
+    await delete_scheduled_task(task_id)
+    return web.json_response({"status": "deleted"})
+
+
+async def pause_schedule(request):
+    from db import update_scheduled_task, get_scheduled_task
+    task_id = int(request.match_info["id"])
+    user_id = request["user_id"]
+    task_row = await get_scheduled_task(task_id)
+    if not task_row or task_row["user_id"] != user_id:
+        return web.json_response({"error": "Not found"}, status=404)
+    await update_scheduled_task(task_id, status="paused")
+    if _scheduler and task_id in _scheduler._timers:
+        _scheduler._timers[task_id].cancel()
+        del _scheduler._timers[task_id]
+    return web.json_response({"status": "paused"})
+
+
+async def resume_schedule(request):
+    from db import update_scheduled_task, get_scheduled_task
+    task_id = int(request.match_info["id"])
+    user_id = request["user_id"]
+    task_row = await get_scheduled_task(task_id)
+    if not task_row or task_row["user_id"] != user_id:
+        return web.json_response({"error": "Not found"}, status=404)
+    await update_scheduled_task(task_id, status="active")
+    if _scheduler:
+        updated = await get_scheduled_task(task_id)
+        if updated:
+            _scheduler._schedule(updated)
+    return web.json_response({"status": "resumed"})
+
+
+async def run_schedule_now(request):
+    from db import get_scheduled_task
+    task_id = int(request.match_info["id"])
+    user_id = request["user_id"]
+    task_row = await get_scheduled_task(task_id)
+    if not task_row or task_row["user_id"] != user_id:
+        return web.json_response({"error": "Not found"}, status=404)
+    if _scheduler:
+        asyncio.create_task(_scheduler._execute(task_id))
+    return web.json_response({"status": "triggered"})
+
+
 # ---- App ----
 
+_scheduler = None
+
 def create_app() -> web.Application:
+    global _scheduler
     app = web.Application(
         middlewares=[security_middleware, auth_middleware],
         client_max_size=1024 * 1024,  # 1MB
     )
 
     async def on_startup(app):
+        global _scheduler
         from migrate import migrate
         await migrate()
+        from scheduler import TaskScheduler
+        _scheduler = TaskScheduler()
+        await _scheduler.start()
 
     async def on_cleanup(app):
+        global _scheduler
+        if _scheduler:
+            await _scheduler.stop()
+            _scheduler = None
         await close_db()
 
     app.on_startup.append(on_startup)
@@ -828,6 +1120,17 @@ def create_app() -> web.Application:
     app.router.add_post("/api/bench/start", start_bench)
     app.router.add_post("/api/bench/stop", stop_bench)
     app.router.add_get("/api/bench/status", bench_status)
+    app.router.add_post("/api/bench/start-multi", start_multi_bench)
+    app.router.add_get("/api/bench/status-multi", status_multi)
+
+    # Schedule routes
+    app.router.add_get("/api/schedules", list_schedules)
+    app.router.add_post("/api/schedules", create_schedule)
+    app.router.add_put("/api/schedules/{id}", update_schedule)
+    app.router.add_delete("/api/schedules/{id}", delete_schedule)
+    app.router.add_post("/api/schedules/{id}/pause", pause_schedule)
+    app.router.add_post("/api/schedules/{id}/resume", resume_schedule)
+    app.router.add_post("/api/schedules/{id}/run-now", run_schedule_now)
 
     return app
 
