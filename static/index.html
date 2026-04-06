@@ -618,10 +618,13 @@
     <!-- 编辑任务弹窗 -->
     <div class="compare-overlay" :class="{'open': showEditForm}" @click.self="showEditForm = false">
       <div class="compare-modal" style="max-width:620px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-          <h2 style="margin:0">编辑定时任务</h2>
-          <button class="btn btn-ghost btn-sm" @click="showEditForm = false" style="font-size:20px;line-height:1">&times;</button>
+        <div class="compare-modal-header">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h2 style="margin:0">编辑定时任务</h2>
+            <button class="btn btn-ghost btn-sm" @click="showEditForm = false" style="font-size:20px;line-height:1">&times;</button>
+          </div>
         </div>
+        <div class="compare-modal-body">
         <div class="form-grid">
           <div class="form-group full">
             <label class="form-label">任务名称</label>
@@ -681,6 +684,7 @@
             <span x-show="editLoading">保存中...</span>
           </button>
           <button class="btn btn-ghost" @click="showEditForm = false">取消</button>
+        </div>
         </div>
       </div>
     </div>
@@ -801,22 +805,26 @@
 <!-- Compare Modal -->
 <div class="compare-overlay" id="compareOverlay" @click.self="document.getElementById('compareOverlay').classList.remove('open')">
   <div class="compare-modal">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2>对比分析</h2>
-      <button class="btn btn-ghost btn-sm" @click="document.getElementById('compareOverlay').classList.remove('open')">关闭</button>
+    <div class="compare-modal-header">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>对比分析</h2>
+        <button class="btn btn-ghost btn-sm" @click="document.getElementById('compareOverlay').classList.remove('open')">关闭</button>
+      </div>
     </div>
-    <div id="compareContent"></div>
+    <div class="compare-modal-body" id="compareContent"></div>
   </div>
 </div>
 
 <!-- Detail Overlay (for cross-tab navigation) -->
 <div class="compare-overlay" id="detailOverlay" @click.self="document.getElementById('detailOverlay').classList.remove('open')">
   <div class="compare-modal">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2>测试详情</h2>
-      <button class="btn btn-ghost btn-sm" @click="document.getElementById('detailOverlay').classList.remove('open')">关闭</button>
+    <div class="compare-modal-header">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>测试详情</h2>
+        <button class="btn btn-ghost btn-sm" @click="document.getElementById('detailOverlay').classList.remove('open')">关闭</button>
+      </div>
     </div>
-    <div id="detailOverlayContent"></div>
+    <div class="compare-modal-body" id="detailOverlayContent"></div>
   </div>
 </div>
 

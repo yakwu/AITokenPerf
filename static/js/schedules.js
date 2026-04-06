@@ -396,8 +396,12 @@ document.addEventListener('alpine:init', () => {
     },
 
     viewResultInHistory(r) {
-      window._autoExpandFilename = r.filename || r.test_id;
-      Alpine.store('app').switchTab('history');
+      const el = document.getElementById('detailOverlay');
+      const content = document.getElementById('detailOverlayContent');
+      if (el && content) {
+        content.innerHTML = renderResultDetail(r);
+        el.classList.add('open');
+      }
     },
 
     toggleEditProfile(name) {
