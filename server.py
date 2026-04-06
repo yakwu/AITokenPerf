@@ -29,7 +29,6 @@ from auth import auth_middleware, hash_password, verify_password, create_jwt_tok
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.yaml"
-RESULTS_DIR = BASE_DIR / "data" / "results"
 STATIC_DIR = BASE_DIR / "static"
 
 CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version")
@@ -463,23 +462,6 @@ async def list_results(request):
     items = result["items"]
     total = result["total"]
 
-    # Fallback: 兼容旧文件系统中的 results（仅在第一页时补充）
-    if offset == 0:
-        db_filenames = set()
-        for item in items:
-            db_filenames.add(item.get("_filename") or item.get("filename") or "")
-            for child in item.get("children", []):
-                db_filenames.add(child.get("_filename") or child.get("filename") or "")
-        if RESULTS_DIR.exists():
-            for f in sorted(RESULTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-                if f.name not in db_filenames:
-                    try:
-                        data = json.loads(f.read_text())
-                        data["_filename"] = f.name
-                        items.append(data)
-                    except (json.JSONDecodeError, OSError):
-                        pass
-
     return web.json_response({"total": total, "items": items})
 
 
@@ -487,15 +469,6 @@ async def get_result(request):
     user_id = request["user_id"]
     filename = request.match_info["filename"]
     result = await get_result_by_filename(user_id, filename)
-    if not result:
-        # Fallback: 从文件系统读取
-        filepath = RESULTS_DIR / filename
-        if filepath.exists():
-            try:
-                result = json.loads(filepath.read_text())
-                result["_filename"] = filename
-            except (json.JSONDecodeError, OSError):
-                pass
     if not result:
         return web.json_response({"error": "Not found"}, status=404)
     return web.json_response(result)
@@ -505,10 +478,6 @@ async def delete_result_handler(request):
     user_id = request["user_id"]
     filename = request.match_info["filename"]
     await db_delete_result(user_id, filename)
-    # 同时删除文件（如果存在）
-    filepath = RESULTS_DIR / filename
-    if filepath.exists():
-        filepath.unlink()
     return web.json_response({"status": "deleted"})
 
 
@@ -1083,7 +1052,7 @@ async def get_schedule_results(request):
     for r in results:
         clean.append({
             "test_id": r.get("test_id", ""),
-            "filename": r.get("_filename", ""),
+            "filename": r.get("filename", ""),
             "timestamp": r.get("timestamp", ""),
             "config": r.get("config", {}),
             "summary": r.get("summary", {}),

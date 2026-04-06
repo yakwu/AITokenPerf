@@ -247,7 +247,6 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
 
 def _row_to_result_dict(row) -> dict:
     d = dict(row)
-    d["_filename"] = d["filename"]
     d["config"] = json.loads(d["config_json"])
     d["summary"] = json.loads(d["summary_json"])
     d["percentiles"] = json.loads(d["percentiles_json"])
@@ -376,7 +375,6 @@ async def get_result_by_filename(user_id: int, filename: str) -> Optional[dict]:
     if not row:
         return None
     d = dict(row)
-    d["_filename"] = d["filename"]
     d["config"] = json.loads(d["config_json"])
     d["summary"] = json.loads(d["summary_json"])
     d["percentiles"] = json.loads(d["percentiles_json"])
@@ -405,7 +403,6 @@ async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int) ->
     results = []
     for row in rows:
         d = dict(row)
-        d["_filename"] = d["filename"]
         d["config"] = json.loads(d["config_json"])
         d["summary"] = json.loads(d["summary_json"])
         d["percentiles"] = json.loads(d["percentiles_json"])

@@ -88,7 +88,7 @@ document.addEventListener('alpine:init', () => {
       this.$nextTick(() => {
         const indices = [];
         for (const fn of filenames) {
-          const idx = this.filtered.findIndex(r => (r._filename || r.filename) === fn);
+          const idx = this.filtered.findIndex(r => (r.filename) === fn);
           if (idx >= 0) indices.push(idx);
         }
         if (indices.length >= 2) {
@@ -116,9 +116,9 @@ document.addEventListener('alpine:init', () => {
           let foundChildIdx = -1;
           for (let i = 0; i < this.filtered.length; i++) {
             const r = this.filtered[i];
-            if ((r._filename || r.filename) === fn) { foundIdx = i; break; }
+            if ((r.filename) === fn) { foundIdx = i; break; }
             if (r.children) {
-              const ci = r.children.findIndex(c => (c._filename || c.filename) === fn);
+              const ci = r.children.findIndex(c => (c.filename) === fn);
               if (ci >= 0) { foundIdx = i; foundChildIdx = ci; break; }
             }
           }
@@ -208,7 +208,7 @@ document.addEventListener('alpine:init', () => {
         const c = r.config || {};
         const s = r.summary || {};
         const p = r.percentiles || {};
-        const fn = r._filename || '';
+        const fn = r.filename || '';
         const successClass = (s.success_rate || 0) >= 95 ? 'color:var(--success)' : (s.success_rate || 0) >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
         const isGroup = r.children_count && r.children_count > 1;
         const children = r.children || [];
