@@ -142,12 +142,11 @@ document.addEventListener('alpine:init', () => {
             }
           } else {
             // 当前页没找到，直接用 API 获取单条展示
-            try {
-              const detail = await api('/api/results/' + encodeURIComponent(fn));
+            api('/api/results/' + encodeURIComponent(fn)).then(detail => {
               if (detail && !detail.error) {
                 this._showDetailOverlay(detail);
               }
-            } catch {}
+            }).catch(() => {});
           }
         }
       });
