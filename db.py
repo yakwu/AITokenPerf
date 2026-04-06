@@ -306,9 +306,55 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0)
     # 3) 构建聚合列表：手动的保持原样，定时任务的合并
     merged = list(manual_items)  # 手动结果已经是单条
     for sid, group in scheduled_groups.items():
-        # group 已按 created_at DESC 排序，第一条是最新的
+        # group 已按 created_at DESC 排序
+        # 计算平均指标作为聚合展示值
+        count = len(group)
+        avg_summary = {}
+        avg_percentiles = {}
+        if count > 0:
+            def _avg(key_chain):
+                vals = []
+                for g in group:
+                    obj = g
+                    for k in key_chain:
+                        obj = obj.get(k) if isinstance(obj, dict) else None
+                        if obj is None:
+                            break
+                    if obj is not None:
+                        vals.append(float(obj))
+                return sum(vals) / len(vals) if vals else None
+
+            avg_summary = dict(group[0].get("summary", {}))
+            for key in ["success_rate", "throughput_rps", "token_throughput_tps",
+                        "avg_output_tokens", "total_input_tokens", "total_output_tokens"]:
+                v = _avg(["summary", key])
+                if v is not None:
+                    avg_summary[key] = v
+
+            # input_tokens / output_tokens 统计对象
+            for sub_key in ["input_tokens", "output_tokens"]:
+                sub_obj = {}
+                for stat in ["Min", "P50", "P95", "P99", "Max", "Avg"]:
+                    v = _avg(["summary", sub_key, stat])
+                    if v is not None:
+                        sub_obj[stat] = v
+                if sub_obj:
+                    avg_summary[sub_key] = sub_obj
+
+            avg_percentiles = dict(group[0].get("percentiles", {}))
+            for metric in ["TTFT", "TPOT", "E2E"]:
+                metric_obj = {}
+                for stat in ["Min", "P50", "P95", "P99", "Max", "Avg"]:
+                    v = _avg(["percentiles", metric, stat])
+                    if v is not None:
+                        metric_obj[stat] = round(v, 6)
+                if metric_obj:
+                    avg_percentiles[metric] = metric_obj
+
         representative = dict(group[0])
-        representative["children_count"] = len(group)
+        representative["summary"] = avg_summary
+        representative["percentiles"] = avg_percentiles
+        representative["children_count"] = count
         representative["children"] = group  # 全部子记录，展开时展示
         merged.append(representative)
 

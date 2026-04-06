@@ -190,19 +190,32 @@ document.addEventListener('alpine:init', () => {
     renderTrendSummary() {
       const results = this.scheduleHistory;
       if (!results || results.length === 0) { this.trendSummary = []; return; }
+
+      function avgField(fn) {
+        const vals = results.map(r => fn(r)).filter(v => v != null);
+        return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+      }
+
+      const aSucc = avgField(r => r.summary?.success_rate);
+      const aThr = avgField(r => r.summary?.throughput_rps);
+      const aTtft = avgField(r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 * 1000 : null);
+      const aE2e = avgField(r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 * 1000 : null);
+
+      // 环比：最近一半 vs 之前一半的平均值
       const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-      const latest = sorted[sorted.length - 1];
-      const prev = sorted.length >= 2 ? sorted[sorted.length - 2] : null;
+      const mid = Math.floor(sorted.length / 2);
+      const recentHalf = sorted.slice(mid);
+      const prevHalf = sorted.slice(0, mid);
 
-      const lSucc = latest.summary?.success_rate;
-      const lThr = latest.summary?.throughput_rps;
-      const lTtft = latest.percentiles?.TTFT?.P50 != null ? latest.percentiles.TTFT.P50 * 1000 : null;
-      const lE2e = latest.percentiles?.E2E?.P50 != null ? latest.percentiles.E2E.P50 * 1000 : null;
+      function avgHalf(arr, fn) {
+        const vals = arr.map(r => fn(r)).filter(v => v != null);
+        return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+      }
 
-      const pSucc = prev?.summary?.success_rate;
-      const pThr = prev?.summary?.throughput_rps;
-      const pTtft = prev?.percentiles?.TTFT?.P50 != null ? prev.percentiles.TTFT.P50 * 1000 : null;
-      const pE2e = prev?.percentiles?.E2E?.P50 != null ? prev.percentiles.E2E.P50 * 1000 : null;
+      const pSucc = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.summary?.success_rate) : null;
+      const pThr = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.summary?.throughput_rps) : null;
+      const pTtft = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 * 1000 : null) : null;
+      const pE2e = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 * 1000 : null) : null;
 
       function deltaStr(curr, prevVal, unit, higherIsBetter) {
         if (curr == null || prevVal == null) return { delta: '-', deltaStyle: '' };
@@ -214,16 +227,16 @@ document.addEventListener('alpine:init', () => {
         return { delta: `${arrow} ${absDiff.toFixed(1)}${unit}`, deltaStyle: color };
       }
 
-      const succDelta = deltaStr(lSucc, pSucc, '%', true);
-      const thrDelta = deltaStr(lThr, pThr, '/s', true);
-      const ttftDelta = lTtft != null ? deltaStr(lTtft, pTtft, 'ms', false) : { delta: '-', deltaStyle: '' };
-      const e2eDelta = lE2e != null ? deltaStr(lE2e, pE2e, 'ms', false) : { delta: '-', deltaStyle: '' };
+      const succDelta = deltaStr(aSucc, pSucc, '%', true);
+      const thrDelta = deltaStr(aThr, pThr, '/s', true);
+      const ttftDelta = aTtft != null ? deltaStr(aTtft, pTtft, 'ms', false) : { delta: '-', deltaStyle: '' };
+      const e2eDelta = aE2e != null ? deltaStr(aE2e, pE2e, 'ms', false) : { delta: '-', deltaStyle: '' };
 
       this.trendSummary = [
-        { label: '成功率', value: lSucc != null ? lSucc.toFixed(1) + '%' : '-', valueStyle: lSucc >= 95 ? 'color:var(--success)' : lSucc >= 80 ? 'color:var(--warning)' : 'color:var(--danger)', ...succDelta },
-        { label: '吞吐量', value: lThr != null ? lThr.toFixed(1) + '/s' : '-', valueStyle: '', ...thrDelta },
-        { label: 'TTFT P50', value: lTtft != null ? lTtft.toFixed(0) + 'ms' : '-', valueStyle: lTtft <= 500 ? 'color:var(--success)' : lTtft <= 2000 ? 'color:var(--warning)' : 'color:var(--danger)', ...ttftDelta },
-        { label: 'E2E P50', value: lE2e != null ? lE2e.toFixed(0) + 'ms' : '-', valueStyle: lE2e <= 2000 ? 'color:var(--success)' : lE2e <= 10000 ? 'color:var(--warning)' : 'color:var(--danger)', ...e2eDelta },
+        { label: '成功率', value: aSucc != null ? aSucc.toFixed(1) + '%' : '-', valueStyle: aSucc >= 95 ? 'color:var(--success)' : aSucc >= 80 ? 'color:var(--warning)' : 'color:var(--danger)', ...succDelta },
+        { label: '吞吐量', value: aThr != null ? aThr.toFixed(1) + '/s' : '-', valueStyle: '', ...thrDelta },
+        { label: 'TTFT P50', value: aTtft != null ? aTtft.toFixed(0) + 'ms' : '-', valueStyle: aTtft <= 500 ? 'color:var(--success)' : aTtft <= 2000 ? 'color:var(--warning)' : 'color:var(--danger)', ...ttftDelta },
+        { label: 'E2E P50', value: aE2e != null ? aE2e.toFixed(0) + 'ms' : '-', valueStyle: aE2e <= 2000 ? 'color:var(--success)' : aE2e <= 10000 ? 'color:var(--warning)' : 'color:var(--danger)', ...e2eDelta },
       ];
     },
 
