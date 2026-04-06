@@ -245,6 +245,19 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
     await db.commit()
 
 
+def _row_to_result_dict(row) -> dict:
+    d = dict(row)
+    d["_filename"] = d["filename"]
+    d["config"] = json.loads(d["config_json"])
+    d["summary"] = json.loads(d["summary_json"])
+    d["percentiles"] = json.loads(d["percentiles_json"])
+    d["errors"] = json.loads(d["errors_json"])
+    d["error_details"] = json.loads(d["error_details_json"])
+    if not d.get("schedule_name"):
+        d["schedule_name"] = ""
+    return d
+
+
 async def get_results(user_id: int) -> list[dict]:
     db = await get_db()
     cur = await db.execute(
@@ -256,19 +269,56 @@ async def get_results(user_id: int) -> list[dict]:
         (user_id,),
     )
     rows = await cur.fetchall()
-    results = []
+    return [_row_to_result_dict(row) for row in rows]
+
+
+async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0) -> dict:
+    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。
+
+    返回 {"total": int, "items": [...]} 格式。
+    手动执行的结果（scheduled_task_id=0）各自独立展示。
+    定时任务的结果按 scheduled_task_id 聚合，展示最新一条，附带执行次数。
+    分页在聚合后执行。
+    """
+    db = await get_db()
+    # 1) 获取所有结果（仍需全量用于聚合，后续可优化为 SQL 聚合）
+    cur = await db.execute(
+        """SELECT r.*, st.name AS schedule_name
+           FROM results r
+           LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+           WHERE r.user_id=?
+           ORDER BY r.created_at DESC""",
+        (user_id,),
+    )
+    rows = await cur.fetchall()
+
+    # 2) 聚合
+    manual_items = []
+    scheduled_groups = {}  # scheduled_task_id -> [result_dicts]
     for row in rows:
-        d = dict(row)
-        d["_filename"] = d["filename"]
-        d["config"] = json.loads(d["config_json"])
-        d["summary"] = json.loads(d["summary_json"])
-        d["percentiles"] = json.loads(d["percentiles_json"])
-        d["errors"] = json.loads(d["errors_json"])
-        d["error_details"] = json.loads(d["error_details_json"])
-        if not d.get("schedule_name"):
-            d["schedule_name"] = ""
-        results.append(d)
-    return results
+        d = _row_to_result_dict(row)
+        sid = d.get("scheduled_task_id") or 0
+        if sid == 0:
+            manual_items.append(d)
+        else:
+            scheduled_groups.setdefault(sid, []).append(d)
+
+    # 3) 构建聚合列表：手动的保持原样，定时任务的合并
+    merged = list(manual_items)  # 手动结果已经是单条
+    for sid, group in scheduled_groups.items():
+        # group 已按 created_at DESC 排序，第一条是最新的
+        representative = dict(group[0])
+        representative["children_count"] = len(group)
+        representative["children"] = group  # 全部子记录，展开时展示
+        merged.append(representative)
+
+    # 4) 按最新时间排序
+    merged.sort(key=lambda r: r.get("created_at") or r.get("timestamp") or "", reverse=True)
+
+    total = len(merged)
+    paged = merged[offset:offset + limit]
+
+    return {"total": total, "items": paged}
 
 
 async def get_result_by_filename(user_id: int, filename: str) -> Optional[dict]:

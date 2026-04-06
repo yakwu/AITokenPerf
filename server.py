@@ -20,6 +20,7 @@ from logger import log_access, log_security
 from db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
 from db import switch_active_profile, delete_profile as db_delete_profile
 from db import save_result as db_save_result, get_results as db_get_results
+from db import get_results_aggregated as db_get_results_aggregated
 from db import get_result_by_filename, delete_result as db_delete_result
 from db import get_settings, save_settings
 from db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
@@ -452,21 +453,35 @@ async def delete_profile_handler(request):
 
 async def list_results(request):
     user_id = request["user_id"]
-    results = await db_get_results(user_id)
+    limit = int(request.query.get("limit", 50))
+    offset = int(request.query.get("offset", 0))
+    # 限制范围
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
 
-    # Fallback: 兼容旧文件系统中的 results
-    db_filenames = {r.get("_filename") or r.get("filename") for r in results}
-    if RESULTS_DIR.exists():
-        for f in sorted(RESULTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-            if f.name not in db_filenames:
-                try:
-                    data = json.loads(f.read_text())
-                    data["_filename"] = f.name
-                    results.append(data)
-                except (json.JSONDecodeError, OSError):
-                    pass
+    result = await db_get_results_aggregated(user_id, limit=limit, offset=offset)
+    items = result["items"]
+    total = result["total"]
 
-    return web.json_response(results)
+    # Fallback: 兼容旧文件系统中的 results（仅在第一页时补充）
+    if offset == 0:
+        db_filenames = set()
+        for item in items:
+            db_filenames.add(item.get("_filename") or item.get("filename") or "")
+            for child in item.get("children", []):
+                db_filenames.add(child.get("_filename") or child.get("filename") or "")
+        if RESULTS_DIR.exists():
+            for f in sorted(RESULTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+                if f.name not in db_filenames:
+                    try:
+                        data = json.loads(f.read_text())
+                        data["_filename"] = f.name
+                        items.append(data)
+                        total += 1
+                    except (json.JSONDecodeError, OSError):
+                        pass
+
+    return web.json_response({"total": total, "items": items})
 
 
 async def get_result(request):

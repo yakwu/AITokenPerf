@@ -44,6 +44,31 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+// 质量类指标着色（越高越好）— CSS class 版本，用于 metric-value
+function qualityColorClass(value, goodThreshold, warnThreshold) {
+  if (value == null) return '';
+  return value >= goodThreshold ? 'success' : value >= warnThreshold ? 'warning' : 'danger';
+}
+
+// 延迟类指标着色（越低越好）— CSS class 版本，用于 metric-value
+function latencyColorClass(value, goodThreshold, warnThreshold) {
+  if (value == null) return '';
+  return value <= goodThreshold ? 'success' : value <= warnThreshold ? 'warning' : 'danger';
+}
+
+// 质量类指标着色（越高越好）— inline style 版本，用于表格 td
+function qualityColorStyle(value, goodThreshold, warnThreshold) {
+  if (value == null) return '';
+  return value >= goodThreshold ? 'color:var(--success)' : value >= warnThreshold ? 'color:var(--warning)' : 'color:var(--danger)';
+}
+
+// 延迟类指标着色（越低越好）— inline style 版本，用于表格 td
+// value 单位为秒，阈值也用秒
+function latencyColorStyle(value, goodThreshold, warnThreshold) {
+  if (value == null) return '';
+  return value <= goodThreshold ? 'color:var(--success)' : value <= warnThreshold ? 'color:var(--warning)' : 'color:var(--danger)';
+}
+
 const METRIC_INFO = {
   'TTFT': 'Time To First Token \u2014 \u9996\u5b57\u5ef6\u8fdf\uff0c\u4ece\u8bf7\u6c42\u53d1\u51fa\u5230\u6536\u5230\u7b2c\u4e00\u4e2a token \u7684\u65f6\u95f4',
   'TPOT': 'Time Per Output Token \u2014 \u6bcf\u4e2a token \u7684\u8f93\u51fa\u5ef6\u8fdf\uff0c\u8861\u91cf\u751f\u6210\u901f\u5ea6',

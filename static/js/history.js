@@ -1,6 +1,9 @@
 document.addEventListener('alpine:init', () => {
   Alpine.data('historyTab', () => ({
     results: [],
+    total: 0,
+    page: 1,
+    pageSize: 20,
     search: '',
     modeFilter: '',
     modelFilter: '',
@@ -11,8 +14,14 @@ document.addEventListener('alpine:init', () => {
     sortDir: 'desc',
     compareSet: new Set(),
     expandedRows: new Set(),
+    expandedGroups: new Set(),
     ddOpen: '',
+    pendingDelete: null,
+    deleteTimer: null,
 
+    get totalPages() {
+      return Math.max(1, Math.ceil(this.total / this.pageSize));
+    },
     get uniqueModels() {
       return [...new Set(this.results.map(r => r.config?.model).filter(Boolean))].sort();
     },
@@ -27,6 +36,7 @@ document.addEventListener('alpine:init', () => {
       return [...new Set(this.results.map(r => r.schedule_name).filter(Boolean))].sort();
     },
 
+    // 前端过滤 + 排序（在当前页数据上）
     get filtered() {
       let filtered = this.results.filter(r => {
         const c = r.config || {};
@@ -39,7 +49,7 @@ document.addEventListener('alpine:init', () => {
           if (src !== this.sourceFilter) return false;
         }
         if (this.search) {
-          const hay = `${c.model} ${c.base_url} ${r.timestamp} ${r.test_id || ''}`.toLowerCase();
+          const hay = `${c.model} ${c.base_url} ${r.timestamp} ${r.test_id || ''} ${r.schedule_name || ''}`.toLowerCase();
           if (!hay.includes(this.search.toLowerCase())) return false;
         }
         return true;
@@ -91,7 +101,9 @@ document.addEventListener('alpine:init', () => {
     },
 
     async refresh() {
-      this.results = await api('/api/results');
+      const data = await api(`/api/results?limit=${this.pageSize}&offset=${(this.page - 1) * this.pageSize}`);
+      this.results = data.items || [];
+      this.total = data.total || 0;
       this.$nextTick(() => {
         this.renderTable();
         this.tryAutoCompare();
@@ -109,12 +121,30 @@ document.addEventListener('alpine:init', () => {
       });
     },
 
+    goToPage(p) {
+      if (p < 1 || p > this.totalPages || p === this.page) return;
+      this.page = p;
+      this.expandedRows = new Set();
+      this.expandedGroups = new Set();
+      this.refresh();
+    },
+
     toggleSort(key) {
       if (this.sortKey === key) {
         this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
       } else {
         this.sortKey = key;
         this.sortDir = 'desc';
+      }
+      this.renderTable();
+    },
+
+    toggleGroupExpand(idx) {
+      if (this.expandedGroups.has(idx)) {
+        this.expandedGroups.delete(idx);
+      } else {
+        this.expandedGroups = new Set(this.expandedGroups);
+        this.expandedGroups.add(idx);
       }
       this.renderTable();
     },
@@ -139,7 +169,7 @@ document.addEventListener('alpine:init', () => {
       }
 
       if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-tertiary)">\u6682\u65e0\u8bb0\u5f55</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td></tr>';
         return;
       }
 
@@ -149,13 +179,19 @@ document.addEventListener('alpine:init', () => {
         const p = r.percentiles || {};
         const fn = r._filename || '';
         const successClass = (s.success_rate || 0) >= 95 ? 'color:var(--success)' : (s.success_rate || 0) >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
+        const isGroup = r.children_count && r.children_count > 1;
+        const children = r.children || [];
 
         const tr = document.createElement('tr');
         tr.className = 'history-row';
         tr.style.cursor = 'pointer';
         tr.onclick = (e) => {
           if (e.target.tagName === 'INPUT' || e.target.closest('.del-btn')) return;
-          this.toggleDetail(idx);
+          if (isGroup) {
+            this.toggleGroupExpand(idx);
+          } else {
+            this.toggleDetail(idx);
+          }
         };
         tr.innerHTML = `
           <td><input type="checkbox" class="compare-check" data-idx="${idx}" ${this.compareSet.has(idx) ? 'checked' : ''} onchange="window._historyComponent && window._historyComponent.toggleCompare(${idx})"></td>
@@ -165,27 +201,71 @@ document.addEventListener('alpine:init', () => {
           <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${c.base_url || ''}">${c.base_url || '-'}</td>
           <td>${c.concurrency || '-'}</td>
           <td>${c.mode || '-'}</td>
-          <td style="font-size:12px;color:var(--text-tertiary)">${r.schedule_name || '<span style="color:var(--accent)">手动</span>'}</td>
+          <td style="font-size:12px;color:var(--text-tertiary)">${r.schedule_name ? (isGroup ? `<span style="font-weight:600">${escHtml(r.schedule_name)}</span> <span style="background:var(--accent);color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px">${r.children_count}次</span>` : escHtml(r.schedule_name)) : '<span style="color:var(--accent)">手动</span>'}</td>
           <td style="${successClass};font-weight:600">${fmtPct(s.success_rate)}</td>
-          <td>${fmtTime(p.TTFT?.P50)}</td>
-          <td>${fmtTime(p.E2E?.P50)}</td>
-          <td>${fmtNum(s.throughput_rps)} /s</td>
-          <td style="white-space:nowrap"><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.rerunResult(window._historyComponent.filtered[${idx}])" title="\u91cd\u65b0\u8fd0\u884c" style="color:var(--accent)">&#8635;</button><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.deleteResult('${fn}')" title="\u5220\u9664" style="color:var(--danger)">${window._historyComponent?.pendingDelete === fn ? '<span class="delete-undo">\u786e\u8ba4\u5220\u9664</span>' : '&#10005;'}</button></td>`;
+          <td style="${latencyColorStyle(p.TTFT?.P50, 0.5, 2)};font-weight:600">${fmtTime(p.TTFT?.P50)}</td>
+          <td style="${latencyColorStyle(p.E2E?.P50, 2, 10)};font-weight:600">${fmtTime(p.E2E?.P50)}</td>
+          <td style="${qualityColorStyle(s.throughput_rps, 20, 5)};font-weight:600">${fmtNum(s.throughput_rps)} /s</td>
+          <td style="white-space:nowrap"><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.rerunResult(window._historyComponent.filtered[${idx}])" title="重新运行" style="color:var(--accent)">&#8635;</button><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.deleteResult('${fn}')" title="删除" style="color:var(--danger)">${window._historyComponent?.pendingDelete === fn ? '<span class="delete-undo">确认删除</span>' : '&#10005;'}</button></td>`;
         tbody.appendChild(tr);
 
-        const detailTr = document.createElement('tr');
-        detailTr.className = 'detail-row' + (this.expandedRows.has(idx) ? ' open' : '');
-        detailTr.id = `detail-${idx}`;
-        detailTr.innerHTML = `<td colspan="13"><div id="detail-content-${idx}"></div></td>`;
-        tbody.appendChild(detailTr);
+        if (isGroup && this.expandedGroups.has(idx)) {
+          // 展开子记录
+          children.forEach((child, ci) => {
+            const cc = child.config || {};
+            const cs = child.summary || {};
+            const cp = child.percentiles || {};
+            const cSuccessClass = (cs.success_rate || 0) >= 95 ? 'color:var(--success)' : (cs.success_rate || 0) >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
+            const childTr = document.createElement('tr');
+            childTr.className = 'history-row group-child';
+            childTr.style.cursor = 'pointer';
+            childTr.onclick = (e) => {
+              if (e.target.tagName === 'INPUT' || e.target.closest('.del-btn')) return;
+              const detailRow = document.getElementById(`detail-group-${idx}-${ci}`);
+              if (detailRow) {
+                const isOpen = detailRow.classList.toggle('open');
+                if (isOpen) {
+                  const el = document.getElementById(`detail-group-content-${idx}-${ci}`);
+                  if (el && !el.innerHTML) el.innerHTML = renderResultDetail(child);
+                }
+              }
+            };
+            childTr.innerHTML = `
+              <td></td>
+              <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">${child.test_id || '-'}</td>
+              <td style="font-size:12px">${fmtTimestamp(child.timestamp)}</td>
+              <td style="font-size:12px">${cc.model || '-'}</td>
+              <td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${cc.base_url || ''}">${cc.base_url || '-'}</td>
+              <td style="font-size:12px">${cc.concurrency || '-'}</td>
+              <td style="font-size:12px">${cc.mode || '-'}</td>
+              <td style="font-size:11px;color:var(--text-tertiary)">${escHtml(child.schedule_name || '')}</td>
+              <td style="${cSuccessClass};font-weight:600;font-size:12px">${fmtPct(cs.success_rate)}</td>
+              <td style="${latencyColorStyle(cp.TTFT?.P50, 0.5, 2)};font-weight:600;font-size:12px">${fmtTime(cp.TTFT?.P50)}</td>
+              <td style="${latencyColorStyle(cp.E2E?.P50, 2, 10)};font-weight:600;font-size:12px">${fmtTime(cp.E2E?.P50)}</td>
+              <td style="${qualityColorStyle(cs.throughput_rps, 20, 5)};font-weight:600;font-size:12px">${fmtNum(cs.throughput_rps)} /s</td>
+              <td><button class="del-btn expand-btn" onclick="event.stopPropagation();window._historyComponent && window._historyComponent.rerunResult(window._historyComponent.filtered[${idx}].children[${ci}])" title="重新运行" style="color:var(--accent);font-size:11px">&#8635;</button></td>`;
+            tbody.appendChild(childTr);
 
-        if (this.expandedRows.has(idx)) {
-          document.getElementById(`detail-content-${idx}`)
-          // Render in next tick after DOM is ready
-          requestAnimationFrame(() => {
-            const el = document.getElementById(`detail-content-${idx}`);
-            if (el && !el.innerHTML) el.innerHTML = renderResultDetail(r);
+            const childDetailTr = document.createElement('tr');
+            childDetailTr.className = 'detail-row';
+            childDetailTr.id = `detail-group-${idx}-${ci}`;
+            childDetailTr.innerHTML = `<td colspan="13"><div id="detail-group-content-${idx}-${ci}"></div></td>`;
+            tbody.appendChild(childDetailTr);
           });
+        } else if (!isGroup) {
+          const detailTr = document.createElement('tr');
+          detailTr.className = 'detail-row' + (this.expandedRows.has(idx) ? ' open' : '');
+          detailTr.id = `detail-${idx}`;
+          detailTr.innerHTML = `<td colspan="13"><div id="detail-content-${idx}"></div></td>`;
+          tbody.appendChild(detailTr);
+
+          if (this.expandedRows.has(idx)) {
+            document.getElementById(`detail-content-${idx}`)
+            requestAnimationFrame(() => {
+              const el = document.getElementById(`detail-content-${idx}`);
+              if (el && !el.innerHTML) el.innerHTML = renderResultDetail(r);
+            });
+          }
         }
       });
 
@@ -245,9 +325,6 @@ document.addEventListener('alpine:init', () => {
       Alpine.store('app').switchTab('benchmark');
     },
 
-    pendingDelete: null,
-    deleteTimer: null,
-
     deleteResult(filename) {
       if (this.pendingDelete === filename) {
         // 第二次点击：确认删除
@@ -268,20 +345,20 @@ document.addEventListener('alpine:init', () => {
 
     async confirmDelete(filename) {
       await api('/api/results/' + filename, { method: 'DELETE' });
-      toast('\u5df2\u5220\u9664', 'info');
+      toast('已删除', 'info');
       this.refresh();
     },
 
     openCompare() {
       const filtered = this.filtered;
       const selected = [...this.compareSet].map(i => filtered[i]).filter(Boolean);
-      if (selected.length < 2) { toast('\u8bf7\u81f3\u5c11\u9009\u62e9 2 \u6761\u8bb0\u5f55', 'info'); return; }
+      if (selected.length < 2) { toast('请至少选择 2 条记录', 'info'); return; }
 
       const el = document.getElementById('compareContent');
-      let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th>\u6307\u6807</th>';
+      let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th>指标</th>';
       selected.forEach(r => {
         const c = r.config || {};
-        html += `<th>${c.model || '?'}<br><small style="font-weight:400">${c.concurrency || '?'}c \u00b7 ${fmtTimestamp(r.timestamp).slice(5)}</small></th>`;
+        html += `<th>${c.model || '?'}<br><small style="font-weight:400">${c.concurrency || '?'}c · ${fmtTimestamp(r.timestamp).slice(5)}</small></th>`;
       });
       html += '</tr></thead><tbody>';
 
@@ -318,7 +395,6 @@ document.addEventListener('alpine:init', () => {
               nonNull.sort((a, b) => higherIsBetter ? b[0] - a[0] : a[0] - b[0]);
               bestIdx = nonNull[0][1];
               worstIdx = nonNull[nonNull.length - 1][1];
-              // 只有 best 和 worst 不同时才标记
               if (bestIdx === worstIdx) { bestIdx = -1; worstIdx = -1; }
             }
           }
@@ -335,7 +411,7 @@ document.addEventListener('alpine:init', () => {
       html += '</tbody></table></div>';
 
       // Comparison chart
-      html += `<div style="margin-top:20px"><div class="card-title" style="margin-bottom:4px">TTFT & E2E \u5bf9\u6bd4</div><div class="chart-container"><canvas id="compareChart"></canvas></div></div>`;
+      html += `<div style="margin-top:20px"><div class="card-title" style="margin-bottom:4px">TTFT & E2E 对比</div><div class="chart-container"><canvas id="compareChart"></canvas></div></div>`;
 
       el.innerHTML = html;
       document.getElementById('compareOverlay').classList.add('open');

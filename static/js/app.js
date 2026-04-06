@@ -3,13 +3,23 @@ function renderResultDetail(r) {
   const s = r.summary || {};
   const p = r.percentiles || {};
   const c = r.config || {};
-  const successClass = s.success_rate >= 95 ? 'success' : s.success_rate >= 80 ? 'accent' : 'danger';
+  const successClass = s.success_rate >= 95 ? 'success' : s.success_rate >= 80 ? 'warning' : 'danger';
+  const throughputClass = qualityColorClass(s.throughput_rps, 20, 5);
+  const tokenRateClass = qualityColorClass(s.token_throughput_tps, 500, 100);
+  // 延迟类指标：值为秒，阈值也用秒
+  const ttftClass = latencyColorClass(p.TTFT?.P50, 0.5, 2);
+  const tpotClass = latencyColorClass(p.TPOT?.P50, 0.05, 0.2);
+  const e2eClass = latencyColorClass(p.E2E?.P50, 2, 10);
 
   let html = `
     <div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);font-family:var(--font-mono)">
       ${r.test_id ? `<span style="background:var(--bg);padding:2px 8px;border-radius:4px;font-size:11px;color:var(--text-tertiary)">#${r.test_id}</span> ` : ''}${c.base_url || '-'} &middot; ${c.model || '-'} &middot; ${fmtTimestamp(r.timestamp)}
     </div>
     <div class="metrics-grid">
+      <div class="metrics-group-header-row">
+        <div class="metrics-group-header">质量指标（越高越好）</div>
+        <div class="metrics-group-header">延迟指标（越低越好）</div>
+      </div>
       <div class="metric-card">
         <div class="metric-label">成功率</div>
         <div class="metric-value ${successClass}">${fmtPct(s.success_rate)}</div>
@@ -17,14 +27,30 @@ function renderResultDetail(r) {
       </div>
       <div class="metric-card">
         <div class="metric-label">吞吐量</div>
-        <div class="metric-value">${fmtNum(s.throughput_rps)}</div>
+        <div class="metric-value ${throughputClass}">${fmtNum(s.throughput_rps)}</div>
         <div class="metric-sub">req/s</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">Token 速率</div>
-        <div class="metric-value">${fmtNum(s.token_throughput_tps, 0)}</div>
+        <div class="metric-value ${tokenRateClass}">${fmtNum(s.token_throughput_tps, 0)}</div>
         <div class="metric-sub">tokens/s</div>
       </div>
+      <div class="metric-card">
+        <div class="metric-label">TTFT P50 ${infoIcon('TTFT')}</div>
+        <div class="metric-value ${ttftClass}">${fmtTime(p.TTFT?.P50)}</div>
+        <div class="metric-sub">P95: ${fmtTime(p.TTFT?.P95)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">TPOT P50 ${infoIcon('TPOT')}</div>
+        <div class="metric-value ${tpotClass}">${fmtTime(p.TPOT?.P50)}</div>
+        <div class="metric-sub">P95: ${fmtTime(p.TPOT?.P95)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">E2E P50 ${infoIcon('E2E')}</div>
+        <div class="metric-value ${e2eClass}">${fmtTime(p.E2E?.P50)}</div>
+        <div class="metric-sub">P95: ${fmtTime(p.E2E?.P95)}</div>
+      </div>
+      <div class="metrics-group-header">基础信息</div>
       <div class="metric-card">
         <div class="metric-label">输出 Tokens</div>
         <div class="metric-value">${fmtNum(s.output_tokens?.Avg, 0)}</div>
@@ -34,21 +60,6 @@ function renderResultDetail(r) {
         <div class="metric-label">输入 Tokens</div>
         <div class="metric-value">${fmtNum(s.input_tokens?.Avg, 0)}</div>
         <div class="metric-sub">总计 ${fmtBigNum(s.total_input_tokens)}</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">TTFT P50 ${infoIcon('TTFT')}</div>
-        <div class="metric-value accent">${fmtTime(p.TTFT?.P50)}</div>
-        <div class="metric-sub">P95: ${fmtTime(p.TTFT?.P95)}</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">TPOT P50 ${infoIcon('TPOT')}</div>
-        <div class="metric-value">${fmtTime(p.TPOT?.P50)}</div>
-        <div class="metric-sub">P95: ${fmtTime(p.TPOT?.P95)}</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">E2E P50 ${infoIcon('E2E')}</div>
-        <div class="metric-value accent">${fmtTime(p.E2E?.P50)}</div>
-        <div class="metric-sub">P95: ${fmtTime(p.E2E?.P95)}</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">耗时</div>

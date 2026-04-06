@@ -20,6 +20,7 @@ document.addEventListener('alpine:init', () => {
     deleteCandidate: null,
     expandedScheduleId: null,
     scheduleHistory: [],
+    trendSummary: [],
     historyLoading: false,
     showEditForm: false,
     editLoading: false,
@@ -153,18 +154,23 @@ document.addEventListener('alpine:init', () => {
     async toggleHistory(id) {
       if (this.expandedScheduleId === id) {
         this.expandedScheduleId = null;
-        if (window._scheduleTrendChart) {
-          window._scheduleTrendChart.destroy();
-          window._scheduleTrendChart = null;
-        }
+        this._destroyTrendCharts();
         return;
       }
       this.expandedScheduleId = id;
       await this.loadHistory(id);
     },
 
+    _destroyTrendCharts() {
+      if (window._trendLatencyChart) { window._trendLatencyChart.destroy(); window._trendLatencyChart = null; }
+      if (window._trendQualityChart) { window._trendQualityChart.destroy(); window._trendQualityChart = null; }
+      // legacy cleanup
+      if (window._scheduleTrendChart) { window._scheduleTrendChart.destroy(); window._scheduleTrendChart = null; }
+    },
+
     async loadHistory(id) {
       this.historyLoading = true;
+      this.trendSummary = [];
       try {
         const data = await api(`/api/schedules/${id}/results`);
         this.scheduleHistory = data.results || [];
@@ -173,30 +179,66 @@ document.addEventListener('alpine:init', () => {
         this.scheduleHistory = [];
       }
       this.historyLoading = false;
-      this.$nextTick(() => this.renderTrendChart());
+      this._destroyTrendCharts();
+      this.$nextTick(() => {
+        this.renderTrendSummary();
+        this.renderLatencyChart();
+        this.renderQualityChart();
+      });
     },
 
-    renderTrendChart() {
+    renderTrendSummary() {
+      const results = this.scheduleHistory;
+      if (!results || results.length === 0) { this.trendSummary = []; return; }
+      const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      const latest = sorted[sorted.length - 1];
+      const prev = sorted.length >= 2 ? sorted[sorted.length - 2] : null;
+
+      const lSucc = latest.summary?.success_rate;
+      const lThr = latest.summary?.throughput_rps;
+      const lTtft = latest.percentiles?.TTFT?.P50 != null ? latest.percentiles.TTFT.P50 * 1000 : null;
+      const lE2e = latest.percentiles?.E2E?.P50 != null ? latest.percentiles.E2E.P50 * 1000 : null;
+
+      const pSucc = prev?.summary?.success_rate;
+      const pThr = prev?.summary?.throughput_rps;
+      const pTtft = prev?.percentiles?.TTFT?.P50 != null ? prev.percentiles.TTFT.P50 * 1000 : null;
+      const pE2e = prev?.percentiles?.E2E?.P50 != null ? prev.percentiles.E2E.P50 * 1000 : null;
+
+      function deltaStr(curr, prevVal, unit, higherIsBetter) {
+        if (curr == null || prevVal == null) return { delta: '-', deltaStyle: '' };
+        const diff = curr - prevVal;
+        const absDiff = Math.abs(diff);
+        const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+        const isGood = higherIsBetter ? diff >= 0 : diff <= 0;
+        const color = diff === 0 ? 'color:var(--text-tertiary)' : isGood ? 'color:var(--success)' : 'color:var(--danger)';
+        return { delta: `${arrow} ${absDiff.toFixed(1)}${unit}`, deltaStyle: color };
+      }
+
+      const succDelta = deltaStr(lSucc, pSucc, '%', true);
+      const thrDelta = deltaStr(lThr, pThr, '/s', true);
+      const ttftDelta = lTtft != null ? deltaStr(lTtft, pTtft, 'ms', false) : { delta: '-', deltaStyle: '' };
+      const e2eDelta = lE2e != null ? deltaStr(lE2e, pE2e, 'ms', false) : { delta: '-', deltaStyle: '' };
+
+      this.trendSummary = [
+        { label: '成功率', value: lSucc != null ? lSucc.toFixed(1) + '%' : '-', valueStyle: lSucc >= 95 ? 'color:var(--success)' : lSucc >= 80 ? 'color:var(--warning)' : 'color:var(--danger)', ...succDelta },
+        { label: '吞吐量', value: lThr != null ? lThr.toFixed(1) + '/s' : '-', valueStyle: '', ...thrDelta },
+        { label: 'TTFT P50', value: lTtft != null ? lTtft.toFixed(0) + 'ms' : '-', valueStyle: lTtft <= 500 ? 'color:var(--success)' : lTtft <= 2000 ? 'color:var(--warning)' : 'color:var(--danger)', ...ttftDelta },
+        { label: 'E2E P50', value: lE2e != null ? lE2e.toFixed(0) + 'ms' : '-', valueStyle: lE2e <= 2000 ? 'color:var(--success)' : lE2e <= 10000 ? 'color:var(--warning)' : 'color:var(--danger)', ...e2eDelta },
+      ];
+    },
+
+    renderLatencyChart() {
       const results = this.scheduleHistory;
       if (!results || results.length < 2) return;
-      // Destroy previous chart if any
-      if (window._scheduleTrendChart) {
-        window._scheduleTrendChart.destroy();
-        window._scheduleTrendChart = null;
-      }
-      const canvas = document.getElementById('scheduleTrendCanvas');
+      const canvas = document.getElementById('trendLatencyCanvas');
       if (!canvas) return;
 
-      // Sort by time ascending for the trend
       const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
       const labels = sorted.map(r => fmtTimestamp(r.timestamp));
-
       const ttftP50 = sorted.map(r => (r.percentiles?.TTFT?.P50 || 0) * 1000);
       const e2eP50 = sorted.map(r => (r.percentiles?.E2E?.P50 || 0) * 1000);
-      const throughput = sorted.map(r => r.summary?.throughput_rps || 0);
-      const successRate = sorted.map(r => r.summary?.success_rate ?? null);
 
-      window._scheduleTrendChart = new Chart(canvas, {
+      window._trendLatencyChart = new Chart(canvas, {
         type: 'line',
         data: {
           labels,
@@ -205,41 +247,93 @@ document.addEventListener('alpine:init', () => {
               label: 'TTFT P50 (ms)',
               data: ttftP50,
               borderColor: '#3B7DD6',
-              backgroundColor: '#3B7DD622',
+              backgroundColor: '#3B7DD618',
               borderWidth: 2,
               pointRadius: 3,
               tension: 0.3,
-              yAxisID: 'y',
+              fill: true,
             },
             {
               label: 'E2E P50 (ms)',
               data: e2eP50,
               borderColor: '#E85D26',
-              backgroundColor: '#E85D2622',
+              backgroundColor: '#E85D2618',
               borderWidth: 2,
               pointRadius: 3,
               tension: 0.3,
-              yAxisID: 'y',
+              fill: true,
             },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 },
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(0)} ms`,
+              },
+            },
+          },
+          scales: {
+            y: {
+              title: { display: true, text: 'Latency (ms)', font: { size: 11 } },
+              grid: { color: '#F0EEE9' },
+              ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
+              beginAtZero: true,
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45 },
+            },
+          },
+        },
+      });
+    },
+
+    renderQualityChart() {
+      const results = this.scheduleHistory;
+      if (!results || results.length < 2) return;
+      const canvas = document.getElementById('trendQualityCanvas');
+      if (!canvas) return;
+
+      const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      const labels = sorted.map(r => fmtTimestamp(r.timestamp));
+      const throughput = sorted.map(r => r.summary?.throughput_rps || 0);
+      const successRate = sorted.map(r => r.summary?.success_rate ?? null);
+
+      window._trendQualityChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
             {
               label: '吞吐量 (req/s)',
               data: throughput,
               borderColor: '#2D8B55',
-              backgroundColor: '#2D8B5522',
+              backgroundColor: '#2D8B5518',
               borderWidth: 2,
               pointRadius: 3,
               tension: 0.3,
-              yAxisID: 'y1',
+              fill: true,
+              yAxisID: 'y',
             },
             {
               label: '成功率 (%)',
               data: successRate,
               borderColor: '#F59E3B',
-              backgroundColor: '#F59E3B22',
+              backgroundColor: '#F59E3B18',
               borderWidth: 2,
               pointRadius: 3,
               tension: 0.3,
-              yAxisID: 'y2',
+              fill: true,
+              yAxisID: 'y1',
               borderDash: [5, 3],
             },
           ],
@@ -257,8 +351,8 @@ document.addEventListener('alpine:init', () => {
             tooltip: {
               callbacks: {
                 label: ctx => {
-                  if (ctx.dataset.yAxisID === 'y2') return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}%`;
-                  return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(0)} ms`;
+                  if (ctx.dataset.yAxisID === 'y1') return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}%`;
+                  return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)} /s`;
                 },
               },
             },
@@ -266,20 +360,16 @@ document.addEventListener('alpine:init', () => {
           scales: {
             y: {
               position: 'left',
-              title: { display: true, text: 'Latency (ms)', font: { size: 11 } },
+              title: { display: true, text: 'Throughput (req/s)', font: { size: 11 } },
               grid: { color: '#F0EEE9' },
               ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
               beginAtZero: true,
             },
             y1: {
               position: 'right',
-              title: { display: true, text: 'Throughput (req/s)', font: { size: 11 } },
+              title: { display: true, text: 'Success Rate (%)', font: { size: 11 } },
               grid: { drawOnChartArea: false },
               ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
-              beginAtZero: true,
-            },
-            y2: {
-              display: false,
               min: 0,
               max: 105,
             },

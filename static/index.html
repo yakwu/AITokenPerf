@@ -431,6 +431,17 @@
         </table>
       </div>
     </div>
+    <!-- 分页 -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 0;font-size:13px;color:var(--text-secondary)">
+      <div>共 <span x-text="total"></span> 条记录</div>
+      <div style="display:flex;align-items:center;gap:4px" x-show="totalPages > 1">
+        <button class="btn btn-ghost btn-sm" :disabled="page <= 1" @click="goToPage(page - 1)">上一页</button>
+        <template x-for="p in totalPages <= 7 ? Array.from({length: totalPages}, (_, i) => i + 1) : [1, page - 2, page - 1, page, page + 1, page + 2, totalPages].filter((v, i, a) => v >= 1 && v <= totalPages && a.indexOf(v) === i)" :key="p">
+          <button class="btn btn-sm" :class="p === page ? 'btn-primary' : 'btn-ghost'" @click="goToPage(p)" x-text="p"></button>
+        </template>
+        <button class="btn btn-ghost btn-sm" :disabled="page >= totalPages" @click="goToPage(page + 1)">下一页</button>
+      </div>
+    </div>
   </section>
 
   <!-- Schedules Tab -->
@@ -544,8 +555,22 @@
                   <div x-show="!historyLoading && scheduleHistory.length === 0" style="text-align:center;color:var(--text-tertiary);padding:20px">暂无执行记录</div>
                   <div x-show="!historyLoading && scheduleHistory.length > 0">
                     <div style="font-size:13px;font-weight:600;margin-bottom:12px">执行趋势 (<span x-text="scheduleHistory.length"></span> 次执行)</div>
-                    <div id="scheduleTrendChart" style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
-                      <canvas id="scheduleTrendCanvas" style="width:100%;height:260px;max-height:260px"></canvas>
+                    <div class="trend-summary-cards" x-show="trendSummary.length > 0" style="margin-bottom:16px">
+                      <template x-for="card in trendSummary" :key="card.label">
+                        <div class="trend-card">
+                          <div class="trend-card-label" x-text="card.label"></div>
+                          <div class="trend-card-value" :style="card.valueStyle" x-text="card.value"></div>
+                          <div class="trend-card-delta" :style="card.deltaStyle" x-text="card.delta"></div>
+                        </div>
+                      </template>
+                    </div>
+                    <div style="margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
+                      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:8px">延迟趋势 ↓ 越低越好</div>
+                      <canvas id="trendLatencyCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
+                    </div>
+                    <div style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
+                      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:8px">质量趋势 ↑ 越高越好</div>
+                      <canvas id="trendQualityCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
                     </div>
                     <div style="font-size:13px;font-weight:600;margin-bottom:8px">执行记录</div>
                     <table class="pct-table" style="width:100%">
@@ -568,9 +593,9 @@
                             <td style="font-size:12px" x-text="r.config?.model || '-'"></td>
                             <td style="font-size:12px" x-text="r.config?.concurrency || '-'"></td>
                             <td style="font-size:12px;font-weight:600" :style="(r.summary?.success_rate || 0) >= 95 ? 'color:var(--success)' : (r.summary?.success_rate || 0) >= 80 ? 'color:var(--warning)' : 'color:var(--danger)'" x-text="fmtPct(r.summary?.success_rate)"></td>
-                            <td style="font-size:12px" x-text="fmtTime(r.percentiles?.TTFT?.P50)"></td>
-                            <td style="font-size:12px" x-text="fmtTime(r.percentiles?.E2E?.P50)"></td>
-                            <td style="font-size:12px" x-text="(fmtNum(r.summary?.throughput_rps) || '-') + ' /s'"></td>
+                            <td style="font-size:12px;font-weight:600" :style="latencyColorStyle(r.percentiles?.TTFT?.P50, 0.5, 2)" x-text="fmtTime(r.percentiles?.TTFT?.P50)"></td>
+                            <td style="font-size:12px;font-weight:600" :style="latencyColorStyle(r.percentiles?.E2E?.P50, 2, 10)" x-text="fmtTime(r.percentiles?.E2E?.P50)"></td>
+                            <td style="font-size:12px;font-weight:600" :style="qualityColorStyle(r.summary?.throughput_rps, 20, 5)" x-text="(fmtNum(r.summary?.throughput_rps) || '-') + ' /s'"></td>
                             <td><button class="btn btn-ghost btn-sm" @click="viewResultInHistory(r)" title="查看详情" style="font-size:12px;color:var(--accent)">详情 &#8594;</button></td>
                           </tr>
                         </template>
