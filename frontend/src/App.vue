@@ -45,8 +45,10 @@
   </nav>
 
   <!-- Router View -->
-  <router-view v-if="store.user || $route.path === '/auth'" />
-  <router-view v-else-if="!store.user" />
+  <main class="main">
+    <router-view v-if="store.user || $route.path === '/auth'" />
+    <router-view v-else-if="!store.user" />
+  </main>
 </template>
 
 <script setup>

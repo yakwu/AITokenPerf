@@ -26,9 +26,9 @@
             <tr>
               <th style="width:30px"></th>
               <th style="width:90px">测试 ID</th>
-              <th style="width:155px" class="sortable" :class="sortKey === 'timestamp' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('timestamp')">时间 <span class="sort-arrow" v-if="sortKey === 'timestamp'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:160px">模型</th>
-              <th>目标地址</th>
+              <th style="width:130px" class="sortable" :class="sortKey === 'timestamp' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('timestamp')">时间 <span class="sort-arrow" v-if="sortKey === 'timestamp'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
+              <th style="width:130px">模型</th>
+              <th style="max-width:200px">目标地址</th>
               <th style="width:60px" class="sortable" :class="sortKey === 'concurrency' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('concurrency')">并发 <span class="sort-arrow" v-if="sortKey === 'concurrency'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
               <th style="width:80px">模式</th>
               <th style="width:100px">来源</th>
@@ -56,17 +56,17 @@
                 <td><input type="checkbox" class="compare-check" :checked="compareSet.has(idx)" @change="toggleCompare(idx)" @click.stop></td>
                 <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ r.test_id || '-' }}</td>
                 <td>{{ fmtTimestamp(r.timestamp) }}</td>
-                <td>{{ r.config?.model || '-' }}</td>
-                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" :title="r.config?.base_url || ''">{{ r.config?.base_url || '-' }}</td>
+                <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.model || ''">{{ r.config?.model || '-' }}</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.base_url || ''">{{ r.config?.base_url || '-' }}</td>
                 <td>{{ r.config?.concurrency || '-' }}</td>
                 <td>{{ r.config?.mode || '-' }}</td>
-                <td style="font-size:12px;color:var(--text-tertiary)">
+                <td style="font-size:12px;color:var(--text-tertiary);max-width:120px;overflow:hidden;white-space:nowrap">
                   <template v-if="r.schedule_name">
                     <template v-if="isGroup(r)">
-                      <span style="font-weight:600">{{ r.schedule_name }}</span>
-                      <span style="background:var(--accent);color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px">{{ r.children_count }}次</span>
+                      <span style="font-weight:600;display:inline-block;max-width:70px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" :title="r.schedule_name">{{ r.schedule_name }}</span>
+                      <span style="background:var(--accent);color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px;white-space:nowrap">{{ r.children_count }}次</span>
                     </template>
-                    <template v-else>{{ r.schedule_name }}</template>
+                    <template v-else><span style="display:inline-block;max-width:110px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" :title="r.schedule_name">{{ r.schedule_name }}</span></template>
                   </template>
                   <template v-else><span style="color:var(--accent)">手动</span></template>
                 </td>
@@ -94,8 +94,8 @@
                     <td></td>
                     <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ child.test_id || '-' }}</td>
                     <td style="font-size:12px">{{ fmtTimestamp(child.timestamp) }}</td>
-                    <td style="font-size:12px">{{ child.config?.model || '-' }}</td>
-                    <td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis" :title="child.config?.base_url || ''">{{ child.config?.base_url || '-' }}</td>
+                    <td style="font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="child.config?.model || ''">{{ child.config?.model || '-' }}</td>
+                    <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="child.config?.base_url || ''">{{ child.config?.base_url || '-' }}</td>
                     <td style="font-size:12px">{{ child.config?.concurrency || '-' }}</td>
                     <td style="font-size:12px">{{ child.config?.mode || '-' }}</td>
                     <td style="font-size:11px;color:var(--text-tertiary)">{{ child.schedule_name || '' }}</td>
