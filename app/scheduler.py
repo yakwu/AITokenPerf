@@ -69,12 +69,19 @@ class TaskScheduler:
             if last_run:
                 try:
                     last_dt = datetime.fromisoformat(last_run)
-                    next_dt = last_dt + timedelta(seconds=schedule_value)
-                    delay = (next_dt - datetime.utcnow()).total_seconds()
-                    return delay
+                    now = datetime.utcnow()
+                    elapsed = (now - last_dt).total_seconds()
+                    # 跳过已经过去的间隔，找到下一个未执行的时间点
+                    if elapsed >= schedule_value:
+                        missed = int(elapsed // schedule_value)
+                        next_dt = last_dt + timedelta(seconds=schedule_value * missed)
+                    else:
+                        next_dt = last_dt + timedelta(seconds=schedule_value)
+                    delay = (next_dt - now).total_seconds()
+                    return max(delay, 5)
                 except (ValueError, TypeError):
                     pass
-            # 从未运行或时间解析失败，立即执行
+            # 从未运行或时间解析失败，5秒后执行
             return 5
         return schedule_value
 
@@ -183,15 +190,18 @@ class TaskScheduler:
                     log_error("scheduler:task_error", error=str(e),
                               task_id=task_id, task_tid=bt.task_id)
 
-        # 更新 run_count 和 last_run_at
-        now_str = datetime.utcnow().isoformat()
-        new_run_count = (task_row.get("run_count") or 0) + 1
-        await update_scheduled_task(
-            task_id,
-            last_run_at=now_str,
-            run_count=new_run_count,
-        )
-        log.info("定时任务 #%d 执行完成，累计 %d 次，本次保存 %d 条结果",
-                 task_id, new_run_count, total_saved)
-        log_bench("scheduler:complete", task_id=task_id,
-                  run_count=new_run_count, results_saved=total_saved)
+        # 更新 run_count 和 last_run_at（无论子任务是否异常都更新）
+        try:
+            now_str = datetime.utcnow().isoformat()
+            new_run_count = (task_row.get("run_count") or 0) + 1
+            await update_scheduled_task(
+                task_id,
+                last_run_at=now_str,
+                run_count=new_run_count,
+            )
+            log.info("定时任务 #%d 执行完成，累计 %d 次，本次保存 %d 条结果",
+                     task_id, new_run_count, total_saved)
+            log_bench("scheduler:complete", task_id=task_id,
+                      run_count=new_run_count, results_saved=total_saved)
+        except Exception as e:
+            log.error("定时任务 #%d 更新 run_count 失败: %s", task_id, e)

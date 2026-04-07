@@ -20,6 +20,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      TZ: Asia/Shanghai
       DATABASE_URL: postgresql+asyncpg://aitokenperf:${DB_PASSWORD}@db:5432/aitokenperf
       JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
