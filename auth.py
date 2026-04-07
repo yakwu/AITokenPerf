@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""认证模块 — bcrypt 密码哈希 + JWT token"""
+"""认证模块 — bcrypt 密码哈希 + JWT token (FastAPI 版)"""
 
 import hashlib
 import os
@@ -9,7 +9,7 @@ from typing import Optional
 
 import bcrypt
 import jwt
-from aiohttp import web
+from fastapi import Depends, HTTPException, Request
 
 _SECRET_FILE = Path(__file__).parent / "data" / "data.secret"
 
@@ -76,22 +76,30 @@ def _is_public_path(path: str) -> bool:
     return any(path.startswith(p) for p in PUBLIC_PREFIXES)
 
 
-@web.middleware
-async def auth_middleware(request: web.Request, handler):
-    if _is_public_path(request.path):
-        return await handler(request)
-
+async def get_current_user(request: Request) -> dict:
+    """FastAPI 依赖：从 Authorization 头提取当前用户"""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        return web.json_response({"error": "Unauthorized"}, status=401)
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     token = auth_header[7:]
     payload = decode_jwt_token(token)
     if payload is None:
-        return web.json_response({"error": "Unauthorized"}, status=401)
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-    request["user_id"] = int(payload["sub"])
-    request["user_email"] = payload["email"]
-    request["user_role"] = payload.get("role", "user")
+    user_id = int(payload["sub"])
+    user_email = payload["email"]
+    user_role = payload.get("role", "user")
 
-    return await handler(request)
+    request.state.user_id = user_id
+    request.state.user_email = user_email
+    request.state.user_role = user_role
+
+    return {"user_id": user_id, "user_email": user_email, "user_role": user_role}
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    """FastAPI 依赖：要求管理员权限"""
+    if user["user_role"] != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return user

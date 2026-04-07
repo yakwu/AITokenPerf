@@ -9,7 +9,7 @@ export async function api(path, opts = {}) {
   if (res.status === 401) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    location.hash = 'auth';
+    window.location.href = '/auth';
     throw new Error('Unauthorized');
   }
   return res.json();

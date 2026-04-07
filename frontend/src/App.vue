@@ -1,0 +1,95 @@
+<template>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">AIToken<span>Perf</span></div>
+      <div class="status-badge" :class="store.status" v-if="store.user">
+        <div class="status-dot"></div>
+        <span>{{ store.statusLabels[store.status] || store.status }}</span>
+      </div>
+    </div>
+    <div class="header-right" v-if="store.user">
+      <div class="user-menu" v-click-outside="() => userMenuOpen = false">
+        <button class="user-avatar" @click="userMenuOpen = !userMenuOpen">
+          {{ (store.user?.email || '?')[0].toUpperCase() }}
+        </button>
+        <div class="user-dropdown" v-show="userMenuOpen">
+          <div class="user-dropdown-email">{{ store.user?.email }}</div>
+          <div class="user-dropdown-role" style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">
+            {{ store.user?.role === 'admin' ? '管理员' : '用户' }}
+          </div>
+          <button class="user-dropdown-item" @click="store.switchTab('settings'); userMenuOpen = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            个人资料
+          </button>
+          <button class="user-dropdown-item" v-if="store.user?.role === 'admin'" @click="store.switchTab('admin-users'); userMenuOpen = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            用户管理
+          </button>
+          <div class="user-dropdown-divider"></div>
+          <button class="user-dropdown-item user-dropdown-logout" @click="store.logout(); userMenuOpen = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            退出登录
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="tab-bar" v-if="store.user">
+    <router-link to="/" class="tab-btn" :class="{ active: $route.path === '/' }" @click="userMenuOpen = false">总览</router-link>
+    <router-link to="/benchmark" class="tab-btn" :class="{ active: $route.path === '/benchmark' }" @click="userMenuOpen = false">新建测试</router-link>
+    <router-link to="/history" class="tab-btn" :class="{ active: $route.path === '/history' }" @click="userMenuOpen = false">历史记录</router-link>
+    <router-link to="/schedules" class="tab-btn" :class="{ active: $route.path === '/schedules' }" @click="userMenuOpen = false">定时任务</router-link>
+  </nav>
+
+  <!-- Router View -->
+  <router-view v-if="store.user || $route.path === '/auth'" />
+  <router-view v-else-if="!store.user" />
+</template>
+
+<script setup>
+import { ref, watch } from 'vue';
+import { useAppStore } from './stores/app';
+import { useRouter, useRoute } from 'vue-router';
+
+const store = useAppStore();
+const userMenuOpen = ref(false);
+const router = useRouter();
+const route = useRoute();
+
+// 未登录时跳转到 /auth
+watch(
+  () => store.user,
+  (u) => {
+    if (!u && route.path !== '/auth') {
+      router.push('/auth');
+    }
+  },
+  { immediate: true }
+);
+
+// 登录后如果在 /auth 跳转到 /
+watch(
+  () => store.user,
+  (u) => {
+    if (u && route.path === '/auth') {
+      router.push('/');
+    }
+  }
+);
+
+// Simple click-outside directive
+const vClickOutside = {
+  mounted(el, binding) {
+    el.__clickOutside = (e) => {
+      if (!el.contains(e.target)) binding.value();
+    };
+    setTimeout(() => document.addEventListener('click', el.__clickOutside), 0);
+  },
+  unmounted(el) {
+    document.removeEventListener('click', el.__clickOutside);
+  },
+};
+</script>

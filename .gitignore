@@ -8,6 +8,10 @@ data/
 
 # Node
 node_modules/
+frontend/node_modules/
+
+# Vite build output
+static/assets/
 
 # Python
 __pycache__/

@@ -582,9 +582,11 @@ onUnmounted(() => {
   if (deleteTimer) clearTimeout(deleteTimer);
 });
 
-// Watch for tab switch to refresh
-watch(() => store.tab, (val) => {
-  if (val === 'history') refresh();
+import { useRoute } from 'vue-router';
+const route = useRoute();
+// Watch for route change to refresh
+watch(() => route.path, (val) => {
+  if (val === '/history') refresh();
 });
 
 </script>

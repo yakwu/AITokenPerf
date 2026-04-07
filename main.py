@@ -123,8 +123,8 @@ def main():
     parser.add_argument("--host", type=str, default=os.environ.get("HOST", "127.0.0.1"), help="绑定地址 (默认 127.0.0.1)")
     args = parser.parse_args()
 
-    from server import start_server
-    asyncio.run(start_server({}, args.port, args.host))
+    import uvicorn
+    uvicorn.run("server:app", host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

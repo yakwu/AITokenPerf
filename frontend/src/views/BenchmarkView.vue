@@ -1,5 +1,5 @@
 <template>
-  <section class="tab-content" :class="{ active: store.tab === 'benchmark' }">
+  <section class="tab-content" :class="{ active: $route.path === '/benchmark' }">
     <div class="card">
       <div class="card-header">
         <div class="card-title">测试配置</div>
@@ -322,16 +322,20 @@ watch(() => form.value.base_url, () => checkProfileDirty());
 watch(() => form.value.api_key, () => checkProfileDirty());
 watch(() => form.value.model, () => checkProfileDirty());
 
+import { useRoute, useRouter } from 'vue-router';
+const route = useRoute();
+const router = useRouter();
+
 // Apply rerun config when switching to benchmark tab
-watch(() => store.tab, (val) => {
-  if (val === 'benchmark' && store.rerunConfig) {
+watch(() => route.path, (val) => {
+  if (val === '/benchmark' && store.rerunConfig) {
     loadProfiles().then(() => applyRerunConfig());
   }
 });
 
 // Watch rerunConfig changes (set from other views)
 watch(() => store.rerunConfig, (val) => {
-  if (val && store.tab === 'benchmark') {
+  if (val && route.path === '/benchmark') {
     loadProfiles().then(() => applyRerunConfig());
   }
 });
@@ -688,7 +692,7 @@ async function checkRunningStatus() {
     eventCursor.value = 0;
     running.value = true;
     store.status = 'running';
-    store.tab = 'benchmark';
+    router.push('/benchmark');
     startPolling();
   }
 }

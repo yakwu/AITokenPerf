@@ -1,0 +1,722 @@
+<template>
+  <section class="tab-content active">
+    <!-- 创建卡片 -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div class="card-title">定时任务</div>
+        <button class="btn btn-primary btn-sm" @click="showCreateForm = !showCreateForm">
+          {{ showCreateForm ? '取消' : '新建定时任务' }}
+        </button>
+      </div>
+
+      <!-- 创建表单 -->
+      <div v-show="showCreateForm" style="margin-top:16px">
+        <div class="form-grid" style="max-width:600px">
+          <div class="form-group full">
+            <label class="form-label">任务名称</label>
+            <input class="form-input" v-model="createForm.name" placeholder="例如：每小时性能巡检">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">选择 Profile（可多选）</label>
+            <ProfileChips :profiles="profiles" :selected="createForm.profile_ids" @update:selected="createForm.profile_ids = $event" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">并发数</label>
+            <input class="form-input" type="number" v-model.number="createForm.concurrency" min="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">执行间隔（秒）</label>
+            <input class="form-input" type="number" v-model.number="createForm.schedule_value" min="60">
+            <span style="font-size:11px;color:var(--text-tertiary)">每 {{ formatInterval(createForm.schedule_value) }} 执行一次</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">测试模式</label>
+            <div class="radio-group-inline">
+              <label class="radio-pill" :class="{ active: createForm.mode === 'burst' }" @click="createForm.mode = 'burst'"><span>Burst</span></label>
+              <label class="radio-pill" :class="{ active: createForm.mode === 'sustained' }" @click="createForm.mode = 'sustained'"><span>Sustained</span></label>
+            </div>
+          </div>
+          <div class="form-group" v-show="createForm.mode === 'sustained'">
+            <label class="form-label">持续时长 (秒)</label>
+            <input class="form-input" type="number" v-model.number="createForm.duration">
+          </div>
+        </div>
+        <div class="btn-group" style="margin-top:16px">
+          <button class="btn btn-primary" @click="createSchedule" :disabled="createLoading">
+            <span v-show="!createLoading">创建</span>
+            <span v-show="createLoading">创建中...</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 任务列表 -->
+    <div class="card" style="padding:0;overflow:hidden">
+      <div v-if="loading" style="text-align:center;color:var(--text-tertiary);padding:32px">加载中...</div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>Profile</th>
+              <th>间隔</th>
+              <th>状态</th>
+              <th>上次运行</th>
+              <th>运行次数</th>
+              <th style="width:140px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="s in schedules" :key="s.id">
+              <tr style="cursor:pointer" @click="onRowClick($event, s.id)">
+                <td style="font-weight:600">
+                  <span>{{ s.name }}</span>
+                  <span style="font-size:11px;color:var(--text-tertiary);margin-left:4px">
+                    <i class="ph" :class="expandedScheduleId === s.id ? 'ph-caret-up' : 'ph-caret-down'"></i>
+                  </span>
+                </td>
+                <td><span style="font-size:12px">{{ (s.profile_ids || []).join(', ') }}</span></td>
+                <td>{{ formatInterval(s.schedule_value) }}</td>
+                <td>
+                  <span class="status-badge" :class="s.status">
+                    {{ s.status === 'active' ? '运行中' : s.status === 'paused' ? '已暂停' : s.status }}
+                  </span>
+                </td>
+                <td style="font-size:12px;color:var(--text-tertiary)">{{ formatTime(s.last_run_at) }}</td>
+                <td>{{ s.run_count || 0 }}</td>
+                <td style="white-space:nowrap">
+                  <button class="btn btn-ghost btn-sm" v-show="s.status === 'active'" @click.stop="pauseSchedule(s.id)" title="暂停"><i class="ph ph-pause"></i></button>
+                  <button class="btn btn-ghost btn-sm" v-show="s.status !== 'active'" @click.stop="resumeSchedule(s.id)" title="恢复"><i class="ph ph-play"></i></button>
+                  <button class="btn btn-ghost btn-sm" @click.stop="runNow(s.id)" title="立即执行"><i class="ph ph-lightning"></i></button>
+                  <button class="btn btn-ghost btn-sm" @click.stop="startEdit(s)" title="编辑" style="color:var(--accent)"><i class="ph ph-pencil-simple"></i></button>
+                  <InlineConfirmDelete
+                    :active="deleteCandidate === s.id"
+                    title="删除"
+                    icon-style="color:var(--danger)"
+                    @request.stop="requestDelete(s.id)"
+                    @cancel.stop="deleteCandidate = null"
+                    @confirm.stop="confirmDelete(s.id)"
+                  >
+                    <i class="ph ph-trash-simple"></i>
+                  </InlineConfirmDelete>
+                </td>
+              </tr>
+            </template>
+
+            <!-- 展开行：趋势图 + 历史记录 -->
+            <tr v-if="expandedScheduleId">
+              <td colspan="7" style="padding:16px 20px;background:var(--bg-secondary)">
+                <div v-if="historyLoading" style="text-align:center;color:var(--text-tertiary);padding:20px">加载中...</div>
+                <div v-else-if="scheduleHistory.length === 0" style="text-align:center;color:var(--text-tertiary);padding:20px">暂无执行记录</div>
+                <div v-else>
+                  <div style="font-size:13px;font-weight:600;margin-bottom:12px">执行趋势 ({{ scheduleHistory.length }} 次执行)</div>
+
+                  <!-- 趋势汇总卡片 -->
+                  <div v-if="trendSummary.length > 0" class="trend-summary-cards" style="margin-bottom:16px">
+                    <div v-for="card in trendSummary" :key="card.label" class="trend-card">
+                      <div class="trend-card-label">{{ card.label }}</div>
+                      <div class="trend-card-value" :style="card.valueStyle">{{ card.value }}</div>
+                      <div class="trend-card-delta" :style="card.deltaStyle">{{ card.delta }}</div>
+                    </div>
+                  </div>
+
+                  <!-- 延迟趋势图 -->
+                  <div style="margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:8px">延迟趋势 ↓ 越低越好</div>
+                    <canvas ref="trendLatencyCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
+                  </div>
+
+                  <!-- 质量趋势图 -->
+                  <div style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:8px">质量趋势 ↑ 越高越好</div>
+                    <canvas ref="trendQualityCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
+                  </div>
+
+                  <!-- 执行记录表格 -->
+                  <div style="font-size:13px;font-weight:600;margin-bottom:8px">执行记录</div>
+                  <table class="pct-table" style="width:100%">
+                    <thead>
+                      <tr>
+                        <th>测试 ID</th>
+                        <th>时间</th>
+                        <th>模型</th>
+                        <th>并发</th>
+                        <th>成功率</th>
+                        <th>TTFT P50</th>
+                        <th>E2E P50</th>
+                        <th>吞吐量</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(r, ri) in scheduleHistory" :key="ri">
+                        <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ r.test_id || '-' }}</td>
+                        <td style="font-size:12px">{{ fmtTimestamp(r.timestamp) }}</td>
+                        <td style="font-size:12px">{{ r.config?.model || '-' }}</td>
+                        <td style="font-size:12px">{{ r.config?.concurrency || '-' }}</td>
+                        <td
+                          style="font-size:12px;font-weight:600"
+                          :style="(r.summary?.success_rate || 0) >= 95 ? 'color:var(--success)' : (r.summary?.success_rate || 0) >= 80 ? 'color:var(--warning)' : 'color:var(--danger)'"
+                        >{{ fmtPct(r.summary?.success_rate) }}</td>
+                        <td style="font-size:12px;font-weight:600" :style="latencyColorStyle(r.percentiles?.TTFT?.P50, 0.5, 2)">{{ fmtTime(r.percentiles?.TTFT?.P50) }}</td>
+                        <td style="font-size:12px;font-weight:600" :style="latencyColorStyle(r.percentiles?.E2E?.P50, 2, 10)">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
+                        <td style="font-size:12px;font-weight:600" :style="qualityColorStyle(r.summary?.throughput_rps, 20, 5)">{{ (fmtNum(r.summary?.throughput_rps) || '-') + ' /s' }}</td>
+                        <td><button class="btn btn-ghost btn-sm" @click.stop="viewResultInHistory(r)" title="查看详情" style="font-size:12px;color:var(--accent)">详情 &#8594;</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </td>
+            </tr>
+
+            <tr v-if="!loading && schedules.length === 0">
+              <td colspan="7" style="text-align:center;color:var(--text-tertiary);padding:32px">暂无定时任务</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 编辑任务弹窗 -->
+    <ModalOverlay :show="showEditForm" title="编辑定时任务" max-width="620px" @close="showEditForm = false">
+          <div class="form-grid">
+            <div class="form-group full">
+              <label class="form-label">任务名称</label>
+              <input class="form-input" v-model="editForm.name">
+            </div>
+            <div class="form-group full">
+              <label class="form-label">选择 Profile（可多选）</label>
+              <ProfileChips :profiles="profiles" :selected="editForm.profile_ids" @update:selected="editForm.profile_ids = $event" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">并发数</label>
+              <input class="form-input" type="number" v-model.number="editForm.concurrency" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">执行间隔（秒）</label>
+              <input class="form-input" type="number" v-model.number="editForm.schedule_value" min="10">
+              <span style="font-size:11px;color:var(--text-tertiary)">每 {{ formatInterval(editForm.schedule_value) }} 执行一次</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">测试模式</label>
+              <div class="radio-group-inline">
+                <label class="radio-pill" :class="{ active: editForm.mode === 'burst' }" @click="editForm.mode = 'burst'"><span>Burst</span></label>
+                <label class="radio-pill" :class="{ active: editForm.mode === 'sustained' }" @click="editForm.mode = 'sustained'"><span>Sustained</span></label>
+              </div>
+            </div>
+            <div class="form-group" v-show="editForm.mode === 'sustained'">
+              <label class="form-label">持续时长 (秒)</label>
+              <input class="form-input" type="number" v-model.number="editForm.duration">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Tokens</label>
+              <input class="form-input" type="number" v-model.number="editForm.max_tokens" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">超时 (秒)</label>
+              <input class="form-input" type="number" v-model.number="editForm.timeout" min="1">
+            </div>
+            <div class="form-group full">
+              <label class="form-label">System Prompt</label>
+              <textarea class="form-input" v-model="editForm.system_prompt" rows="2" style="resize:vertical"></textarea>
+            </div>
+            <div class="form-group full">
+              <label class="form-label">User Prompt</label>
+              <textarea class="form-input" v-model="editForm.user_prompt" rows="2" style="resize:vertical"></textarea>
+            </div>
+          </div>
+          <div class="btn-group" style="margin-top:20px">
+            <button class="btn btn-primary" @click="saveEdit" :disabled="editLoading">
+              <span v-show="!editLoading">保存</span>
+              <span v-show="editLoading">保存中...</span>
+            </button>
+            <button class="btn btn-ghost" @click="showEditForm = false">取消</button>
+          </div>
+    </ModalOverlay>
+  </section>
+</template>
+
+<script setup>
+import { ref, nextTick, onUnmounted, watch } from 'vue';
+import { useAppStore } from '../stores/app';
+import {
+  getSchedules, createScheduleApi, updateScheduleApi, deleteScheduleApi,
+  pauseScheduleApi, resumeScheduleApi, runNowApi, getScheduleResults, getProfiles,
+} from '../api/index.js';
+import { toast } from '../composables/useToast.js';
+import { fmtTime, fmtTimestamp, fmtPct, fmtNum, qualityColorStyle, latencyColorStyle } from '../utils/formatters.js';
+import { Chart, registerables } from 'chart.js';
+Chart.register(...registerables);
+import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
+import ModalOverlay from '../components/ModalOverlay.vue';
+import ProfileChips from '../components/ProfileChips.vue';
+
+const store = useAppStore();
+
+// ---- State ----
+const schedules = ref([]);
+const profiles = ref([]);
+const loading = ref(false);
+const showCreateForm = ref(false);
+
+const defaultForm = () => ({
+  name: '',
+  profile_ids: [],
+  concurrency: 100,
+  mode: 'burst',
+  max_tokens: 512,
+  timeout: 120,
+  duration: 120,
+  system_prompt: 'You are a helpful assistant.',
+  user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
+  schedule_value: 300,
+});
+
+const createForm = ref(defaultForm());
+const createLoading = ref(false);
+const deleteCandidate = ref(null);
+
+const expandedScheduleId = ref(null);
+const scheduleHistory = ref([]);
+const trendSummary = ref([]);
+const historyLoading = ref(false);
+
+const showEditForm = ref(false);
+const editLoading = ref(false);
+const editForm = ref({
+  id: null,
+  ...defaultForm(),
+});
+
+// Chart instances
+const trendLatencyCanvas = ref(null);
+const trendQualityCanvas = ref(null);
+let trendLatencyChart = null;
+let trendQualityChart = null;
+
+// ---- Helpers ----
+function formatInterval(seconds) {
+  const s = parseInt(seconds) || 0;
+  if (s < 60) return s + ' 秒';
+  if (s < 3600) return (s / 60) + ' 分钟';
+  return (s / 3600) + ' 小时';
+}
+
+function formatTime(iso) {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso + 'Z');
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return iso;
+  }
+}
+
+function destroyCharts() {
+  if (trendLatencyChart) { trendLatencyChart.destroy(); trendLatencyChart = null; }
+  if (trendQualityChart) { trendQualityChart.destroy(); trendQualityChart = null; }
+}
+
+// ---- Data Loading ----
+async function refresh() {
+  loading.value = true;
+  try {
+    const [schedData, profData] = await Promise.all([
+      getSchedules(),
+      getProfiles(),
+    ]);
+    schedules.value = schedData.schedules || [];
+    profiles.value = (profData.profiles || []).map(p => p.name);
+  } catch (e) {
+    toast('加载失败: ' + e.message, 'error');
+  }
+  loading.value = false;
+}
+
+// ---- CRUD ----
+async function createSchedule() {
+  const f = createForm.value;
+  if (!f.name.trim()) { toast('请输入任务名称', 'info'); return; }
+  if (f.profile_ids.length === 0) { toast('请至少选择一个 Profile', 'info'); return; }
+  createLoading.value = true;
+  try {
+    const res = await createScheduleApi({
+      name: f.name.trim(),
+      profile_ids: f.profile_ids,
+      configs_json: {
+        concurrency_levels: [Number(f.concurrency)],
+        mode: f.mode,
+        max_tokens: Number(f.max_tokens),
+        timeout: Number(f.timeout),
+        duration: Number(f.duration),
+        system_prompt: f.system_prompt,
+        user_prompt: f.user_prompt,
+      },
+      schedule_type: 'interval',
+      schedule_value: String(f.schedule_value),
+    });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('定时任务已创建', 'success');
+    showCreateForm.value = false;
+    createForm.value = defaultForm();
+    await refresh();
+  } catch (e) {
+    toast('创建失败: ' + e.message, 'error');
+  }
+  createLoading.value = false;
+}
+
+async function pauseSchedule(id) {
+  try {
+    await pauseScheduleApi(id);
+    toast('已暂停', 'info');
+    await refresh();
+  } catch (e) { toast('操作失败: ' + e.message, 'error'); }
+}
+
+async function resumeSchedule(id) {
+  try {
+    await resumeScheduleApi(id);
+    toast('已恢复', 'success');
+    await refresh();
+  } catch (e) { toast('操作失败: ' + e.message, 'error'); }
+}
+
+async function runNow(id) {
+  try {
+    await runNowApi(id);
+    toast('已触发执行', 'info');
+  } catch (e) { toast('触发失败: ' + e.message, 'error'); }
+}
+
+function requestDelete(id) {
+  deleteCandidate.value = id;
+}
+
+async function confirmDelete(id) {
+  try {
+    await deleteScheduleApi(id);
+    toast('已删除', 'info');
+    deleteCandidate.value = null;
+    await refresh();
+  } catch (e) { toast('删除失败: ' + e.message, 'error'); }
+}
+
+// ---- Edit ----
+function startEdit(s) {
+  const configs = s.configs || {};
+  editForm.value = {
+    id: s.id,
+    name: s.name || '',
+    profile_ids: [...(s.profile_ids || [])],
+    concurrency: (configs.concurrency_levels || [100])[0],
+    mode: configs.mode || 'burst',
+    max_tokens: configs.max_tokens || 512,
+    timeout: configs.timeout || 120,
+    duration: configs.duration || 120,
+    system_prompt: configs.system_prompt || 'You are a helpful assistant.',
+    user_prompt: configs.user_prompt || 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
+    schedule_value: parseInt(s.schedule_value) || 300,
+  };
+  showEditForm.value = true;
+}
+
+async function saveEdit() {
+  const f = editForm.value;
+  if (!f.name.trim()) { toast('请输入任务名称', 'info'); return; }
+  if (f.profile_ids.length === 0) { toast('请至少选择一个 Profile', 'info'); return; }
+  editLoading.value = true;
+  try {
+    const res = await updateScheduleApi(f.id, {
+      name: f.name.trim(),
+      profile_ids: f.profile_ids,
+      configs_json: {
+        concurrency_levels: [Number(f.concurrency)],
+        mode: f.mode,
+        max_tokens: Number(f.max_tokens),
+        timeout: Number(f.timeout),
+        duration: Number(f.duration),
+        system_prompt: f.system_prompt,
+        user_prompt: f.user_prompt,
+      },
+      schedule_type: 'interval',
+      schedule_value: String(f.schedule_value),
+    });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('已更新', 'success');
+    showEditForm.value = false;
+    await refresh();
+  } catch (e) {
+    toast('更新失败: ' + e.message, 'error');
+  }
+  editLoading.value = false;
+}
+
+// ---- History / Trend ----
+function onRowClick(event, id) {
+  if (event.target.closest('button')) return;
+  toggleHistory(id);
+}
+
+async function toggleHistory(id) {
+  if (expandedScheduleId.value === id) {
+    expandedScheduleId.value = null;
+    destroyCharts();
+    return;
+  }
+  expandedScheduleId.value = id;
+  await loadHistory(id);
+}
+
+async function loadHistory(id) {
+  historyLoading.value = true;
+  trendSummary.value = [];
+  try {
+    const data = await getScheduleResults(id);
+    scheduleHistory.value = data.results || [];
+  } catch (e) {
+    toast('加载执行记录失败: ' + e.message, 'error');
+    scheduleHistory.value = [];
+  }
+  historyLoading.value = false;
+  destroyCharts();
+  await nextTick();
+  renderTrendSummary();
+  renderLatencyChart();
+  renderQualityChart();
+}
+
+function renderTrendSummary() {
+  const results = scheduleHistory.value;
+  if (!results || results.length === 0) { trendSummary.value = []; return; }
+
+  function avgField(fn) {
+    const vals = results.map(r => fn(r)).filter(v => v != null);
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  }
+
+  const aSucc = avgField(r => r.summary?.success_rate);
+  const aThr = avgField(r => r.summary?.throughput_rps);
+  const aTtft = avgField(r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 * 1000 : null);
+  const aE2e = avgField(r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 * 1000 : null);
+
+  // 环比：最近一半 vs 之前一半
+  const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  const mid = Math.floor(sorted.length / 2);
+  const recentHalf = sorted.slice(mid);
+  const prevHalf = sorted.slice(0, mid);
+
+  function avgHalf(arr, fn) {
+    const vals = arr.map(r => fn(r)).filter(v => v != null);
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  }
+
+  const pSucc = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.summary?.success_rate) : null;
+  const pThr = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.summary?.throughput_rps) : null;
+  const pTtft = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 * 1000 : null) : null;
+  const pE2e = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 * 1000 : null) : null;
+
+  function deltaStr(curr, prevVal, unit, higherIsBetter) {
+    if (curr == null || prevVal == null) return { delta: '-', deltaStyle: '' };
+    const diff = curr - prevVal;
+    const absDiff = Math.abs(diff);
+    const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+    const isGood = higherIsBetter ? diff >= 0 : diff <= 0;
+    const color = diff === 0 ? 'color:var(--text-tertiary)' : isGood ? 'color:var(--success)' : 'color:var(--danger)';
+    return { delta: `${arrow} ${absDiff.toFixed(1)}${unit}`, deltaStyle: color };
+  }
+
+  const succDelta = deltaStr(aSucc, pSucc, '%', true);
+  const thrDelta = deltaStr(aThr, pThr, '/s', true);
+  const ttftDelta = aTtft != null ? deltaStr(aTtft, pTtft, 'ms', false) : { delta: '-', deltaStyle: '' };
+  const e2eDelta = aE2e != null ? deltaStr(aE2e, pE2e, 'ms', false) : { delta: '-', deltaStyle: '' };
+
+  trendSummary.value = [
+    { label: '成功率', value: aSucc != null ? aSucc.toFixed(1) + '%' : '-', valueStyle: aSucc >= 95 ? 'color:var(--success)' : aSucc >= 80 ? 'color:var(--warning)' : 'color:var(--danger)', ...succDelta },
+    { label: '吞吐量', value: aThr != null ? aThr.toFixed(1) + '/s' : '-', valueStyle: '', ...thrDelta },
+    { label: 'TTFT P50', value: aTtft != null ? aTtft.toFixed(0) + 'ms' : '-', valueStyle: aTtft <= 500 ? 'color:var(--success)' : aTtft <= 2000 ? 'color:var(--warning)' : 'color:var(--danger)', ...ttftDelta },
+    { label: 'E2E P50', value: aE2e != null ? aE2e.toFixed(0) + 'ms' : '-', valueStyle: aE2e <= 2000 ? 'color:var(--success)' : aE2e <= 10000 ? 'color:var(--warning)' : 'color:var(--danger)', ...e2eDelta },
+  ];
+}
+
+function renderLatencyChart() {
+  const results = scheduleHistory.value;
+  if (!results || results.length < 2) return;
+  const canvas = trendLatencyCanvas.value;
+  if (!canvas) return;
+
+  const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  const labels = sorted.map(r => fmtTimestamp(r.timestamp));
+  const ttftP50 = sorted.map(r => (r.percentiles?.TTFT?.P50 || 0) * 1000);
+  const e2eP50 = sorted.map(r => (r.percentiles?.E2E?.P50 || 0) * 1000);
+
+  trendLatencyChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'TTFT P50 (ms)',
+          data: ttftP50,
+          borderColor: '#3B7DD6',
+          backgroundColor: '#3B7DD618',
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.3,
+          fill: true,
+        },
+        {
+          label: 'E2E P50 (ms)',
+          data: e2eP50,
+          borderColor: '#E85D26',
+          backgroundColor: '#E85D2618',
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.3,
+          fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(0)} ms`,
+          },
+        },
+      },
+      scales: {
+        y: {
+          title: { display: true, text: 'Latency (ms)', font: { size: 11 } },
+          grid: { color: '#F0EEE9' },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
+          beginAtZero: true,
+        },
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45 },
+        },
+      },
+    },
+  });
+}
+
+function renderQualityChart() {
+  const results = scheduleHistory.value;
+  if (!results || results.length < 2) return;
+  const canvas = trendQualityCanvas.value;
+  if (!canvas) return;
+
+  const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  const labels = sorted.map(r => fmtTimestamp(r.timestamp));
+  const throughput = sorted.map(r => r.summary?.throughput_rps || 0);
+  const successRate = sorted.map(r => r.summary?.success_rate ?? null);
+
+  trendQualityChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '吞吐量 (req/s)',
+          data: throughput,
+          borderColor: '#2D8B55',
+          backgroundColor: '#2D8B5518',
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.3,
+          fill: true,
+          yAxisID: 'y',
+        },
+        {
+          label: '成功率 (%)',
+          data: successRate,
+          borderColor: '#F59E3B',
+          backgroundColor: '#F59E3B18',
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.3,
+          fill: true,
+          yAxisID: 'y1',
+          borderDash: [5, 3],
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.yAxisID === 'y1') return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}%`;
+              return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)} /s`;
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          position: 'left',
+          title: { display: true, text: 'Throughput (req/s)', font: { size: 11 } },
+          grid: { color: '#F0EEE9' },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
+          beginAtZero: true,
+        },
+        y1: {
+          position: 'right',
+          title: { display: true, text: 'Success Rate (%)', font: { size: 11 } },
+          grid: { drawOnChartArea: false },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
+          min: 0,
+          max: 105,
+        },
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45 },
+        },
+      },
+    },
+  });
+}
+
+// ---- Detail View ----
+function viewResultInHistory(r) {
+  // Emit event for parent or shared overlay to handle
+  // In the old code this calls renderResultDetail(r) and opens #detailOverlay
+  const el = document.getElementById('detailOverlay');
+  const content = document.getElementById('detailOverlayContent');
+  if (el && content && typeof window.renderResultDetail === 'function') {
+    content.innerHTML = window.renderResultDetail(r);
+    el.classList.add('open');
+  } else {
+    toast('结果详情功能需要在全局可用', 'info');
+  }
+}
+
+// ---- Lifecycle ----
+onUnmounted(() => {
+  destroyCharts();
+});
+
+// Auto-refresh when tab activates
+import { useRoute } from 'vue-router';
+const route = useRoute();
+watch(() => route.path, (val) => {
+  if (val === '/schedules') refresh();
+}, { immediate: true });
+</script>

@@ -240,7 +240,7 @@ function renderRecentTests(results) {
     const rate = s.success_rate;
     const rateClass = (rate || 0) >= 95 ? 'success' : (rate || 0) >= 80 ? 'accent' : 'danger';
     const tid = r.test_id || '-';
-    html += `<tr class="recent-row" style="cursor:pointer" onclick="location.hash='history';window._autoExpandTestId='${escHtml(tid)}'">
+    html += `<tr class="recent-row" style="cursor:pointer" onclick="window.location.href='/history';window._autoExpandTestId='${escHtml(tid)}'">
       <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">${escHtml(tid)}</td>
       <td>${relativeTime(r.timestamp)}</td>
       <td class="matrix-model">${escHtml(shortModel(c.model))}</td>
@@ -277,7 +277,9 @@ async function refreshDashboard() {
   loading.value = false;
 }
 
-watch(() => store.tab, (val) => {
-  if (val === 'dashboard') refreshDashboard();
+import { useRoute } from 'vue-router';
+const route = useRoute();
+watch(() => route.path, (val) => {
+  if (val === '/') refreshDashboard();
 }, { immediate: true });
 </script>
