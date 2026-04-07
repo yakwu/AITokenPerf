@@ -8,7 +8,7 @@ from typing import Optional
 
 import aiosqlite
 
-DB_PATH = Path(__file__).parent / "data" / "data.db"
+DB_PATH = Path(__file__).parent.parent / "data" / "data.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (

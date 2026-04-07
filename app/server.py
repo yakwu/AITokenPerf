@@ -11,29 +11,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import yaml
 import aiohttp as aiohttp_lib
 from fastapi import FastAPI, Depends, Query, Path as FPath, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from client import send_streaming_request
-from stats import aggregate_metrics, build_report_dict
-from logger import log_access, log_security
-from db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
-from db import switch_active_profile, delete_profile as db_delete_profile
-from db import save_result as db_save_result, get_results as db_get_results
-from db import get_results_aggregated as db_get_results_aggregated
-from db import get_result_by_filename, delete_result as db_delete_result
-from db import get_settings, save_settings
-from db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
-from db import list_users, update_user_display_name, delete_user as db_delete_user
-from auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token
-from auth import _is_public_path
+from app.client import send_streaming_request
+from app.stats import aggregate_metrics, build_report_dict
+from app.logger import log_access, log_security
+from app.db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
+from app.db import switch_active_profile, delete_profile as db_delete_profile
+from app.db import save_result as db_save_result, get_results as db_get_results
+from app.db import get_results_aggregated as db_get_results_aggregated
+from app.db import get_result_by_filename, delete_result as db_delete_result
+from app.db import get_settings, save_settings
+from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
+from app.db import list_users, update_user_display_name, delete_user as db_delete_user
+from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token
+from app.auth import _is_public_path
 
-BASE_DIR = Path(__file__).parent
-CONFIG_PATH = BASE_DIR / "config.yaml"
+BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
 CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version")
@@ -200,43 +198,6 @@ def _apply_env_overrides(config: dict) -> dict:
     return config
 
 
-def _load_config() -> dict:
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            config = yaml.safe_load(f) or {}
-    else:
-        config = {}
-    return _apply_env_overrides(config)
-
-
-def _resolve_config(config: dict) -> dict:
-    """将 profiles + benchmark 结构合并为扁平运行时配置"""
-    resolved = {}
-    benchmark = config.get("benchmark", {})
-    for k in BENCHMARK_KEYS:
-        if k in benchmark:
-            resolved[k] = benchmark[k]
-    resolved["output_dir"] = config.get("output_dir", "./data/results")
-    if not benchmark:
-        for k in BENCHMARK_KEYS:
-            if k in config:
-                resolved[k] = config[k]
-    profiles = config.get("profiles", [])
-    active_name = config.get("active_profile", "")
-    active = next((p for p in profiles if p.get("name") == active_name), None)
-    if active:
-        for k in CONNECTION_KEYS:
-            if active.get(k):
-                resolved[k] = active[k]
-    if active_name:
-        resolved["profile_name"] = active_name
-    for k in CONNECTION_KEYS:
-        if k not in resolved and k in config:
-            resolved[k] = config[k]
-    _apply_env_overrides(resolved)
-    return resolved
-
-
 def _mask_api_key(key: str) -> str:
     if len(key) > 4:
         return f"...{key[-4:]}"
@@ -370,9 +331,9 @@ _scheduler = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
-    from migrate import migrate
+    from app.migrate import migrate
     await migrate()
-    from scheduler import TaskScheduler
+    from app.scheduler import TaskScheduler
     _scheduler = TaskScheduler()
     await _scheduler.start()
     yield
@@ -1012,14 +973,14 @@ async def dry_run(request: Request, user: dict = Depends(get_current_user)):
 
 @app.get("/api/schedules")
 async def list_schedules(user: dict = Depends(get_current_user)):
-    from db import get_scheduled_tasks
+    from app.db import get_scheduled_tasks
     tasks = await get_scheduled_tasks(user["user_id"])
     return {"schedules": tasks}
 
 
 @app.post("/api/schedules")
 async def create_schedule(request: Request, user: dict = Depends(get_current_user)):
-    from db import create_scheduled_task, get_scheduled_task
+    from app.db import create_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     body = await request.json()
     name = body.get("name", "").strip()
@@ -1042,7 +1003,7 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
 
 @app.put("/api/schedules/{task_id}")
 async def update_schedule(task_id: int, request: Request, user: dict = Depends(get_current_user)):
-    from db import update_scheduled_task, get_scheduled_task
+    from app.db import update_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1061,7 +1022,7 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
 
 @app.delete("/api/schedules/{task_id}")
 async def delete_schedule(task_id: int, user: dict = Depends(get_current_user)):
-    from db import delete_scheduled_task, get_scheduled_task
+    from app.db import delete_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1075,7 +1036,7 @@ async def delete_schedule(task_id: int, user: dict = Depends(get_current_user)):
 
 @app.post("/api/schedules/{task_id}/pause")
 async def pause_schedule(task_id: int, user: dict = Depends(get_current_user)):
-    from db import update_scheduled_task, get_scheduled_task
+    from app.db import update_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1089,7 +1050,7 @@ async def pause_schedule(task_id: int, user: dict = Depends(get_current_user)):
 
 @app.post("/api/schedules/{task_id}/resume")
 async def resume_schedule(task_id: int, user: dict = Depends(get_current_user)):
-    from db import update_scheduled_task, get_scheduled_task
+    from app.db import update_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1104,7 +1065,7 @@ async def resume_schedule(task_id: int, user: dict = Depends(get_current_user)):
 
 @app.post("/api/schedules/{task_id}/run-now")
 async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user)):
-    from db import get_scheduled_task
+    from app.db import get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1116,7 +1077,7 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
 
 @app.get("/api/schedules/{task_id}/results")
 async def get_schedule_results(task_id: int, user: dict = Depends(get_current_user)):
-    from db import get_results_by_scheduled_task, get_scheduled_task
+    from app.db import get_results_by_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:

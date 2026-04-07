@@ -10,7 +10,7 @@ from typing import Optional
 
 import numpy as np
 
-from client import RequestMetrics
+from app.client import RequestMetrics
 
 
 @dataclass

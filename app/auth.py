@@ -11,7 +11,7 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 
-_SECRET_FILE = Path(__file__).parent / "data" / "data.secret"
+_SECRET_FILE = Path(__file__).parent.parent / "data" / "data.secret"
 
 
 def _load_or_create_secret() -> str:

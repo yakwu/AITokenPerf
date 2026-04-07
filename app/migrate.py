@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """数据迁移脚本 — 从 config.yaml + results/*.json 迁移到 SQLite"""
 
-import glob
 import json
-import os
 import secrets
 import shutil
 import sys
@@ -11,8 +9,8 @@ from pathlib import Path
 
 import yaml
 
-from auth import hash_password
-from db import (
+from app.auth import hash_password
+from app.db import (
     init_db, close_db,
     create_user, count_users,
     upsert_profile, save_settings,
@@ -20,7 +18,7 @@ from db import (
     get_user_by_email,
 )
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent.parent
 CONFIG_PATH = BASE_DIR / "config.yaml"
 RESULTS_DIR = BASE_DIR / "results"
 
@@ -138,7 +136,7 @@ async def _create_default_admin():
 
 async def _migrate_schema():
     """增量迁移：为已有数据库添加新列/表"""
-    from db import get_db
+    from app.db import get_db
     db = await get_db()
 
     # 检查 results 表是否有 group_id 列

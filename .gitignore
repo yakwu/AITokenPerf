@@ -3,6 +3,9 @@ config.yaml
 config.yaml.bak
 .env
 
+# Legacy database
+aitokenperf.db
+
 # Runtime data
 data/
 
@@ -20,6 +23,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.venv/
+venv/
 
 # OS
 .DS_Store

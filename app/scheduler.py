@@ -7,14 +7,14 @@ import logging
 import time
 from datetime import datetime, timedelta
 
-from db import (
+from app.db import (
     get_all_active_scheduled_tasks,
     get_scheduled_task,
     update_scheduled_task,
     get_profiles,
     get_settings,
 )
-from logger import log_bench, log_error
+from app.logger import log_bench, log_error
 
 log = logging.getLogger("scheduler")
 # 同时输出到 app.log
@@ -99,7 +99,7 @@ class TaskScheduler:
     async def _execute(self, task_id: int):
         """执行一个 scheduled_task：为每个 profile 创建 BenchTask 并行跑"""
         # 延迟导入避免循环依赖
-        from server import manager, _run_benchmark_task
+        from app.server import manager, _run_benchmark_task
         import uuid
 
         task_row = await get_scheduled_task(task_id)
@@ -119,7 +119,7 @@ class TaskScheduler:
                   profiles=profile_ids, user_id=user_id)
 
         # 检查并发限制
-        from server import BenchTaskManager
+        from app.server import BenchTaskManager
         if manager.get_user_task_count(user_id) >= BenchTaskManager.MAX_PER_USER:
             log.warning("用户 %d 并发已达上限，跳过定时任务 #%d", user_id, task_id)
             log_error("scheduler:skipped", error="用户并发已达上限",
@@ -138,7 +138,7 @@ class TaskScheduler:
                 continue
 
             config = dict(benchmark) if benchmark else {}
-            from server import CONNECTION_KEYS, _apply_env_overrides
+            from app.server import CONNECTION_KEYS, _apply_env_overrides
             for k in CONNECTION_KEYS:
                 if profile.get(k):
                     config[k] = profile[k]

@@ -87,15 +87,18 @@ python3 main.py [--port PORT] [--host HOST]
 
 ```
 ├── main.py              # 入口，CLI 参数解析
-├── server.py            # Web 服务 + API 路由 + 中间件
-├── client.py            # API 客户端（SSE 流式请求）
-├── stats.py             # 统计计算（百分位、聚合）
-├── db.py                # SQLite 数据库层（aiosqlite）
-├── auth.py              # 认证（bcrypt + JWT）
-├── scheduler.py         # 定时任务调度器
-├── migrate.py           # 旧数据迁移 + 初始化
-├── logger.py            # 结构化日志（JSONL）
-├── config.yaml          # 运行时配置
+├── app/                 # 后端代码（FastAPI）
+│   ├── __init__.py
+│   ├── server.py        # Web 服务 + API 路由 + 中间件
+│   ├── client.py        # API 客户端（SSE 流式请求）
+│   ├── stats.py         # 统计计算（百分位、聚合）
+│   ├── db.py            # SQLite 数据库层（aiosqlite）
+│   ├── auth.py          # 认证（bcrypt + JWT）
+│   ├── scheduler.py     # 定时任务调度器
+│   ├── migrate.py       # 数据库初始化 + schema 迁移
+│   └── logger.py        # 结构化日志（JSONL）
+├── requirements.txt     # Python 依赖
+├── .env.example         # 环境变量模板
 ├── start.sh             # 开发启动脚本
 ├── build.sh             # 前端构建脚本
 ├── frontend/            # Vue 3 前端源码
@@ -106,7 +109,8 @@ python3 main.py [--port PORT] [--host HOST]
 │   │   ├── stores/      # Pinia 状态管理
 │   │   └── utils/       # 工具函数
 │   └── vite.config.js
-├── static/              # 构建产物（由 aiohttp 直接托管）
+├── static/              # 构建产物（由 FastAPI 直接托管）
+│   ├── vendor/          # Phosphor 图标
 │   └── assets/          # Vite 打包后的 JS/CSS
 └── data/                # 运行时数据（自动生成，gitignore）
     ├── data.db          # SQLite 数据库

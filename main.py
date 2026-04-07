@@ -14,7 +14,7 @@ import time
 
 import aiohttp
 
-from client import send_streaming_request
+from app.client import send_streaming_request
 
 
 async def run_burst(session: aiohttp.ClientSession, config: dict, concurrency: int, on_complete=None) -> list:
@@ -124,7 +124,7 @@ def main():
     args = parser.parse_args()
 
     import uvicorn
-    uvicorn.run("server:app", host=args.host, port=args.port, log_level="info")
+    uvicorn.run("app.server:app", host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":
