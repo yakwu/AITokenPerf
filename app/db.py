@@ -307,7 +307,7 @@ async def delete_user(user_id: int):
 async def get_profiles(user_id: int) -> list[dict]:
     async with engine.connect() as conn:
         cur = await conn.execute(
-            text("SELECT * FROM profiles WHERE user_id=:uid ORDER BY name"), {"uid": user_id}
+            text("SELECT * FROM profiles WHERE user_id=:uid ORDER BY created_at DESC"), {"uid": user_id}
         )
         return _rows_to_dicts(cur.fetchall())
 

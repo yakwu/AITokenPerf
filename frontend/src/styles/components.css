@@ -329,10 +329,28 @@ tbody tr:last-child td { border-bottom: none; }
 
 .profile-chips {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
+}
+
+/* --- Base card --- */
+.profile-chip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+  text-align: left;
+  min-width: 130px;
+  max-width: 180px;
+  flex-shrink: 0;
 }
 
 .profile-chip:hover {
@@ -343,81 +361,92 @@ tbody tr:last-child td { border-bottom: none; }
 .profile-chip.active {
   border-color: var(--accent);
   background: var(--accent-light);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
+/* --- Card text --- */
 .profile-chip-name {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.3;
 }
-
 .profile-chip.active .profile-chip-name { color: var(--accent); }
 
+.profile-chip-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+/* --- + Add button --- */
 .profile-chip-add {
   align-items: center;
   justify-content: center;
   border-style: dashed;
+  gap: 5px;
+  flex-direction: row;
+  min-width: auto;
+  padding: 10px 16px;
 }
-
-.profile-chip-add-icon {
-  font-size: 20px;
-  font-weight: 300;
+.profile-chip-add svg {
   color: var(--text-tertiary);
-  line-height: 1;
+  transition: color 0.18s;
 }
-
-.profile-chip-add:hover .profile-chip-add-icon { color: var(--accent); }
-.profile-chip-add.active { border-style: solid; }
-.profile-chip-add.active .profile-chip-add-icon { color: var(--accent); }
-
-.profile-chip-meta {
-  font-family: var(--font-mono);
-  font-size: 11px;
+.profile-chip-add span {
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  transition: color 0.18s;
 }
+.profile-chip-add:hover svg,
+.profile-chip-add:hover span { color: var(--accent); }
 
-.profile-empty-hint {
-  flex: 1;
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.profile-new-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.profile-new-name {
-  flex: 1;
-  max-width: 260px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-family: var(--font-body);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-primary);
-  outline: none;
-  transition: var(--transition);
-}
-.profile-new-name:focus {
+/* --- New-card (dashed, editing) --- */
+.profile-chip-new {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
+  border-style: dashed;
+  background: var(--accent-light);
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 180px;
+  padding: 8px 12px;
+  cursor: text;
+}
+.profile-chip-new svg { color: var(--accent); flex-shrink: 0; }
+
+.profile-chip-new .profile-chip-name-edit {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  color: var(--accent);
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  outline: none;
+}
+.profile-chip-new .profile-chip-name-edit::placeholder {
+  color: var(--accent);
+  opacity: 0.5;
 }
 
+/* --- Inline name edit (rename) --- */
 .profile-chip-name-edit {
   width: 100%;
   padding: 1px 4px;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
+  font-family: var(--font-body);
   color: var(--accent);
   border: 1px solid var(--accent);
   border-radius: 4px;
@@ -425,69 +454,85 @@ tbody tr:last-child td { border-bottom: none; }
   outline: none;
 }
 
+/* --- Floating action buttons (save / delete) --- */
 .profile-chip-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
   display: flex;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 2px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.15s, transform 0.15s;
+  pointer-events: none;
+}
+.profile-chip:hover .profile-chip-actions,
+.profile-chip.active .profile-chip-actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
-.profile-chip-btn {
-  flex: 1;
-  padding: 3px 0;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid;
-  border-radius: 5px;
+.profile-chip-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
-  transition: var(--transition);
-  text-align: center;
-  background: transparent;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
-.profile-chip-btn-overwrite {
+.profile-chip-action-save {
   color: var(--accent);
-  border-color: var(--accent);
 }
-.profile-chip-btn-overwrite:hover {
+.profile-chip-action-save:hover {
   background: var(--accent);
   color: #fff;
+  box-shadow: 0 2px 6px rgba(232,93,38,0.3);
 }
 
-.profile-chip-btn-saveas {
-  color: var(--text-secondary);
-  border-color: var(--border);
+.profile-chip-action-del {
+  color: var(--text-tertiary);
 }
-.profile-chip-btn-saveas:hover {
-  background: var(--text-secondary);
+.profile-chip-action-del:hover {
+  background: var(--danger);
   color: #fff;
+  box-shadow: 0 2px 6px rgba(214,59,59,0.3);
 }
 
-.profile-del-btn {
-  color: var(--text-tertiary) !important;
-  border-color: transparent !important;
-  padding: 6px 8px !important;
-}
-.profile-del-btn:hover { color: var(--danger) !important; }
-
-.delete-undo {
-  font-size: 0.75rem;
-  color: var(--danger);
-}
-
-.profile-chip {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 14px;
-  border: 1.5px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  cursor: pointer;
-  transition: var(--transition);
-  text-align: left;
-  width: 160px;
+/* Inline save button inside new-card */
+.profile-chip-new .profile-chip-action-save {
   flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: none;
+}
+.profile-chip-new .profile-chip-action-save:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 2px 6px rgba(232,93,38,0.3);
+}
+
+/* --- Multi-mode check --- */
+.profile-chip-check {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
 .profile-delete-row {
@@ -512,16 +557,6 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .profile-chip.multi-check.active {
   border-style: solid;
-}
-
-.profile-chip-check {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--accent);
-  line-height: 1;
 }
 
 .profile-multi-hint {

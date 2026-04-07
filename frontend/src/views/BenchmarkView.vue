@@ -8,10 +8,20 @@
       <div class="profile-section">
         <div class="profile-bar">
           <div class="profile-chips">
-            <button class="profile-chip profile-chip-add" v-show="!multiMode" :class="{ active: profileMode === 'new' }" @click="newProfile()" title="新建目标服务器">
-              <span class="profile-chip-add-icon">+</span>
-              <span class="profile-chip-meta">新建服务器</span>
+            <!-- + 新建按钮 -->
+            <button class="profile-chip profile-chip-add" v-show="!multiMode && profileMode !== 'new'" @click="newProfile()" title="新建目标服务器">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>新建</span>
             </button>
+            <!-- 新建中的虚线占位 -->
+            <div class="profile-chip profile-chip-new" v-show="!multiMode && profileMode === 'new'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <input class="profile-chip-name-edit" v-model="profileDraftName" placeholder="配置名称" @keydown.enter.prevent="saveProfile()" @blur="profileDraftName = profileDraftName.trim()" ref="newProfileNameInputRef" @click.stop>
+              <button v-if="canSaveProfile()" class="profile-chip-action profile-chip-action-save" @click.stop="saveProfile()" title="保存">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+            <!-- 已有 profile 卡片 -->
             <template v-for="p in profiles" :key="p.name">
               <div class="profile-chip" :class="{ active: multiMode ? multiSelectedProfiles.includes(p.name) : (profileMode === 'selected' && currentProfileName === p.name), 'multi-check': multiMode }" @click.self="multiMode ? toggleMultiProfile(p.name) : switchProfile(p.name)">
                 <span class="profile-chip-check" v-show="multiMode && multiSelectedProfiles.includes(p.name)">&#10003;</span>
@@ -22,9 +32,14 @@
                   <span class="profile-chip-name" @click.stop="multiMode ? toggleMultiProfile(p.name) : startRenameProfile()" :title="multiMode ? '' : '点击重命名'">{{ p.name }}</span>
                 </template>
                 <span class="profile-chip-meta" @click.stop="multiMode ? toggleMultiProfile(p.name) : switchProfile(p.name)">{{ profileHost(p.base_url) }}</span>
-                <div class="profile-chip-actions" v-show="!multiMode && profileMode === 'selected' && currentProfileName === p.name && profileDirty" @click.stop>
-                  <button class="profile-chip-btn profile-chip-btn-overwrite" @click="saveProfile()" title="更新当前 Profile">更新</button>
-                  <button class="profile-chip-btn profile-chip-btn-saveas" @click="saveAsNewProfile()" title="另存为新 Profile">另存</button>
+                <!-- 悬浮操作 -->
+                <div v-if="!multiMode && profileMode === 'selected' && currentProfileName === p.name" class="profile-chip-actions" @click.stop>
+                  <button v-if="profileDirty" class="profile-chip-action profile-chip-action-save" @click="saveProfile()" title="保存更改">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
+                  <button class="profile-chip-action profile-chip-action-del" @click="requestDeleteProfile(p.name)" title="删除">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
                 </div>
               </div>
             </template>
@@ -33,12 +48,6 @@
         </div>
         <div class="profile-multi-hint" v-show="multiMode">
           <span>已选 <strong>{{ multiSelectedProfiles.length }}</strong> 个服务器，至少需要 2 个</span>
-        </div>
-
-        <!-- 新建模式：名称输入 + 保存 -->
-        <div class="profile-new-bar" v-show="!multiMode && profileMode === 'new' && profileReadyFieldCount() >= 2">
-          <input class="profile-new-name" v-model="profileDraftName" placeholder="输入 Profile 名称" @keydown.enter.prevent="saveProfile()">
-          <button class="btn btn-primary btn-sm" @click="saveProfile()" :disabled="!canSaveProfile()">保存为 Profile</button>
         </div>
 
         <!-- 删除确认 -->
@@ -51,7 +60,7 @@
       <div class="form-grid">
         <div class="form-group">
           <label class="form-label">目标地址</label>
-          <input class="form-input" v-model="form.base_url" placeholder="https://api.anthropic.com">
+          <input class="form-input" v-model="form.base_url" placeholder="https://api.anthropic.com" ref="baseUrlInputRef">
         </div>
         <div class="form-group">
           <label class="form-label">API Key</label>
@@ -66,7 +75,7 @@
         <div class="form-group">
           <label class="form-label">模型</label>
           <div class="combobox" ref="comboboxRef" @click="toggleCombobox">
-            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" :placeholder="form.model || '请选择模型'" @focus="modelSearch = ''; modelDropdownOpen = true" @input="onModelInput($event)" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
+            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" :placeholder="form.model || '选择或直接输入模型 ID'" @focus="modelSearch = ''; modelDropdownOpen = true" @input="onModelInput($event)" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
             <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
             </button>
@@ -75,6 +84,11 @@
                 <div class="combobox-option" :class="{ active: form.model === m }" @mousedown.prevent="form.model = m; modelDropdownOpen = false">{{ m }}</div>
               </template>
               <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">无匹配模型，将使用输入值</div>
+              <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch">
+                <span v-if="!knownModels.length && !modelsApiLoading">暂无历史记录，可直接输入模型 ID<br><small style="color:var(--text-tertiary)">如 gpt-4o、claude-sonnet-4-6</small></span>
+                <span v-else-if="modelsApiLoading">正在获取可用模型列表…</span>
+                <span v-else>无匹配模型</span>
+              </div>
             </div>
           </div>
         </div>
@@ -241,6 +255,8 @@ const progressLogRef = ref(null);
 const liveResultsRef = ref(null);
 const renameInputRef = ref(null);
 const comboboxRef = ref(null);
+const baseUrlInputRef = ref(null);
+const newProfileNameInputRef = ref(null);
 
 // ---- Form state ----
 const form = ref({
@@ -290,6 +306,7 @@ const profileDraftName = ref('');
 const profileDeleteCandidate = ref('');
 const profileMode = ref('selected');
 const knownModels = ref([]);
+const modelsApiLoading = ref(false);
 const modelDropdownOpen = ref(false);
 const modelSearch = ref('');
 const editingProfileName = ref(false);
@@ -311,7 +328,13 @@ const orderedProfiles = computed(() => {
   return [...profiles.value].sort((a, b) => {
     if (a.name === currentProfileName.value) return -1;
     if (b.name === currentProfileName.value) return 1;
-    return a.name.localeCompare(b.name, 'zh-Hans-CN', { sensitivity: 'base' });
+    // 按创建时间降序，最新的在最左边
+    const ta = a.created_at || '';
+    const tb = b.created_at || '';
+    if (ta && tb) return tb.localeCompare(ta);
+    if (ta) return -1;
+    if (tb) return 1;
+    return 0;
   });
 });
 
@@ -325,6 +348,11 @@ const profileDraftExists = computed(() => {
 watch(() => form.value.base_url, () => checkProfileDirty());
 watch(() => form.value.api_key, () => checkProfileDirty());
 watch(() => form.value.model, () => checkProfileDirty());
+
+// 自动从 API 获取可用模型列表
+watch([() => form.value.base_url, () => form.value.api_key], ([url, key]) => {
+  if (url?.trim() && key?.trim()) fetchModelsFromApi();
+});
 
 import { useRoute, useRouter } from 'vue-router';
 const route = useRoute();
@@ -469,6 +497,38 @@ async function loadKnownModels() {
   } catch {
     knownModels.value = [];
   }
+}
+
+let modelsApiTimer = null;
+function fetchModelsFromApi() {
+  clearTimeout(modelsApiTimer);
+  modelsApiTimer = setTimeout(async () => {
+    const url = form.value.base_url?.trim();
+    const key = form.value.api_key?.trim();
+    if (!url || !key) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    modelsApiLoading.value = true;
+    try {
+      const apiBase = window.__API_BASE__ || (import.meta.env.DEV ? 'http://localhost:8080' : '');
+      const res = await fetch(apiBase + '/api/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ base_url: url, api_key: key }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.models?.length) {
+        const apiModels = data.models.map(m => m.id || m.name).filter(Boolean);
+        const merged = [...new Set([...knownModels.value, ...apiModels])].sort();
+        knownModels.value = merged;
+      }
+    } catch {
+      // API 不可用时静默忽略
+    } finally {
+      modelsApiLoading.value = false;
+    }
+  }, 800);
 }
 
 function profileReadyFieldCount() {
@@ -628,6 +688,7 @@ function newProfile() {
   editingProfileName.value = false;
   savedProfileConfig.value = null;
   profileDirty.value = false;
+  nextTick(() => { newProfileNameInputRef.value?.focus(); });
 }
 
 async function switchProfile(name) {
