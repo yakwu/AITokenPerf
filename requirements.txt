@@ -6,3 +6,5 @@ numpy>=1.20.0
 PyJWT>=2.8.0
 PyYAML>=5.4.0
 uvicorn[standard]>=0.27.0
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0

@@ -1,16 +1,37 @@
 #!/usr/bin/env python3
-"""数据库层 — SQLite + aiosqlite"""
+"""数据库层 — SQLite (aiosqlite) / PostgreSQL (asyncpg) 双模"""
 
 import json
 import os
 from pathlib import Path
 from typing import Optional
 
-import aiosqlite
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection
 
-DB_PATH = Path(__file__).parent.parent / "data" / "data.db"
+from app.config import DATABASE_URL
 
-_SCHEMA = """
+# 判断当前数据库类型
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+
+# SQLite：需要确保 data 目录存在
+if _is_sqlite:
+    _db_path = DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+    Path(_db_path).parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(Path(_db_path).parent, 0o700)
+    except OSError:
+        pass
+
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    **({} if not _is_sqlite else {"connect_args": {"check_same_thread": False}}),
+)
+
+# SQLite schema（保持原样）
+_SQLITE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -83,153 +104,283 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 );
 """
 
-_db: Optional[aiosqlite.Connection] = None
+# PostgreSQL schema
+_PG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id            SERIAL PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    display_name  TEXT NOT NULL DEFAULT '',
+    role          TEXT NOT NULL DEFAULT 'user',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
+CREATE TABLE IF NOT EXISTS sessions (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-async def get_db() -> aiosqlite.Connection:
-    global _db
-    if _db is None:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(DB_PATH.parent, 0o700)
-        except OSError:
-            pass
-        _db = await aiosqlite.connect(str(DB_PATH))
-        _db.row_factory = aiosqlite.Row
-        await _db.execute("PRAGMA journal_mode=WAL")
-        await _db.execute("PRAGMA foreign_keys=ON")
-    return _db
+CREATE TABLE IF NOT EXISTS profiles (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    base_url    TEXT NOT NULL DEFAULT '',
+    api_key     TEXT NOT NULL DEFAULT '',
+    api_version TEXT NOT NULL DEFAULT '2023-06-01',
+    model       TEXT NOT NULL DEFAULT '',
+    is_active   BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS results (
+    id                 SERIAL PRIMARY KEY,
+    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    test_id            TEXT NOT NULL,
+    filename           TEXT NOT NULL DEFAULT '',
+    timestamp          TEXT NOT NULL,
+    config_json        TEXT NOT NULL,
+    summary_json       TEXT NOT NULL,
+    percentiles_json   TEXT NOT NULL,
+    errors_json        TEXT NOT NULL DEFAULT '{}',
+    error_details_json TEXT NOT NULL DEFAULT '[]',
+    group_id           TEXT NOT NULL DEFAULT '',
+    scheduled_task_id  INTEGER NOT NULL DEFAULT 0,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    benchmark_json TEXT NOT NULL DEFAULT '{}',
+    output_dir     TEXT NOT NULL DEFAULT './data/results',
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    profile_ids     TEXT NOT NULL DEFAULT '[]',
+    configs_json    TEXT NOT NULL DEFAULT '{}',
+    schedule_type   TEXT NOT NULL DEFAULT 'interval',
+    schedule_value  TEXT NOT NULL DEFAULT '300',
+    status          TEXT NOT NULL DEFAULT 'active',
+    last_run_at     TIMESTAMPTZ,
+    next_run_at     TIMESTAMPTZ,
+    run_count       INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+# PG 需要的辅助索引（email 大小写不敏感）
+_PG_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
+"""
+
+# 用于 runtime UPDATE 的时间函数
+def _now_sql() -> str:
+    if _is_sqlite:
+        return "datetime('now')"
+    return "NOW()"
 
 
 async def init_db():
     """初始化数据库，创建表结构"""
-    db = await get_db()
-    await db.executescript(_SCHEMA)
-    await db.commit()
+    schema = _SQLITE_SCHEMA if _is_sqlite else _PG_SCHEMA
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            # SQLite 支持 executescript 但 SQLAlchemy async 不直接支持
+            # 拆分执行每条语句
+            for stmt in schema.strip().split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    await conn.execute(text(stmt))
+        else:
+            for stmt in schema.strip().split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    await conn.execute(text(stmt))
+            # PG 额外索引
+            for stmt in _PG_INDEXES.strip().split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    await conn.execute(text(stmt))
 
 
 async def close_db():
-    global _db
-    if _db:
-        await _db.close()
-        _db = None
+    """关闭数据库连接池"""
+    await engine.dispose()
+
+
+def _row_to_dict(row) -> dict:
+    """将 SQLAlchemy Row 转为 dict"""
+    if row is None:
+        return None
+    return dict(row._mapping)
+
+
+def _rows_to_dicts(rows) -> list[dict]:
+    return [dict(r._mapping) for r in rows]
 
 
 # ---- Users CRUD ----
 
 async def create_user(email: str, password_hash: str, display_name: str = "", role: str = "user") -> int:
-    db = await get_db()
-    cur = await db.execute(
-        "INSERT INTO users (email, password_hash, display_name, role) VALUES (?, ?, ?, ?)",
-        (email.lower(), password_hash, display_name, role),
-    )
-    await db.commit()
-    return cur.lastrowid
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("INSERT INTO users (email, password_hash, display_name, role) VALUES (:email, :password_hash, :display_name, :role)"),
+            {"email": email.lower(), "password_hash": password_hash, "display_name": display_name, "role": role},
+        )
+        # SQLite 返回 lastrowid，PG 需要 RETURNING
+        if _is_sqlite:
+            return cur.lastrowid
+        result = await conn.execute(text("SELECT lastval()"))
+        return (result.fetchone())[0]
 
 
 async def get_user_by_email(email: str) -> Optional[dict]:
-    db = await get_db()
-    cur = await db.execute("SELECT * FROM users WHERE email=?", (email.lower(),))
-    row = await cur.fetchone()
-    return dict(row) if row else None
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM users WHERE email=:email"), {"email": email.lower()}
+        )
+        row = cur.fetchone()
+        return _row_to_dict(row)
 
 
 async def get_user_by_id(user_id: int) -> Optional[dict]:
-    db = await get_db()
-    cur = await db.execute("SELECT * FROM users WHERE id=?", (user_id,))
-    row = await cur.fetchone()
-    return dict(row) if row else None
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM users WHERE id=:id"), {"id": user_id}
+        )
+        row = cur.fetchone()
+        return _row_to_dict(row)
 
 
 async def update_user_password(user_id: int, password_hash: str):
-    db = await get_db()
-    await db.execute(
-        "UPDATE users SET password_hash=?, updated_at=datetime('now') WHERE id=?",
-        (password_hash, user_id),
-    )
-    await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(f"UPDATE users SET password_hash=:pw, updated_at={_now_sql()} WHERE id=:id"),
+            {"pw": password_hash, "id": user_id},
+        )
 
 
 async def count_users() -> int:
-    db = await get_db()
-    cur = await db.execute("SELECT COUNT(*) FROM users")
-    row = await cur.fetchone()
-    return row[0]
+    async with engine.connect() as conn:
+        cur = await conn.execute(text("SELECT COUNT(*) FROM users"))
+        row = cur.fetchone()
+        return row[0]
 
 
 async def list_users() -> list[dict]:
-    db = await get_db()
-    cur = await db.execute("SELECT id, email, display_name, role, created_at, updated_at FROM users ORDER BY id")
-    return [dict(r) for r in await cur.fetchall()]
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT id, email, display_name, role, created_at, updated_at FROM users ORDER BY id")
+        )
+        return _rows_to_dicts(cur.fetchall())
 
 
 async def update_user_display_name(user_id: int, display_name: str):
-    db = await get_db()
-    await db.execute(
-        "UPDATE users SET display_name=?, updated_at=datetime('now') WHERE id=?",
-        (display_name, user_id),
-    )
-    await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(f"UPDATE users SET display_name=:dn, updated_at={_now_sql()} WHERE id=:id"),
+            {"dn": display_name, "id": user_id},
+        )
 
 
 async def delete_user(user_id: int):
-    db = await get_db()
-    await db.execute("DELETE FROM user_settings WHERE user_id=?", (user_id,))
-    await db.execute("DELETE FROM results WHERE user_id=?", (user_id,))
-    await db.execute("DELETE FROM profiles WHERE user_id=?", (user_id,))
-    await db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
-    await db.execute("DELETE FROM users WHERE id=?", (user_id,))
-    await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM user_settings WHERE user_id=:id"), {"id": user_id})
+        await conn.execute(text("DELETE FROM results WHERE user_id=:id"), {"id": user_id})
+        await conn.execute(text("DELETE FROM profiles WHERE user_id=:id"), {"id": user_id})
+        await conn.execute(text("DELETE FROM sessions WHERE user_id=:id"), {"id": user_id})
+        await conn.execute(text("DELETE FROM users WHERE id=:id"), {"id": user_id})
 
 
 # ---- Profiles CRUD ----
 
 async def get_profiles(user_id: int) -> list[dict]:
-    db = await get_db()
-    cur = await db.execute("SELECT * FROM profiles WHERE user_id=? ORDER BY name", (user_id,))
-    rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM profiles WHERE user_id=:uid ORDER BY name"), {"uid": user_id}
+        )
+        return _rows_to_dicts(cur.fetchall())
 
 
 async def get_active_profile(user_id: int) -> Optional[dict]:
-    db = await get_db()
-    cur = await db.execute("SELECT * FROM profiles WHERE user_id=? AND is_active=1", (user_id,))
-    row = await cur.fetchone()
-    return dict(row) if row else None
+    async with engine.connect() as conn:
+        if _is_sqlite:
+            cur = await conn.execute(
+                text("SELECT * FROM profiles WHERE user_id=:uid AND is_active=1"), {"uid": user_id}
+            )
+        else:
+            cur = await conn.execute(
+                text("SELECT * FROM profiles WHERE user_id=:uid AND is_active=TRUE"), {"uid": user_id}
+            )
+        row = cur.fetchone()
+        return _row_to_dict(row)
 
 
 async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: str = "",
                           api_version: str = "2023-06-01", model: str = "", set_active: bool = True):
-    db = await get_db()
-    if set_active:
-        await db.execute("UPDATE profiles SET is_active=0 WHERE user_id=?", (user_id,))
-    await db.execute(
-        """INSERT INTO profiles (user_id, name, base_url, api_key, api_version, model, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(user_id, name) DO UPDATE SET
-             base_url=excluded.base_url, api_key=excluded.api_key,
-             api_version=excluded.api_version, model=excluded.model,
-             is_active=excluded.is_active, updated_at=datetime('now')""",
-        (user_id, name, base_url, api_key, api_version, model, int(set_active)),
-    )
-    await db.commit()
+    async with engine.begin() as conn:
+        if set_active:
+            if _is_sqlite:
+                await conn.execute(
+                    text("UPDATE profiles SET is_active=0 WHERE user_id=:uid"), {"uid": user_id}
+                )
+            else:
+                await conn.execute(
+                    text("UPDATE profiles SET is_active=FALSE WHERE user_id=:uid"), {"uid": user_id}
+                )
+
+        active_val = 1 if _is_sqlite else True
+        await conn.execute(
+            text(f"""INSERT INTO profiles (user_id, name, base_url, api_key, api_version, model, is_active)
+                     VALUES (:uid, :name, :base_url, :api_key, :api_version, :model, :active)
+                     ON CONFLICT(user_id, name) DO UPDATE SET
+                       base_url=excluded.base_url, api_key=excluded.api_key,
+                       api_version=excluded.api_version, model=excluded.model,
+                       is_active=excluded.is_active, updated_at={_now_sql()}"""),
+            {"uid": user_id, "name": name, "base_url": base_url, "api_key": api_key,
+             "api_version": api_version, "model": model, "active": active_val},
+        )
 
 
 async def switch_active_profile(user_id: int, name: str) -> bool:
-    db = await get_db()
-    cur = await db.execute("SELECT id FROM profiles WHERE user_id=? AND name=?", (user_id, name))
-    if not await cur.fetchone():
-        return False
-    await db.execute("UPDATE profiles SET is_active=0 WHERE user_id=?", (user_id,))
-    await db.execute("UPDATE profiles SET is_active=1 WHERE user_id=? AND name=?", (user_id, name))
-    await db.commit()
-    return True
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("SELECT id FROM profiles WHERE user_id=:uid AND name=:name"),
+            {"uid": user_id, "name": name},
+        )
+        if not cur.fetchone():
+            return False
+        if _is_sqlite:
+            await conn.execute(text("UPDATE profiles SET is_active=0 WHERE user_id=:uid"), {"uid": user_id})
+            await conn.execute(
+                text("UPDATE profiles SET is_active=1 WHERE user_id=:uid AND name=:name"),
+                {"uid": user_id, "name": name},
+            )
+        else:
+            await conn.execute(text("UPDATE profiles SET is_active=FALSE WHERE user_id=:uid"), {"uid": user_id})
+            await conn.execute(
+                text("UPDATE profiles SET is_active=TRUE WHERE user_id=:uid AND name=:name"),
+                {"uid": user_id, "name": name},
+            )
+        return True
 
 
 async def delete_profile(user_id: int, name: str):
-    db = await get_db()
-    await db.execute("DELETE FROM profiles WHERE user_id=? AND name=?", (user_id, name))
-    await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM profiles WHERE user_id=:uid AND name=:name"),
+            {"uid": user_id, "name": name},
+        )
 
 
 # ---- Results CRUD ----
@@ -238,20 +389,24 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
                        config_json: str, summary_json: str, percentiles_json: str,
                        errors_json: str = "{}", error_details_json: str = "[]",
                        group_id: str = "", scheduled_task_id: int = 0):
-    db = await get_db()
-    await db.execute(
-        """INSERT INTO results (user_id, test_id, filename, timestamp, config_json,
-            summary_json, percentiles_json, errors_json, error_details_json, group_id,
-            scheduled_task_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, test_id, filename, timestamp, config_json, summary_json,
-         percentiles_json, errors_json, error_details_json, group_id, scheduled_task_id),
-    )
-    await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("""INSERT INTO results (user_id, test_id, filename, timestamp, config_json,
+                    summary_json, percentiles_json, errors_json, error_details_json, group_id,
+                    scheduled_task_id)
+                   VALUES (:uid, :test_id, :filename, :timestamp, :config_json,
+                    :summary_json, :percentiles_json, :errors_json, :error_details_json, :group_id,
+                    :scheduled_task_id)"""),
+            {"uid": user_id, "test_id": test_id, "filename": filename, "timestamp": timestamp,
+             "config_json": config_json, "summary_json": summary_json,
+             "percentiles_json": percentiles_json, "errors_json": errors_json,
+             "error_details_json": error_details_json, "group_id": group_id,
+             "scheduled_task_id": scheduled_task_id},
+        )
 
 
 def _row_to_result_dict(row) -> dict:
-    d = dict(row)
+    d = dict(row._mapping)
     d["config"] = json.loads(d["config_json"])
     d["summary"] = json.loads(d["summary_json"])
     d["percentiles"] = json.loads(d["percentiles_json"])
@@ -263,42 +418,35 @@ def _row_to_result_dict(row) -> dict:
 
 
 async def get_results(user_id: int) -> list[dict]:
-    db = await get_db()
-    cur = await db.execute(
-        """SELECT r.*, st.name AS schedule_name
-           FROM results r
-           LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-           WHERE r.user_id=?
-           ORDER BY r.created_at DESC""",
-        (user_id,),
-    )
-    rows = await cur.fetchall()
-    return [_row_to_result_dict(row) for row in rows]
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("""SELECT r.*, st.name AS schedule_name
+                   FROM results r
+                   LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+                   WHERE r.user_id=:uid
+                   ORDER BY r.created_at DESC"""),
+            {"uid": user_id},
+        )
+        rows = cur.fetchall()
+        return [_row_to_result_dict(row) for row in rows]
 
 
 async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0) -> dict:
-    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。
+    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。"""
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("""SELECT r.*, st.name AS schedule_name
+                   FROM results r
+                   LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+                   WHERE r.user_id=:uid
+                   ORDER BY r.created_at DESC"""),
+            {"uid": user_id},
+        )
+        rows = cur.fetchall()
 
-    返回 {"total": int, "items": [...]} 格式。
-    手动执行的结果（scheduled_task_id=0）各自独立展示。
-    定时任务的结果按 scheduled_task_id 聚合，展示最新一条，附带执行次数。
-    分页在聚合后执行。
-    """
-    db = await get_db()
-    # 1) 获取所有结果（仍需全量用于聚合，后续可优化为 SQL 聚合）
-    cur = await db.execute(
-        """SELECT r.*, st.name AS schedule_name
-           FROM results r
-           LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-           WHERE r.user_id=?
-           ORDER BY r.created_at DESC""",
-        (user_id,),
-    )
-    rows = await cur.fetchall()
-
-    # 2) 聚合
+    # 聚合
     manual_items = []
-    scheduled_groups = {}  # scheduled_task_id -> [result_dicts]
+    scheduled_groups = {}
     for row in rows:
         d = _row_to_result_dict(row)
         sid = d.get("scheduled_task_id") or 0
@@ -307,11 +455,8 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0)
         else:
             scheduled_groups.setdefault(sid, []).append(d)
 
-    # 3) 构建聚合列表：手动的保持原样，定时任务的合并
-    merged = list(manual_items)  # 手动结果已经是单条
+    merged = list(manual_items)
     for sid, group in scheduled_groups.items():
-        # group 已按 created_at DESC 排序
-        # 计算平均指标作为聚合展示值
         count = len(group)
         avg_summary = {}
         avg_percentiles = {}
@@ -335,7 +480,6 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0)
                 if v is not None:
                     avg_summary[key] = v
 
-            # input_tokens / output_tokens 统计对象
             for sub_key in ["input_tokens", "output_tokens"]:
                 sub_obj = {}
                 for stat in ["Min", "P50", "P95", "P99", "Max", "Avg"]:
@@ -359,10 +503,9 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0)
         representative["summary"] = avg_summary
         representative["percentiles"] = avg_percentiles
         representative["children_count"] = count
-        representative["children"] = group  # 全部子记录，展开时展示
+        representative["children"] = group
         merged.append(representative)
 
-    # 4) 按最新时间排序
     merged.sort(key=lambda r: r.get("created_at") or r.get("timestamp") or "", reverse=True)
 
     total = len(merged)
@@ -372,76 +515,80 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0)
 
 
 async def get_result_by_filename(user_id: int, filename: str) -> Optional[dict]:
-    db = await get_db()
-    cur = await db.execute(
-        "SELECT * FROM results WHERE user_id=? AND filename=?", (user_id, filename)
-    )
-    row = await cur.fetchone()
-    if not row:
-        return None
-    d = dict(row)
-    d["config"] = json.loads(d["config_json"])
-    d["summary"] = json.loads(d["summary_json"])
-    d["percentiles"] = json.loads(d["percentiles_json"])
-    d["errors"] = json.loads(d["errors_json"])
-    d["error_details"] = json.loads(d["error_details_json"])
-    return d
-
-
-async def delete_result(user_id: int, filename: str):
-    db = await get_db()
-    await db.execute("DELETE FROM results WHERE user_id=? AND filename=?", (user_id, filename))
-    await db.commit()
-
-
-async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int) -> list[dict]:
-    db = await get_db()
-    cur = await db.execute(
-        """SELECT r.*, st.name AS schedule_name
-           FROM results r
-           LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-           WHERE r.user_id=? AND r.scheduled_task_id=?
-           ORDER BY r.created_at DESC""",
-        (user_id, scheduled_task_id),
-    )
-    rows = await cur.fetchall()
-    results = []
-    for row in rows:
-        d = dict(row)
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM results WHERE user_id=:uid AND filename=:fn"),
+            {"uid": user_id, "fn": filename},
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row._mapping)
         d["config"] = json.loads(d["config_json"])
         d["summary"] = json.loads(d["summary_json"])
         d["percentiles"] = json.loads(d["percentiles_json"])
         d["errors"] = json.loads(d["errors_json"])
         d["error_details"] = json.loads(d["error_details_json"])
-        if not d.get("schedule_name"):
-            d["schedule_name"] = ""
-        results.append(d)
-    return results
+        return d
+
+
+async def delete_result(user_id: int, filename: str):
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM results WHERE user_id=:uid AND filename=:fn"),
+            {"uid": user_id, "fn": filename},
+        )
+
+
+async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int) -> list[dict]:
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("""SELECT r.*, st.name AS schedule_name
+                   FROM results r
+                   LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+                   WHERE r.user_id=:uid AND r.scheduled_task_id=:sid
+                   ORDER BY r.created_at DESC"""),
+            {"uid": user_id, "sid": scheduled_task_id},
+        )
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row._mapping)
+            d["config"] = json.loads(d["config_json"])
+            d["summary"] = json.loads(d["summary_json"])
+            d["percentiles"] = json.loads(d["percentiles_json"])
+            d["errors"] = json.loads(d["errors_json"])
+            d["error_details"] = json.loads(d["error_details_json"])
+            if not d.get("schedule_name"):
+                d["schedule_name"] = ""
+            results.append(d)
+        return results
 
 
 # ---- User Settings CRUD ----
 
 async def get_settings(user_id: int) -> dict:
-    db = await get_db()
-    cur = await db.execute("SELECT * FROM user_settings WHERE user_id=?", (user_id,))
-    row = await cur.fetchone()
-    if not row:
-        return {}
-    return json.loads(dict(row)["benchmark_json"])
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM user_settings WHERE user_id=:uid"), {"uid": user_id}
+        )
+        row = cur.fetchone()
+        if not row:
+            return {}
+        return json.loads(dict(row._mapping)["benchmark_json"])
 
 
 async def save_settings(user_id: int, benchmark: dict, output_dir: str = "./results"):
-    db = await get_db()
-    await db.execute(
-        """INSERT INTO user_settings (user_id, benchmark_json, output_dir)
-           VALUES (?, ?, ?)
-           ON CONFLICT(user_id) DO UPDATE SET
-             benchmark_json=excluded.benchmark_json,
-             output_dir=excluded.output_dir,
-             updated_at=datetime('now')""",
-        (user_id, json.dumps(benchmark), output_dir),
-    )
-    await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(f"""INSERT INTO user_settings (user_id, benchmark_json, output_dir)
+                     VALUES (:uid, :bj, :od)
+                     ON CONFLICT(user_id) DO UPDATE SET
+                       benchmark_json=excluded.benchmark_json,
+                       output_dir=excluded.output_dir,
+                       updated_at={_now_sql()}"""),
+            {"uid": user_id, "bj": json.dumps(benchmark), "od": output_dir},
+        )
 
 
 # ---- Scheduled Tasks CRUD ----
@@ -449,87 +596,90 @@ async def save_settings(user_id: int, benchmark: dict, output_dir: str = "./resu
 async def create_scheduled_task(user_id: int, name: str, profile_ids: list,
                                  configs_json: dict, schedule_type: str,
                                  schedule_value: str) -> int:
-    db = await get_db()
-    cur = await db.execute(
-        """INSERT INTO scheduled_tasks (user_id, name, profile_ids, configs_json,
-            schedule_type, schedule_value)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (user_id, name, json.dumps(profile_ids), json.dumps(configs_json),
-         schedule_type, schedule_value),
-    )
-    await db.commit()
-    return cur.lastrowid
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("""INSERT INTO scheduled_tasks (user_id, name, profile_ids, configs_json,
+                    schedule_type, schedule_value)
+                   VALUES (:uid, :name, :pids, :cj, :st, :sv)"""),
+            {"uid": user_id, "name": name, "pids": json.dumps(profile_ids),
+             "cj": json.dumps(configs_json), "st": schedule_type, "sv": schedule_value},
+        )
+        if _is_sqlite:
+            return cur.lastrowid
+        result = await conn.execute(text("SELECT lastval()"))
+        return (result.fetchone())[0]
 
 
 async def get_scheduled_tasks(user_id: int) -> list[dict]:
-    db = await get_db()
-    cur = await db.execute(
-        "SELECT * FROM scheduled_tasks WHERE user_id=? ORDER BY created_at DESC",
-        (user_id,),
-    )
-    rows = await cur.fetchall()
-    results = []
-    for row in rows:
-        d = dict(row)
-        d["profile_ids"] = json.loads(d["profile_ids"])
-        d["configs"] = json.loads(d["configs_json"])
-        results.append(d)
-    return results
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM scheduled_tasks WHERE user_id=:uid ORDER BY created_at DESC"),
+            {"uid": user_id},
+        )
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row._mapping)
+            d["profile_ids"] = json.loads(d["profile_ids"])
+            d["configs"] = json.loads(d["configs_json"])
+            results.append(d)
+        return results
 
 
 async def get_scheduled_task(task_id: int) -> Optional[dict]:
-    db = await get_db()
-    cur = await db.execute("SELECT * FROM scheduled_tasks WHERE id=?", (task_id,))
-    row = await cur.fetchone()
-    if not row:
-        return None
-    d = dict(row)
-    d["profile_ids"] = json.loads(d["profile_ids"])
-    d["configs"] = json.loads(d["configs_json"])
-    return d
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM scheduled_tasks WHERE id=:id"), {"id": task_id}
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row._mapping)
+        d["profile_ids"] = json.loads(d["profile_ids"])
+        d["configs"] = json.loads(d["configs_json"])
+        return d
 
 
 async def update_scheduled_task(task_id: int, **fields):
-    db = await get_db()
-    allowed = {"name", "profile_ids", "configs_json", "schedule_type",
-               "schedule_value", "status", "last_run_at", "next_run_at", "run_count"}
-    set_parts = []
-    values = []
-    for k, v in fields.items():
-        if k in allowed:
-            set_parts.append(f"{k}=?")
-            if k == "profile_ids" and isinstance(v, list):
-                v = json.dumps(v)
-            elif k == "configs_json" and isinstance(v, dict):
-                v = json.dumps(v)
-            values.append(v)
-    if not set_parts:
-        return
-    set_parts.append("updated_at=datetime('now')")
-    values.append(task_id)
-    await db.execute(
-        f"UPDATE scheduled_tasks SET {', '.join(set_parts)} WHERE id=?",
-        values,
-    )
-    await db.commit()
+    async with engine.begin() as conn:
+        allowed = {"name", "profile_ids", "configs_json", "schedule_type",
+                   "schedule_value", "status", "last_run_at", "next_run_at", "run_count"}
+        set_parts = []
+        values = {"id": task_id}
+        for k, v in fields.items():
+            if k in allowed:
+                set_parts.append(f"{k}=:{k}")
+                if k == "profile_ids" and isinstance(v, list):
+                    v = json.dumps(v)
+                elif k == "configs_json" and isinstance(v, dict):
+                    v = json.dumps(v)
+                values[k] = v
+        if not set_parts:
+            return
+        set_parts.append(f"updated_at={_now_sql()}")
+        await conn.execute(
+            text(f"UPDATE scheduled_tasks SET {', '.join(set_parts)} WHERE id=:id"),
+            values,
+        )
 
 
 async def delete_scheduled_task(task_id: int):
-    db = await get_db()
-    await db.execute("DELETE FROM scheduled_tasks WHERE id=?", (task_id,))
-    await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM scheduled_tasks WHERE id=:id"), {"id": task_id}
+        )
 
 
 async def get_all_active_scheduled_tasks() -> list[dict]:
-    db = await get_db()
-    cur = await db.execute(
-        "SELECT * FROM scheduled_tasks WHERE status='active' ORDER BY id"
-    )
-    rows = await cur.fetchall()
-    results = []
-    for row in rows:
-        d = dict(row)
-        d["profile_ids"] = json.loads(d["profile_ids"])
-        d["configs"] = json.loads(d["configs_json"])
-        results.append(d)
-    return results
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM scheduled_tasks WHERE status='active' ORDER BY id")
+        )
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row._mapping)
+            d["profile_ids"] = json.loads(d["profile_ids"])
+            d["configs"] = json.loads(d["configs_json"])
+            results.append(d)
+        return results

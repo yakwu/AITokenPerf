@@ -121,10 +121,12 @@ def main():
     parser = argparse.ArgumentParser(description="AITokenPerf — API 压测工具 (Web 模式)")
     parser.add_argument("--port", type=int, default=8080, help="Web 服务端口 (默认 8080)")
     parser.add_argument("--host", type=str, default=os.environ.get("HOST", "127.0.0.1"), help="绑定地址 (默认 127.0.0.1)")
+    parser.add_argument("--workers", type=int, default=1, help="Worker 进程数 (默认 1)")
     args = parser.parse_args()
 
     import uvicorn
-    uvicorn.run("app.server:app", host=args.host, port=args.port, log_level="info")
+    uvicorn.run("app.server:app", host=args.host, port=args.port,
+                log_level="info", workers=args.workers)
 
 
 if __name__ == "__main__":

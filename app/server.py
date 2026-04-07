@@ -137,7 +137,7 @@ RATE_LIMITS = {
 }
 RATE_LIMIT_DEFAULT = (60, 60)
 
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "")
+from app.config import CORS_ORIGINS
 
 
 def _check_ban(ip: str) -> bool:

@@ -11,14 +11,15 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 
+from app.config import JWT_SECRET as _CONFIG_JWT_SECRET
+
 _SECRET_FILE = Path(__file__).parent.parent / "data" / "data.secret"
 
 
 def _load_or_create_secret() -> str:
     # 优先使用环境变量（SaaS 部署场景）
-    env_secret = os.environ.get("JWT_SECRET", "")
-    if env_secret:
-        return env_secret
+    if _CONFIG_JWT_SECRET:
+        return _CONFIG_JWT_SECRET
 
     # 开源场景：从本地文件读取，不存在则自动生成
     if _SECRET_FILE.exists():
