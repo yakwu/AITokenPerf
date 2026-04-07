@@ -134,6 +134,8 @@ RATE_LIMITS = {
     "/api/bench/start": (5, 60),
     "/api/bench/stop": (5, 60),
     "/api/bench/status": (120, 60),
+    "/api/auth/login": (5, 60),
+    "/api/auth/register": (3, 3600),
 }
 RATE_LIMIT_DEFAULT = (60, 60)  # 其他 API
 
@@ -214,6 +216,9 @@ async def security_middleware(request: web.Request, handler):
     duration_ms = (time.monotonic() - start) * 1000
 
     # 6. 安全响应头
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     if path.startswith("/api/"):
         _set_cors_headers(resp, request)
     resp.headers.pop("Server", None)
@@ -231,7 +236,7 @@ def _set_cors_headers(resp: web.Response, request: web.Request):
         if origin in allowed:
             resp.headers["Access-Control-Allow-Origin"] = origin
     else:
-        resp.headers["Access-Control-Allow-Origin"] = "*"
+        pass  # 不设置 Allow-Origin 头，浏览器默认不发送 CORS 响应
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
 
@@ -452,8 +457,11 @@ async def delete_profile_handler(request):
 
 async def list_results(request):
     user_id = request["user_id"]
-    limit = int(request.query.get("limit", 50))
-    offset = int(request.query.get("offset", 0))
+    try:
+        limit = int(request.query.get("limit", 50))
+        offset = int(request.query.get("offset", 0))
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     # 限制范围
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -579,7 +587,10 @@ async def bench_status(request):
             "elapsed": 0, "events": [],
         })
 
-    since = int(request.query.get("since", 0))
+    try:
+        since = int(request.query.get("since", 0))
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     new_events = [e for e in task.events if e["seq"] > since]
     elapsed = round(time.monotonic() - task.start_time, 1) if task.start_time else 0
 
@@ -805,7 +816,8 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
             })
 
     except Exception as e:
-        await _publish(task, "bench:error", {"error": str(e)})
+        log_security("bench_error", error=str(e))
+        await _publish(task, "bench:error", {"error": "Benchmark execution failed, check server logs for details"})
     finally:
         task.status = "idle"
         task.asyncio_task = None
@@ -912,7 +924,10 @@ async def admin_list_users(request):
 async def admin_delete_user(request):
     if request.get("user_role") != "admin":
         return web.json_response({"error": "Forbidden"}, status=403)
-    target_id = int(request.match_info["user_id"])
+    try:
+        target_id = int(request.match_info["user_id"])
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     current_id = request["user_id"]
     if target_id == current_id:
         return web.json_response({"error": "不能删除自己"}, status=400)
@@ -965,7 +980,10 @@ async def create_schedule(request):
 
 async def update_schedule(request):
     from db import update_scheduled_task, get_scheduled_task
-    task_id = int(request.match_info["id"])
+    try:
+        task_id = int(request.match_info["id"])
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     user_id = request["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -985,7 +1003,10 @@ async def update_schedule(request):
 
 async def delete_schedule(request):
     from db import delete_scheduled_task, get_scheduled_task
-    task_id = int(request.match_info["id"])
+    try:
+        task_id = int(request.match_info["id"])
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     user_id = request["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1000,7 +1021,10 @@ async def delete_schedule(request):
 
 async def pause_schedule(request):
     from db import update_scheduled_task, get_scheduled_task
-    task_id = int(request.match_info["id"])
+    try:
+        task_id = int(request.match_info["id"])
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     user_id = request["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1014,7 +1038,10 @@ async def pause_schedule(request):
 
 async def resume_schedule(request):
     from db import update_scheduled_task, get_scheduled_task
-    task_id = int(request.match_info["id"])
+    try:
+        task_id = int(request.match_info["id"])
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     user_id = request["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1029,7 +1056,10 @@ async def resume_schedule(request):
 
 async def run_schedule_now(request):
     from db import get_scheduled_task
-    task_id = int(request.match_info["id"])
+    try:
+        task_id = int(request.match_info["id"])
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     user_id = request["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1041,7 +1071,10 @@ async def run_schedule_now(request):
 
 async def get_schedule_results(request):
     from db import get_results_by_scheduled_task, get_scheduled_task
-    task_id = int(request.match_info["id"])
+    try:
+        task_id = int(request.match_info["id"])
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Invalid parameter"}, status=400)
     user_id = request["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
@@ -1094,8 +1127,7 @@ def create_app() -> web.Application:
 
     app.router.add_get("/", index_handler)
     app.router.add_get("/favicon.ico", favicon_handler)
-    app.router.add_static("/css/", STATIC_DIR / "css")
-    app.router.add_static("/js/", STATIC_DIR / "js")
+    app.router.add_static("/assets/", STATIC_DIR / "assets")
     app.router.add_static("/vendor/", STATIC_DIR / "vendor")
 
     # Auth routes
@@ -1145,11 +1177,11 @@ def create_app() -> web.Application:
     return app
 
 
-async def start_server(config: dict, port: int = 8080):
+async def start_server(config: dict, port: int = 8080, host: str = "127.0.0.1"):
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
+    site = web.TCPSite(runner, host, port)
     print(f"\n  AITokenPerf Web UI: http://localhost:{port}")
     print(f"  Press Ctrl+C to stop.\n")
     await site.start()

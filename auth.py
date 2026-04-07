@@ -26,7 +26,9 @@ def _load_or_create_secret() -> str:
 
     secret = os.urandom(32).hex()
     _SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(_SECRET_FILE.parent, 0o700)
     _SECRET_FILE.write_text(secret)
+    os.chmod(_SECRET_FILE, 0o600)
     return secret
 
 
@@ -38,7 +40,7 @@ PUBLIC_PATHS = {
     "/", "/favicon.ico",
     "/api/auth/login", "/api/auth/register",
 }
-PUBLIC_PREFIXES = ["/css/", "/js/", "/fonts/", "/vendor/"]
+PUBLIC_PREFIXES = ["/assets/", "/vendor/", "/fonts/"]
 
 
 def hash_password(password: str) -> str:

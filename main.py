@@ -9,6 +9,7 @@ AITokenPerf — API SSE 流式压测工具 (Web 模式)
 
 import argparse
 import asyncio
+import os
 import time
 
 import aiohttp
@@ -119,10 +120,11 @@ async def run_dry(session: aiohttp.ClientSession, config: dict):
 def main():
     parser = argparse.ArgumentParser(description="AITokenPerf — API 压测工具 (Web 模式)")
     parser.add_argument("--port", type=int, default=8080, help="Web 服务端口 (默认 8080)")
+    parser.add_argument("--host", type=str, default=os.environ.get("HOST", "127.0.0.1"), help="绑定地址 (默认 127.0.0.1)")
     args = parser.parse_args()
 
     from server import start_server
-    asyncio.run(start_server({}, args.port))
+    asyncio.run(start_server({}, args.port, args.host))
 
 
 if __name__ == "__main__":

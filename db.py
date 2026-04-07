@@ -2,6 +2,7 @@
 """数据库层 — SQLite + aiosqlite"""
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -89,6 +90,10 @@ async def get_db() -> aiosqlite.Connection:
     global _db
     if _db is None:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(DB_PATH.parent, 0o700)
+        except OSError:
+            pass
         _db = await aiosqlite.connect(str(DB_PATH))
         _db.row_factory = aiosqlite.Row
         await _db.execute("PRAGMA journal_mode=WAL")

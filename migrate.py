@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import shutil
+import sys
 from pathlib import Path
 
 import yaml
@@ -22,6 +23,17 @@ from db import (
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.yaml"
 RESULTS_DIR = BASE_DIR / "results"
+
+
+def _print_admin_password(email, password):
+    """安全输出管理员密码 — 仅在 TTY 时打印明文"""
+    print(f"\n  管理员账号已创建:")
+    print(f"    邮箱: {email}")
+    if sys.stdout.isatty():
+        print(f"    密码: {password}")
+    else:
+        print(f"    密码: [已隐藏 — 请查看终端启动日志]")
+    print(f"    (请登录后尽快修改密码)\n")
 
 
 async def migrate():
@@ -52,10 +64,7 @@ async def migrate():
     admin_password = secrets.token_urlsafe(12)
     admin_email = "admin@local"
     user_id = await create_user(admin_email, hash_password(admin_password), "Admin", "admin")
-    print(f"\n  管理员账号已创建:")
-    print(f"    邮箱: {admin_email}")
-    print(f"    密码: {admin_password}")
-    print(f"    (请登录后尽快修改密码)\n")
+    _print_admin_password(admin_email, admin_password)
 
     # 2. 迁移 profiles
     if has_config:
@@ -124,10 +133,7 @@ async def _create_default_admin():
     admin_password = secrets.token_urlsafe(12)
     admin_email = "admin@local"
     await create_user(admin_email, hash_password(admin_password), "Admin", "admin")
-    print(f"\n  管理员账号已创建:")
-    print(f"    邮箱: {admin_email}")
-    print(f"    密码: {admin_password}")
-    print(f"    (请登录后尽快修改密码)\n")
+    _print_admin_password(admin_email, admin_password)
 
 
 async def _migrate_schema():
