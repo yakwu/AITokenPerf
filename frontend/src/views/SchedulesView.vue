@@ -51,7 +51,7 @@
     </div>
 
     <!-- 任务列表 -->
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" style="padding:0;overflow-x:auto">
       <div v-if="loading" style="text-align:center;color:var(--text-tertiary);padding:32px">加载中...</div>
       <div v-else class="table-wrap">
         <table>
