@@ -68,7 +68,7 @@ class TaskScheduler:
             last_run = task_row.get("last_run_at")
             if last_run:
                 try:
-                    last_dt = datetime.fromisoformat(last_run)
+                    last_dt = last_run if isinstance(last_run, datetime) else datetime.fromisoformat(last_run)
                     now = datetime.utcnow()
                     elapsed = (now - last_dt).total_seconds()
                     # 跳过已经过去的间隔，找到下一个未执行的时间点
@@ -192,11 +192,11 @@ class TaskScheduler:
 
         # 更新 run_count 和 last_run_at（无论子任务是否异常都更新）
         try:
-            now_str = datetime.utcnow().isoformat()
+            now_dt = datetime.utcnow()
             new_run_count = (task_row.get("run_count") or 0) + 1
             await update_scheduled_task(
                 task_id,
-                last_run_at=now_str,
+                last_run_at=now_dt,
                 run_count=new_run_count,
             )
             log.info("定时任务 #%d 执行完成，累计 %d 次，本次保存 %d 条结果",
