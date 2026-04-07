@@ -49,6 +49,22 @@
     <router-view v-if="store.user || $route.path === '/auth'" />
     <router-view v-else-if="!store.user" />
   </main>
+
+  <!-- Detail Overlay -->
+  <div id="detailOverlay" class="compare-overlay" @click.self="closeDetailOverlay">
+    <div class="compare-modal">
+      <div class="compare-modal-header"><h2>结果详情</h2></div>
+      <div id="detailOverlayContent" class="compare-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Compare Overlay (HistoryView uses this) -->
+  <div id="compareOverlay" class="compare-overlay" @click.self="closeCompareOverlay">
+    <div class="compare-modal">
+      <div class="compare-modal-header"><h2>结果对比</h2></div>
+      <div id="compareContent" class="compare-modal-body"></div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -57,6 +73,22 @@ import { useAppStore } from './stores/app';
 import { useRouter, useRoute } from 'vue-router';
 
 const store = useAppStore();
+
+// Global detail overlay
+function closeDetailOverlay() {
+  document.getElementById('detailOverlay')?.classList.remove('open');
+}
+function closeCompareOverlay() {
+  document.getElementById('compareOverlay')?.classList.remove('open');
+}
+// Expose for child components
+window.showDetailOverlay = function(detailHtml) {
+  const content = document.getElementById('detailOverlayContent');
+  if (content) {
+    content.innerHTML = detailHtml;
+    document.getElementById('detailOverlay')?.classList.add('open');
+  }
+};
 const userMenuOpen = ref(false);
 const router = useRouter();
 const route = useRoute();

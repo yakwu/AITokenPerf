@@ -499,12 +499,7 @@ function openCompare() {
 }
 
 function _showDetailOverlay(detail) {
-  const el = document.getElementById('detailOverlay');
-  const content = document.getElementById('detailOverlayContent');
-  if (el && content) {
-    content.innerHTML = renderResultDetail(detail);
-    el.classList.add('open');
-  }
+  window.showDetailOverlay(renderResultDetail(detail));
 }
 
 function closeDetailOverlay() {

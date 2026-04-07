@@ -245,6 +245,7 @@ import {
 } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { fmtTime, fmtTimestamp, fmtPct, fmtNum, qualityColorStyle, latencyColorStyle } from '../utils/formatters.js';
+import { renderResultDetail } from '../utils/resultDetail.js';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
@@ -696,16 +697,7 @@ function renderQualityChart() {
 
 // ---- Detail View ----
 function viewResultInHistory(r) {
-  // Emit event for parent or shared overlay to handle
-  // In the old code this calls renderResultDetail(r) and opens #detailOverlay
-  const el = document.getElementById('detailOverlay');
-  const content = document.getElementById('detailOverlayContent');
-  if (el && content && typeof window.renderResultDetail === 'function') {
-    content.innerHTML = window.renderResultDetail(r);
-    el.classList.add('open');
-  } else {
-    toast('结果详情功能需要在全局可用', 'info');
-  }
+  window.showDetailOverlay(renderResultDetail(r));
 }
 
 // ---- Lifecycle ----

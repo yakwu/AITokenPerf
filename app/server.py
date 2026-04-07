@@ -1106,6 +1106,8 @@ async def get_schedule_results(task_id: int, user: dict = Depends(get_current_us
             "config": r.get("config", {}),
             "summary": r.get("summary", {}),
             "percentiles": r.get("percentiles", {}),
+            "errors": r.get("errors", {}),
+            "error_details": r.get("error_details", []),
             "scheduled_task_id": r.get("scheduled_task_id", 0),
             "schedule_name": r.get("schedule_name", ""),
         })
