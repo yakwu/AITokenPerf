@@ -368,9 +368,19 @@ else:
 
 # ---- Security Middleware ----
 
+def _get_real_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    xri = request.headers.get("x-real-ip")
+    if xri:
+        return xri.strip()
+    return request.client.host if request.client else "unknown"
+
+
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_real_ip(request)
     path = request.url.path
     start = time.monotonic()
 
