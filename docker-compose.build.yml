@@ -15,8 +15,7 @@ services:
       retries: 5
 
   app:
-    image: ghcr.io/yakwu/aitokenperf:latest
-    # 本地开发改用 build: . （或直接用 docker-compose.build.yml）
+    build: .
     ports:
       - "8080:8080"
     environment:
