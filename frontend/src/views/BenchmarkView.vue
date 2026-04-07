@@ -229,6 +229,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { api } from '../api/index.js';
 import { useAppStore } from '../stores/app.js';
 import { toast } from '../composables/useToast.js';
+import { useBenchSSE } from '../composables/useBenchSSE.js';
 // renderResultDetail — 需要后续创建 src/utils/resultDetail.js
 import { renderResultDetail } from '../utils/resultDetail.js';
 import { escHtml } from '../utils/formatters.js';
@@ -266,9 +267,12 @@ const running = ref(false);
 const progress = ref({ done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' });
 const logs = ref([]);
 const liveResults = ref([]);
-const pollTimer = ref(null);
-const eventCursor = ref(0);
+const pollTimer = ref(null); // 仅用于多服务器轮询
 const taskId = ref(null);
+const lastCompletedFilename = ref(null);
+const benchSSE = useBenchSSE();
+const elapsedTimer = ref(null);
+let benchStartTime = 0;
 
 // ---- Multi-server ----
 const multiMode = ref(false);
@@ -379,7 +383,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  stopPolling();
+  stopSSE();
+  stopMultiPolling();
   document.removeEventListener('click', handleComboboxOutside);
 });
 
@@ -692,11 +697,10 @@ async function checkRunningStatus() {
   const data = await api('/api/bench/status');
   if (data.status === 'running') {
     taskId.value = data.task_id;
-    eventCursor.value = 0;
     running.value = true;
     store.status = 'running';
     router.push('/benchmark');
-    startPolling();
+    startSSE();
   }
 }
 
@@ -729,9 +733,8 @@ async function startBench() {
     });
     if (res.error) { toast(res.error, 'error'); return; }
     taskId.value = res.task_id;
-    eventCursor.value = 0;
     setRunningState(true);
-    startPolling();
+    startSSE();
     toast('测试已启动', 'success');
   } catch (e) { toast('启动失败: ' + e.message, 'error'); }
 }
@@ -754,9 +757,8 @@ async function dryRun() {
     });
     if (res.error) { toast(res.error, 'error'); return; }
     taskId.value = res.task_id;
-    eventCursor.value = 0;
     setRunningState(true);
-    startPolling();
+    startSSE();
     toast('连通性验证已启动（1 个请求）', 'info');
   } catch (e) { toast('失败: ' + e.message, 'error'); }
 }
@@ -766,47 +768,45 @@ function setRunningState(val) {
   if (val) {
     logs.value = [];
     liveResults.value = [];
+    lastCompletedFilename.value = null;
     progress.value = { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' };
   }
   store.status = val ? 'running' : 'idle';
 }
 
-function startPolling() {
-  stopPolling();
-  pollTimer.value = setInterval(() => pollStatus(), 1500);
-  pollStatus();
+function startSSE() {
+  stopSSE();
+  benchStartTime = Date.now();
+  benchSSE.connect(handleEvent);
+  elapsedTimer.value = setInterval(() => {
+    if (running.value) {
+      progress.value.elapsed = ((Date.now() - benchStartTime) / 1000).toFixed(1);
+      if (progress.value.elapsed > 0 && progress.value.done > 0) {
+        progress.value.rate = (progress.value.done / progress.value.elapsed).toFixed(1);
+      }
+    }
+  }, 1000);
 }
 
-function stopPolling() {
-  if (pollTimer.value) {
-    clearInterval(pollTimer.value);
-    pollTimer.value = null;
+function stopSSE() {
+  benchSSE.disconnect();
+  if (elapsedTimer.value) {
+    clearInterval(elapsedTimer.value);
+    elapsedTimer.value = null;
   }
 }
 
-async function pollStatus() {
-  try {
-    const data = await api(`/api/bench/status?since=${eventCursor.value}`);
-    progress.value.done = data.done;
-    progress.value.success = data.success;
-    progress.value.failed = data.failed;
-    progress.value.total = data.total;
-    progress.value.elapsed = data.elapsed;
-    if (data.elapsed > 0) {
-      progress.value.rate = (data.done / data.elapsed).toFixed(1);
-    }
-    if (data.events && data.events.length) {
-      for (const evt of data.events) {
-        eventCursor.value = evt.seq;
-        handleEvent(evt.type, evt.data);
-      }
-    }
-    if (data.status === 'idle' && running.value) {
-      stopPolling();
-      setRunningState(false);
-    }
-  } catch (e) {
-    // 网络错误，下次轮询继续
+// 多服务器轮询保持不变
+function startMultiPolling() {
+  stopMultiPolling();
+  pollTimer.value = setInterval(() => pollMultiStatus(), 1500);
+  pollMultiStatus();
+}
+
+function stopMultiPolling() {
+  if (pollTimer.value) {
+    clearInterval(pollTimer.value);
+    pollTimer.value = null;
   }
 }
 
@@ -816,26 +816,38 @@ function handleEvent(type, d) {
       logLine(`<span class="info">[第 ${escHtml(d.current_level)}/${escHtml(d.total_levels)} 级] 启动 并发=${escHtml(d.concurrency)} 模式=${escHtml(d.mode)}</span>`);
       break;
     case 'bench:progress':
-      // 标量字段已在 pollStatus 中更新
+      progress.value.done = d.done;
+      progress.value.success = d.success;
+      progress.value.failed = d.failed;
+      progress.value.total = d.total;
+      progress.value.elapsed = d.elapsed;
+      if (d.elapsed > 0) {
+        progress.value.rate = (d.done / d.elapsed).toFixed(1);
+      }
       break;
     case 'bench:level_complete':
       logLine(`<span class="ok">[完成] 并发=${escHtml(d.concurrency)} ✓</span>`);
       liveResults.value = [...liveResults.value, { concurrency: d.concurrency, result: d.result }];
+      if (d.filename) lastCompletedFilename.value = d.filename;
       break;
     case 'bench:complete':
-      stopPolling();
+      stopSSE();
       setRunningState(false);
       toast('测试完成！', 'success');
       logLine('<span class="ok">测试完成！</span>');
+      if (lastCompletedFilename.value) {
+        store.pendingFilename = lastCompletedFilename.value;
+      }
+      store.switchTab('history');
       break;
     case 'bench:stopped':
-      stopPolling();
+      stopSSE();
       setRunningState(false);
       toast('测试已停止', 'info');
       logLine('<span class="fail">测试已被用户停止</span>');
       break;
     case 'bench:error':
-      stopPolling();
+      stopSSE();
       setRunningState(false);
       toast('错误: ' + d.error, 'error');
       logLine(`<span class="fail">错误: ${escHtml(d.error)}</span>`);
@@ -924,12 +936,6 @@ async function startMultiBench() {
   } catch (e) { toast('启动失败: ' + e.message, 'error'); }
 }
 
-function startMultiPolling() {
-  stopPolling();
-  pollTimer.value = setInterval(() => pollMultiStatus(), 1500);
-  pollMultiStatus();
-}
-
 async function pollMultiStatus() {
   if (!groupId.value) return;
   try {
@@ -953,7 +959,7 @@ async function pollMultiStatus() {
       }
     }
     if (allDone && data.status === 'completed') {
-      stopPolling();
+      stopMultiPolling();
       setRunningState(false);
       toast('所有测试完成！', 'success');
       if (multiResultFiles.value.length >= 2) {

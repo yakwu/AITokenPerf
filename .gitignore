@@ -14,7 +14,7 @@ node_modules/
 frontend/node_modules/
 
 # Vite build output
-static/assets/
+static/
 
 # Python
 __pycache__/

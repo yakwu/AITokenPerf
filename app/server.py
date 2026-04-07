@@ -13,7 +13,7 @@ from typing import Optional
 
 import aiohttp as aiohttp_lib
 from fastapi import FastAPI, Depends, Query, Path as FPath, HTTPException, Request
-from fastapi.responses import JSONResponse, FileResponse, Response
+from fastapi.responses import JSONResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -28,7 +28,7 @@ from app.db import get_result_by_filename, delete_result as db_delete_result
 from app.db import get_settings, save_settings
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
 from app.db import list_users, update_user_display_name, delete_user as db_delete_user
-from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token
+from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
 from app.auth import _is_public_path
 
 BASE_DIR = Path(__file__).parent.parent
@@ -61,6 +61,7 @@ class BenchTask:
     start_time: float = 0.0
     asyncio_task: Optional[asyncio.Task] = None
     result_filenames: list = field(default_factory=list)
+    event_waiters: list = field(default_factory=list)  # asyncio.Event for SSE
 
 
 class BenchTaskManager:
@@ -132,6 +133,7 @@ RATE_LIMITS = {
     "/api/bench/start": (5, 60),
     "/api/bench/stop": (5, 60),
     "/api/bench/status": (120, 60),
+    "/api/bench/stream": (10, 60),
     "/api/auth/login": (5, 60),
     "/api/auth/register": (3, 3600),
 }
@@ -181,6 +183,8 @@ async def _publish(task: BenchTask, event_type: str, data: dict):
         "type": event_type,
         "data": data,
     })
+    for waiter in task.event_waiters:
+        waiter.set()
 
 
 def _apply_env_overrides(config: dict) -> dict:
@@ -1136,6 +1140,64 @@ async def list_models(request: Request, user: dict = Depends(get_current_user)):
                     return JSONResponse({"error": f"Upstream returned {resp.status}"}, status_code=resp.status)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=502)
+
+
+# ---- SSE Stream ----
+
+@app.get("/api/bench/stream")
+async def bench_stream(request: Request, token: str = Query("")):
+    """SSE 长连接 — 实时推送测试事件"""
+    if not token:
+        return JSONResponse({"error": "Missing token"}, status_code=401)
+    payload = decode_jwt_token(token)
+    if payload is None:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
+    user_id = int(payload["sub"])
+
+    task = manager.get_user_running_task(user_id)
+    if not task:
+        # 没有运行中的任务，发送 idle 后关闭
+        def idle_stream():
+            yield f"event: bench:idle\ndata: {json.dumps({'status': 'idle'})}\n\n"
+        return StreamingResponse(idle_stream(), media_type="text/event-stream")
+
+    waiter = asyncio.Event()
+    task.event_waiters.append(waiter)
+    last_seq = 0
+
+    async def event_generator():
+        nonlocal last_seq
+        try:
+            # 发送存量事件
+            for evt in task.events:
+                last_seq = evt["seq"]
+                yield f"id: {evt['seq']}\nevent: {evt['type']}\ndata: {json.dumps(evt['data'])}\n\n"
+
+            # 等待新事件
+            while True:
+                # 检查连接是否断开
+                if await request.is_disconnected():
+                    break
+                # 30s 超时 = keepalive
+                try:
+                    await asyncio.wait_for(waiter.wait(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                waiter.clear()
+                # 发送新事件
+                new_events = [e for e in task.events if e["seq"] > last_seq]
+                for evt in new_events:
+                    last_seq = evt["seq"]
+                    yield f"id: {evt['seq']}\nevent: {evt['type']}\ndata: {json.dumps(evt['data'])}\n\n"
+                # 如果任务已完成或出错，结束流
+                if task.status == "idle" and new_events:
+                    break
+        finally:
+            if waiter in task.event_waiters:
+                task.event_waiters.remove(waiter)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 # ---- Static Files ----
