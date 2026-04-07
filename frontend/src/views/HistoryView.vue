@@ -410,11 +410,12 @@ function openCompare() {
   if (selected.length < 2) { toast('请至少选择 2 条记录', 'info'); return; }
 
   const el = document.getElementById('compareContent');
-  let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th>指标</th>';
+  let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th style="text-transform:none">指标</th>';
   selected.forEach(r => {
     const c = r.config || {};
-    const label = r.schedule_name || r.test_id || '';
-    html += `<th>${label ? '<div style="font-size:11px;color:var(--accent);margin-bottom:2px">' + escHtml(label) + '</div>' : ''}${escHtml(c.model || '?')}<br><small style="font-weight:400">${escHtml(c.concurrency || '?')}c · ${escHtml(fmtTimestamp(r.timestamp).slice(5))}</small></th>`;
+    const taskLabel = r.schedule_name || '';
+    const nameLabel = c.profile_name || c.model || '?';
+    html += `<th style="text-transform:none">${taskLabel ? '<div style="font-size:11px;color:var(--accent);margin-bottom:2px;font-weight:600">' + escHtml(taskLabel) + '</div>' : ''}${escHtml(nameLabel)}<br><small style="font-weight:400;text-transform:none">${escHtml(String(c.concurrency || '?'))}c · ${escHtml(fmtTimestamp(r.timestamp).slice(5))}</small></th>`;
   });
   html += '</tr></thead><tbody>';
 
@@ -471,7 +472,10 @@ function openCompare() {
   setTimeout(() => {
     const canvas = document.getElementById('compareChart');
     if (!canvas) return;
-    const labels = selected.map(r => `${(r.config?.model || '?').slice(-12)} ${r.config?.concurrency || '?'}c`);
+    const labels = selected.map(r => {
+      const name = r.schedule_name || r.config?.profile_name || r.config?.model || '?';
+      return `${name.slice(-16)} ${r.config?.concurrency || '?'}c`;
+    });
     new Chart(canvas, {
         type: 'bar',
         data: {
