@@ -386,6 +386,9 @@ onUnmounted(() => {
 // ---- Combobox click-outside ----
 function handleComboboxOutside(e) {
   if (comboboxRef.value && !comboboxRef.value.contains(e.target)) {
+    if (modelSearch.value) {
+      form.value.model = modelSearch.value;
+    }
     modelDropdownOpen.value = false;
   }
 }
