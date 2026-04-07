@@ -29,6 +29,7 @@ class TaskScheduler:
     def __init__(self):
         self._timers: dict[int, asyncio.Task] = {}  # scheduled_task_id → sleep+execute task
         self._running = False
+        self._rescheduling: set[int] = set()  # 正在被 _schedule 重建的任务（避免竞态）
 
     async def start(self):
         """启动调度器，加载所有 active 任务"""
@@ -49,6 +50,8 @@ class TaskScheduler:
     def _schedule(self, task_row: dict):
         """为一个 scheduled_task 安排下次执行"""
         task_id = task_row["id"]
+        # 标记为正在重建，让被取消的 timer 的 finally 不要重复调度
+        self._rescheduling.add(task_id)
         # 取消已有 timer
         if task_id in self._timers:
             self._timers[task_id].cancel()
@@ -58,6 +61,8 @@ class TaskScheduler:
             delay = 1
 
         self._timers[task_id] = asyncio.create_task(self._wait_and_execute(task_id, delay))
+        self._rescheduling.discard(task_id)
+        log.debug("任务 #%d 已调度，%.0f 秒后执行", task_id, delay)
 
     def _calc_delay(self, task_row: dict) -> float:
         """计算距离下次执行的秒数"""
@@ -87,16 +92,20 @@ class TaskScheduler:
 
     async def _wait_and_execute(self, task_id: int, delay: float):
         """等待 delay 秒后执行任务"""
+        cancelled_by_reschedule = False
         try:
             await asyncio.sleep(delay)
             if not self._running:
                 return
             await self._execute(task_id)
         except asyncio.CancelledError:
-            return
+            cancelled_by_reschedule = True
         except Exception as e:
             log.error("定时任务 %d 执行异常: %s", task_id, e)
         finally:
+            # 如果是被 _schedule 取消的（重建 timer），不要再重复调度
+            if cancelled_by_reschedule and task_id in self._rescheduling:
+                return
             # 无论成功失败都重新调度
             if self._running:
                 task_row = await get_scheduled_task(task_id)
