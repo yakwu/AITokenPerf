@@ -475,10 +475,20 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0)
 
             avg_summary = dict(group[0].get("summary", {}))
             for key in ["success_rate", "throughput_rps", "token_throughput_tps",
-                        "avg_output_tokens", "total_input_tokens", "total_output_tokens"]:
+                        "avg_output_tokens"]:
                 v = _avg(["summary", key])
                 if v is not None:
                     avg_summary[key] = v
+
+            # 总 token 数求和而非平均
+            for key in ["total_input_tokens", "total_output_tokens"]:
+                vals = []
+                for g in group:
+                    v = g.get("summary", {}).get(key)
+                    if v is not None:
+                        vals.append(float(v))
+                if vals:
+                    avg_summary[key] = int(sum(vals))
 
             for sub_key in ["input_tokens", "output_tokens"]:
                 sub_obj = {}

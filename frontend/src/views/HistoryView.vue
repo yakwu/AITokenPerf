@@ -432,8 +432,8 @@ function openCompare() {
     ['E2E P95', r => fmtTime(r.percentiles?.E2E?.P95), r => r.percentiles?.E2E?.P95, false],
     ['E2E P99', r => fmtTime(r.percentiles?.E2E?.P99), r => r.percentiles?.E2E?.P99, false],
     ['平均输出 Tokens', r => fmtNum(r.summary?.avg_output_tokens, 0), r => r.summary?.avg_output_tokens, null],
-    ['输入 Tokens', r => fmtNum(r.summary?.input_tokens?.Avg, 0), r => r.summary?.input_tokens?.Avg, null],
-    ['输出 Tokens', r => fmtNum(r.summary?.output_tokens?.Avg, 0), r => r.summary?.output_tokens?.Avg, null],
+    ['输入 Tokens (P50)', r => fmtNum(r.summary?.input_tokens?.P50, 0), r => r.summary?.input_tokens?.P50, null],
+    ['输出 Tokens (P50)', r => fmtNum(r.summary?.output_tokens?.P50, 0), r => r.summary?.output_tokens?.P50, null],
     ['总输入 Tokens', r => fmtBigNum(r.summary?.total_input_tokens), r => r.summary?.total_input_tokens, null],
     ['总输出 Tokens', r => fmtBigNum(r.summary?.total_output_tokens), r => r.summary?.total_output_tokens, null],
   ];
