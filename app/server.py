@@ -321,7 +321,10 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
             })
 
     except Exception as e:
+        import traceback
         log_security("bench_error", error=str(e))
+        print(f"[BENCH ERROR] {e}")
+        traceback.print_exc()
         await _publish(task, "bench:error", {"error": "Benchmark execution failed, check server logs for details"})
     finally:
         task.status = "idle"

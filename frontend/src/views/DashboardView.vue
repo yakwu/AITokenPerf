@@ -116,7 +116,7 @@ function renderHeroStats(results) {
   return `<div class="hero-stats">
     <div class="hero-stat"><div class="hero-stat-value">${totalTests}</div><div class="hero-stat-label">测试总数</div></div>
     <div class="hero-stat"><div class="hero-stat-value">${models.size}</div><div class="hero-stat-label">覆盖模型</div></div>
-    <div class="hero-stat"><div class="hero-stat-value">${endpoints.size}</div><div class="hero-stat-label">目标服务器</div></div>
+    <div class="hero-stat"><div class="hero-stat-value">${endpoints.size}</div><div class="hero-stat-label">配置</div></div>
     <div class="hero-stat"><div class="hero-stat-value">${totalRequests.toLocaleString()}</div><div class="hero-stat-label">累计请求</div></div>
     <div class="hero-stat"><div class="hero-stat-value ${rateClass}">${overallRate.toFixed(1)}%</div><div class="hero-stat-label">总体成功率</div></div>
   </div>`;
@@ -168,7 +168,7 @@ function renderEndpointOverview(results) {
     html += '</tbody></table></div></div>';
   }
   html += '</div>';
-  return renderSectionCard('目标服务器概览', html, 'globe');
+  return renderSectionCard('配置概览', html, 'globe');
 }
 
 function renderModelOverview(results) {
@@ -211,7 +211,7 @@ function renderModelOverview(results) {
         ${renderGroupMeta(md.count, mdRateClass, md.avgRate)}
       </div>
       <div class="table-wrap"><table class="matrix-table"><thead><tr>
-        <th>目标服务器</th><th>测试</th><th>成功率</th>
+        <th>配置</th><th>测试</th><th>成功率</th>
         <th>TTFT P50 ${infoIconHtml('TTFT')}</th><th>Token/s</th>
       </tr></thead><tbody>`;
     for (let i = 0; i < md.hosts.length; i++) {
@@ -228,7 +228,7 @@ function renderModelOverview(results) {
 function renderRecentTests(results) {
   const recent = results.slice(0, 5);
   let html = `<div class="table-wrap"><table class="recent-table"><thead><tr>
-      <th>ID</th><th>时间</th><th>模型</th><th>目标服务器</th>
+      <th>ID</th><th>时间</th><th>模型</th><th>配置</th>
       <th>并发</th><th>模式</th><th>成功率</th>
       <th>TTFT P50</th><th>Token/s</th>
     </tr></thead><tbody>`;

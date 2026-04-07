@@ -36,6 +36,8 @@ async def run_burst(session: aiohttp.ClientSession, config: dict, concurrency: i
         m = await coro
         done += 1
         results.append(m)
+        if not m.success:
+            print(f"    [Burst] Request {done}/{total_requests} FAILED: {m.error} (status={m.status_code})")
         if on_complete:
             await on_complete(done, total_requests, m)
         else:
@@ -43,6 +45,7 @@ async def run_burst(session: aiohttp.ClientSession, config: dict, concurrency: i
             if done % max(1, total_requests // 10) == 0 or done == total_requests:
                 print(f"    Progress: {done}/{total_requests} ({status})")
 
+    print(f"  [Burst] Done: {len(results)} results, {sum(1 for r in results if r.success)} succeeded")
     return results
 
 

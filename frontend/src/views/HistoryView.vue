@@ -155,6 +155,8 @@ import {
   escHtml, qualityColorStyle, latencyColorStyle
 } from '../utils/formatters.js';
 import { renderResultDetail } from '../utils/resultDetail.js';
+import { Chart, registerables } from 'chart.js';
+Chart.register(...registerables);
 import FilterDropdown from '../components/FilterDropdown.vue';
 
 const store = useAppStore();
@@ -411,7 +413,8 @@ function openCompare() {
   let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th>指标</th>';
   selected.forEach(r => {
     const c = r.config || {};
-    html += `<th>${escHtml(c.model || '?')}<br><small style="font-weight:400">${escHtml(c.concurrency || '?')}c · ${escHtml(fmtTimestamp(r.timestamp).slice(5))}</small></th>`;
+    const label = r.schedule_name || r.test_id || '';
+    html += `<th>${label ? '<div style="font-size:11px;color:var(--accent);margin-bottom:2px">' + escHtml(label) + '</div>' : ''}${escHtml(c.model || '?')}<br><small style="font-weight:400">${escHtml(c.concurrency || '?')}c · ${escHtml(fmtTimestamp(r.timestamp).slice(5))}</small></th>`;
   });
   html += '</tr></thead><tbody>';
 
@@ -427,7 +430,7 @@ function openCompare() {
     ['E2E P50', r => fmtTime(r.percentiles?.E2E?.P50), r => r.percentiles?.E2E?.P50, false],
     ['E2E P95', r => fmtTime(r.percentiles?.E2E?.P95), r => r.percentiles?.E2E?.P95, false],
     ['E2E P99', r => fmtTime(r.percentiles?.E2E?.P99), r => r.percentiles?.E2E?.P99, false],
-    ['平均输出 Tokens', r => fmtNum(r.summary?.avg_output_tokens), r => r.summary?.avg_output_tokens, null],
+    ['平均输出 Tokens', r => fmtNum(r.summary?.avg_output_tokens, 0), r => r.summary?.avg_output_tokens, null],
     ['输入 Tokens', r => fmtNum(r.summary?.input_tokens?.Avg, 0), r => r.summary?.input_tokens?.Avg, null],
     ['输出 Tokens', r => fmtNum(r.summary?.output_tokens?.Avg, 0), r => r.summary?.output_tokens?.Avg, null],
     ['总输入 Tokens', r => fmtBigNum(r.summary?.total_input_tokens), r => r.summary?.total_input_tokens, null],
@@ -469,9 +472,7 @@ function openCompare() {
     const canvas = document.getElementById('compareChart');
     if (!canvas) return;
     const labels = selected.map(r => `${(r.config?.model || '?').slice(-12)} ${r.config?.concurrency || '?'}c`);
-    // Chart.js is expected to be a global
-    if (typeof Chart !== 'undefined') {
-      new Chart(canvas, {
+    new Chart(canvas, {
         type: 'bar',
         data: {
           labels,
@@ -494,7 +495,6 @@ function openCompare() {
           }
         }
       });
-    }
   }, 50);
 }
 

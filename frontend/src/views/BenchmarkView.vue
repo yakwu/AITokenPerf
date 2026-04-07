@@ -9,7 +9,7 @@
         <div class="profile-bar">
           <div class="profile-chips">
             <!-- + 新建按钮 -->
-            <button class="profile-chip profile-chip-add" v-show="!multiMode && profileMode !== 'new'" @click="newProfile()" title="新建目标服务器">
+            <button class="profile-chip profile-chip-add" v-show="!multiMode && profileMode !== 'new'" @click="newProfile()" title="新建配置">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               <span>新建</span>
             </button>
@@ -44,10 +44,10 @@
               </div>
             </template>
           </div>
-          <button class="btn btn-ghost btn-sm" @click="toggleMultiMode()" v-show="!running && profiles.length >= 2" style="flex-shrink:0">{{ multiMode ? '切回单服务器' : '多服务器对比' }}</button>
+          <button class="btn btn-ghost btn-sm" @click="toggleMultiMode()" v-show="!running && profiles.length >= 2" style="flex-shrink:0">{{ multiMode ? '切回单配置' : '多配置对比' }}</button>
         </div>
         <div class="profile-multi-hint" v-show="multiMode">
-          <span>已选 <strong>{{ multiSelectedProfiles.length }}</strong> 个服务器，至少需要 2 个</span>
+          <span>已选 <strong>{{ multiSelectedProfiles.length }}</strong> 个配置，至少需要 2 个</span>
         </div>
 
         <!-- 删除确认 -->
@@ -144,7 +144,7 @@
       </div>
       <div class="btn-group" style="margin-top:20px">
         <button class="btn btn-primary" v-show="!running && !multiMode" @click="startBench()">开始测试</button>
-        <button class="btn btn-primary" v-show="!running && multiMode" @click="startMultiBench()" :disabled="multiSelectedProfiles.length < 2">开始多服务器对比测试</button>
+        <button class="btn btn-primary" v-show="!running && multiMode" @click="startMultiBench()" :disabled="multiSelectedProfiles.length < 2">开始多配置对比测试</button>
         <button class="btn btn-danger" v-show="running" @click="stopBench()">停止</button>
         <button class="btn btn-ghost" v-show="!multiMode" @click="dryRun()">连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span></button>
       </div>
@@ -192,7 +192,7 @@
     <div class="progress-panel" :class="{ active: running && multiMode }" v-show="running && multiMode">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">多服务器并行测试</div>
+          <div class="card-title">多配置并行测试</div>
         </div>
         <template v-for="tid in Object.keys(multiTasks)" :key="tid">
           <div class="multi-task-progress" style="margin-bottom:16px">
@@ -614,7 +614,7 @@ async function finishRenameProfile() {
 }
 
 async function saveAsNewProfile() {
-  const name = prompt('另存为新 Profile，输入名称:');
+  const name = prompt('另存为新配置，输入名称:');
   if (!name || !name.trim()) return;
   const trimmed = name.trim();
   try {
@@ -642,7 +642,7 @@ async function saveAsNewProfile() {
 async function saveProfile() {
   const trimmed = profileDraftName.value.trim();
   if (!trimmed) {
-    toast('请输入 Profile 名称', 'info');
+    toast('请输入配置名称', 'info');
     return;
   }
   if (!form.value.base_url.trim()) {
@@ -669,7 +669,7 @@ async function saveProfile() {
     currentProfileName.value = trimmed;
     profileMode.value = 'selected';
     profileDeleteCandidate.value = '';
-    toast(profileDraftExists.value ? 'Profile 已更新' : 'Profile 已保存', 'success');
+    toast(profileDraftExists.value ? '配置已更新' : '配置已保存', 'success');
     snapshotProfileConfig();
     await loadProfiles();
   } catch (e) {
@@ -732,7 +732,7 @@ async function confirmDeleteProfile(name) {
       profileDraftName.value = '';
     }
     profileDeleteCandidate.value = '';
-    toast('Profile 已删除', 'info');
+    toast('配置已删除', 'info');
     await loadProfiles();
   } catch (e) {
     toast('删除失败: ' + e.message, 'error');
@@ -956,7 +956,7 @@ function toggleMultiProfile(name) {
 
 async function startMultiBench() {
   if (multiSelectedProfiles.value.length < 2) {
-    toast('请至少选择 2 个 Profile', 'info');
+    toast('请至少选择 2 个配置', 'info');
     return;
   }
   const conc = selectedConcurrency.value || 100;
