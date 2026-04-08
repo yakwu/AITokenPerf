@@ -31,6 +31,12 @@ class BenchmarkResult:
     input_tokens_list: list
 
     duration: float  # 整个测试耗时
+    cost_input: float = 0.0    # 输入 token 费用 (USD)
+    cost_output: float = 0.0   # 输出 token 费用 (USD)
+
+    @property
+    def total_cost(self) -> float:
+        return self.cost_input + self.cost_output
 
     @property
     def success_rate(self) -> float:
@@ -97,6 +103,7 @@ def aggregate_metrics(
     concurrency: int,
     mode: str,
     duration: float,
+    pricing: Optional[dict] = None,
 ) -> BenchmarkResult:
     """汇总所有请求的指标"""
     success_count = sum(1 for m in metrics_list if m.success)
@@ -120,6 +127,15 @@ def aggregate_metrics(
     output_tokens = [m.output_tokens for m in metrics_list if m.success]
     input_tokens = [m.input_tokens for m in metrics_list if m.success]
 
+    # 费用计算
+    cost_input = 0.0
+    cost_output = 0.0
+    if pricing:
+        total_in = sum(input_tokens)
+        total_out = sum(output_tokens)
+        cost_input = total_in * pricing.get("input_cost_per_token", 0.0)
+        cost_output = total_out * pricing.get("output_cost_per_token", 0.0)
+
     return BenchmarkResult(
         concurrency=concurrency,
         mode=mode,
@@ -134,6 +150,8 @@ def aggregate_metrics(
         output_tokens_list=output_tokens,
         input_tokens_list=input_tokens,
         duration=duration,
+        cost_input=cost_input,
+        cost_output=cost_output,
     )
 
 
@@ -220,6 +238,9 @@ def build_report_dict(result: BenchmarkResult, config: dict) -> dict:
             "avg_output_tokens": result.avg_tokens_per_request,
             "total_input_tokens": result.total_input_tokens,
             "total_output_tokens": result.total_output_tokens,
+            "cost_input_usd": round(result.cost_input, 8),
+            "cost_output_usd": round(result.cost_output, 8),
+            "cost_total_usd": round(result.total_cost, 8),
             "input_tokens": _token_percentiles(result.input_tokens_list),
             "output_tokens": _token_percentiles(result.output_tokens_list),
         },

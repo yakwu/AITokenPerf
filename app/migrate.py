@@ -159,5 +159,26 @@ async def _migrate_schema():
             await conn.execute(text("ALTER TABLE results ADD COLUMN scheduled_task_id INTEGER NOT NULL DEFAULT 0"))
             print("  schema 迁移: results 表添加 scheduled_task_id 列")
 
+    # profiles 表新增 provider + protocol 列
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            cur = await conn.execute(text("PRAGMA table_info(profiles)"))
+            rows = cur.fetchall()
+            columns = {row[1] for row in rows}
+        else:
+            cur = await conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='profiles'")
+            )
+            rows = cur.fetchall()
+            columns = {row[0] for row in rows}
+
+        if "provider" not in columns:
+            await conn.execute(text("ALTER TABLE profiles ADD COLUMN provider TEXT NOT NULL DEFAULT ''"))
+            print("  schema 迁移: profiles 表添加 provider 列")
+
+        if "protocol" not in columns:
+            await conn.execute(text("ALTER TABLE profiles ADD COLUMN protocol TEXT NOT NULL DEFAULT ''"))
+            print("  schema 迁移: profiles 表添加 protocol 列")
+
     # scheduled_tasks 表由 init_db 中的 CREATE TABLE IF NOT EXISTS 处理
     # 无需额外迁移

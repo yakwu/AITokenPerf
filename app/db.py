@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     api_key     TEXT NOT NULL DEFAULT '',
     api_version TEXT NOT NULL DEFAULT '2023-06-01',
     model       TEXT NOT NULL DEFAULT '',
+    provider    TEXT NOT NULL DEFAULT '',
+    protocol    TEXT NOT NULL DEFAULT '',
     is_active   INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -132,6 +134,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     api_key     TEXT NOT NULL DEFAULT '',
     api_version TEXT NOT NULL DEFAULT '2023-06-01',
     model       TEXT NOT NULL DEFAULT '',
+    provider    TEXT NOT NULL DEFAULT '',
+    protocol    TEXT NOT NULL DEFAULT '',
     is_active   BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -327,7 +331,9 @@ async def get_active_profile(user_id: int) -> Optional[dict]:
 
 
 async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: str = "",
-                          api_version: str = "2023-06-01", model: str = "", set_active: bool = True):
+                          api_version: str = "2023-06-01", model: str = "",
+                          provider: str = "", protocol: str = "",
+                          set_active: bool = True):
     async with engine.begin() as conn:
         if set_active:
             if _is_sqlite:
@@ -341,14 +347,16 @@ async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: s
 
         active_val = 1 if _is_sqlite else True
         await conn.execute(
-            text(f"""INSERT INTO profiles (user_id, name, base_url, api_key, api_version, model, is_active)
-                     VALUES (:uid, :name, :base_url, :api_key, :api_version, :model, :active)
+            text(f"""INSERT INTO profiles (user_id, name, base_url, api_key, api_version, model, provider, protocol, is_active)
+                     VALUES (:uid, :name, :base_url, :api_key, :api_version, :model, :provider, :protocol, :active)
                      ON CONFLICT(user_id, name) DO UPDATE SET
                        base_url=excluded.base_url, api_key=excluded.api_key,
                        api_version=excluded.api_version, model=excluded.model,
+                       provider=excluded.provider, protocol=excluded.protocol,
                        is_active=excluded.is_active, updated_at={_now_sql()}"""),
             {"uid": user_id, "name": name, "base_url": base_url, "api_key": api_key,
-             "api_version": api_version, "model": model, "active": active_val},
+             "api_version": api_version, "model": model, "provider": provider,
+             "protocol": protocol, "active": active_val},
         )
 
 
@@ -480,15 +488,18 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0)
                 if v is not None:
                     avg_summary[key] = v
 
-            # 总 token 数求和而非平均
-            for key in ["total_input_tokens", "total_output_tokens"]:
+            # 总 token 数 + 费用求和
+            for key in ["total_input_tokens", "total_output_tokens", "cost_total_usd"]:
                 vals = []
                 for g in group:
                     v = g.get("summary", {}).get(key)
                     if v is not None:
                         vals.append(float(v))
                 if vals:
-                    avg_summary[key] = int(sum(vals))
+                    if key == "cost_total_usd":
+                        avg_summary[key] = round(sum(vals), 8)
+                    else:
+                        avg_summary[key] = int(sum(vals))
 
             for sub_key in ["input_tokens", "output_tokens"]:
                 sub_obj = {}

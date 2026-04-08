@@ -4,11 +4,12 @@
 import asyncio
 import contextlib
 import time
-import json
 from dataclasses import dataclass, field
 from typing import Optional
 
 import aiohttp
+
+from app.protocols import detect_protocol, get_adapter
 
 
 @dataclass
@@ -56,26 +57,22 @@ async def send_streaming_request(
     request_id: int,
     semaphore: Optional[asyncio.Semaphore] = None,
 ) -> RequestMetrics:
-    """发送单个 SSE 流式请求并采集指标"""
+    """发送单个 SSE 流式请求并采集指标。
+
+    根据 config 中的 protocol（或 model 名自动检测）选择对应的协议适配器。
+    """
 
     metrics = RequestMetrics(request_id=request_id)
-    url = f"{config['base_url'].rstrip('/')}/v1/messages"
 
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": config["api_key"],
-        "anthropic-version": config.get("api_version", "2023-06-01"),
-    }
+    # 确定协议
+    protocol = config.get("protocol") or detect_protocol(
+        config.get("model", ""), config.get("provider", "")
+    )
+    adapter = get_adapter(protocol)
 
-    payload = {
-        "model": config["model"],
-        "max_tokens": config.get("max_tokens", 512),
-        "stream": True,
-        "system": config.get("system_prompt", "You are a helpful assistant."),
-        "messages": [
-            {"role": "user", "content": config.get("user_prompt", "Hello")}
-        ],
-    }
+    url = adapter.build_url(config)
+    headers = adapter.build_headers(config)
+    payload = adapter.build_payload(config)
 
     sem_ctx = semaphore if semaphore else contextlib.AsyncExitStack()
 
@@ -94,60 +91,14 @@ async def send_streaming_request(
                     metrics.end_time = time.monotonic()
                     return metrics
 
-                # 解析 SSE 流
-                buffer = ""
-                async for chunk in resp.content:
-                    text = chunk.decode("utf-8", errors="replace")
-                    buffer += text
+                # 由适配器解析 SSE 流
+                await adapter.parse_sse_stream(resp, metrics)
 
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        line = line.strip()
-
-                        if not line or line.startswith(":"):
-                            continue
-
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-
-                            if data_str.strip() == "[DONE]":
-                                continue
-
-                            try:
-                                event = json.loads(data_str)
-                            except json.JSONDecodeError:
-                                continue
-
-                            event_type = event.get("type", "")
-
-                            if event_type == "content_block_delta":
-                                now = time.monotonic()
-                                delta = event.get("delta", {})
-                                if delta.get("type") == "text_delta" and delta.get("text"):
-                                    if not metrics.first_token_time:
-                                        metrics.first_token_time = now
-                                    metrics.token_timestamps.append(now)
-
-                            elif event_type == "message_delta":
-                                usage = event.get("usage", {})
-                                if "output_tokens" in usage:
-                                    metrics.output_tokens = usage["output_tokens"]
-
-                            elif event_type == "message_start":
-                                msg = event.get("message", {})
-                                usage = msg.get("usage", {})
-                                if "input_tokens" in usage:
-                                    metrics.input_tokens = usage["input_tokens"]
-
-                            elif event_type == "message_stop":
-                                metrics.end_time = time.monotonic()
-                                metrics.success = True
-
-                # 如果没收到 message_stop 但流结束了
+                # 如果没收到结束信号但流结束了
                 if not metrics.end_time:
                     metrics.end_time = time.monotonic()
                     if not metrics.error:
-                        metrics.error = "Stream ended without message_stop"
+                        metrics.error = "Stream ended unexpectedly"
 
         except asyncio.TimeoutError:
             metrics.end_time = time.monotonic()

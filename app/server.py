@@ -34,7 +34,7 @@ from app.auth import _is_public_path
 BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
-CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version")
+CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version", "provider", "protocol")
 BENCHMARK_KEYS = ("mode", "concurrency_levels", "duration", "max_tokens",
                    "timeout", "connector_limit", "system_prompt", "user_prompt")
 
@@ -45,6 +45,7 @@ class BenchTask:
     task_id: str = ""
     owner_id: Optional[int] = None
     profile_name: str = ""
+    model_name: str = ""
     group_id: str = ""
     scheduled_task_id: int = 0
     status: str = "idle"  # idle | running | stopping | error
@@ -280,7 +281,12 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
                     )
 
                 bench_duration = time.monotonic() - bench_start
-                result = aggregate_metrics(metrics, level, mode, bench_duration)
+
+                # 费用计算
+                from app.pricing import pricing_service
+                pricing = pricing_service.get_pricing(config.get("model", ""))
+
+                result = aggregate_metrics(metrics, level, mode, bench_duration, pricing=pricing)
                 report_dict = build_report_dict(result, config)
                 filename = f"bench_{result.concurrency}c_{result.mode}_{report_dict.get('timestamp', '')}.json"
                 task.result_filenames.append(filename)
@@ -340,6 +346,11 @@ async def lifespan(app: FastAPI):
     global _scheduler
     from app.migrate import migrate
     await migrate()
+
+    # 初始化模型价格服务
+    from app.pricing import pricing_service
+    await pricing_service.start()
+
     from app.scheduler import TaskScheduler
     _scheduler = TaskScheduler()
     await _scheduler.start()
@@ -640,6 +651,8 @@ async def save_profile(request: Request, user: dict = Depends(get_current_user))
         api_key=api_key,
         api_version=data.get("api_version", "2023-06-01"),
         model=data.get("model", ""),
+        provider=data.get("provider", ""),
+        protocol=data.get("protocol", ""),
         set_active=True,
     )
     return {"status": "ok"}
@@ -688,6 +701,8 @@ async def update_profile(name: str, request: Request, user: dict = Depends(get_c
         api_key=api_key,
         api_version=data.get("api_version", "2023-06-01"),
         model=data.get("model", ""),
+        provider=data.get("provider", ""),
+        protocol=data.get("protocol", ""),
         set_active=data.get("set_active", False),
     )
     return {"status": "ok"}
@@ -908,6 +923,68 @@ async def start_multi_bench(request: Request, user: dict = Depends(get_current_u
     return {"status": "started", "group_id": group_id, "task_ids": task_ids}
 
 
+@app.post("/api/bench/start-multi-model")
+async def start_multi_model_bench(request: Request, user: dict = Depends(get_current_user)):
+    """多模型并行测试 — 单 profile，多个模型"""
+    user_id = user["user_id"]
+    body = await request.json()
+
+    models = body.get("models", [])
+    if not models or len(models) > 10:
+        return JSONResponse({"error": "models 数量需在 1-10 之间"}, status_code=400)
+
+    # 获取 active profile 作为基础配置
+    active = await get_active_profile(user_id)
+    if not active:
+        return JSONResponse({"error": "没有活跃的配置，请先创建一个 profile"}, status_code=400)
+
+    benchmark = await get_settings(user_id)
+    provider = body.get("provider", active.get("provider", ""))
+
+    current_running = manager.get_running_count()
+    if current_running + len(models) > BenchTaskManager.MAX_GLOBAL:
+        return JSONResponse({"error": f"全局并发任务数已达上限 ({BenchTaskManager.MAX_GLOBAL})"}, status_code=429)
+    user_running = manager.get_user_task_count(user_id)
+    if user_running + len(models) > BenchTaskManager.MAX_PER_USER:
+        return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
+
+    group_id = f"multi_{uuid.uuid4().hex[:12]}"
+    task_ids = []
+
+    for model_name in models:
+        config = dict(benchmark) if benchmark else {}
+        for k in CONNECTION_KEYS:
+            if active.get(k):
+                config[k] = active[k]
+        _apply_env_overrides(config)
+
+        # 用当前模型覆盖
+        config["model"] = model_name
+        config["provider"] = provider
+
+        # 自动检测协议
+        from app.protocols import detect_protocol
+        config["protocol"] = detect_protocol(model_name, provider)
+
+        # 应用 body 中的 benchmark 参数覆盖
+        overrides = {k: v for k, v in body.items() if k not in ("models", "provider")}
+        for key in BENCHMARK_KEYS + ("requests_per_level",):
+            if key in overrides and overrides[key] is not None:
+                config[key] = overrides[key]
+
+        task_id = uuid.uuid4().hex[:12]
+        profile_name = active.get("name", "")
+        task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
+        task.model_name = model_name
+        task.status = "running"
+        task.stop_event = asyncio.Event()
+        task.start_time = time.monotonic()
+        task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
+        task_ids.append(task_id)
+
+    return {"status": "started", "group_id": group_id, "task_ids": task_ids}
+
+
 @app.get("/api/bench/status-multi/{group_id}")
 async def status_multi_by_path(group_id: str, user: dict = Depends(get_current_user)):
     """多服务器测试状态聚合 — 路径参数版（前端调用）"""
@@ -936,6 +1013,7 @@ async def _status_multi_impl(group_id: str):
         task_statuses.append({
             "task_id": task.task_id,
             "profile_name": task.profile_name,
+            "model_name": task.model_name,
             "status": task.status,
             "done": task.done_count,
             "total": task.total_count,
@@ -1151,6 +1229,46 @@ async def list_models(request: Request, user: dict = Depends(get_current_user)):
                     return JSONResponse({"error": f"Upstream returned {resp.status}"}, status_code=resp.status)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=502)
+
+
+# ---- Pricing ----
+
+@app.get("/api/pricing/models")
+async def pricing_models(
+    provider: str = Query(""),
+    enabled_only: bool = Query(False),
+    user: dict = Depends(get_current_user),
+):
+    """按 provider 返回 LiteLLM 价格库中的模型列表"""
+    from app.pricing import pricing_service
+    models = pricing_service.get_models_by_provider(provider, enabled_only=enabled_only)
+    return {"models": models, "total": len(models)}
+
+
+@app.get("/api/pricing/models-config")
+async def get_models_config(user: dict = Depends(get_current_user)):
+    """返回用户启用的模型列表"""
+    from app.pricing import pricing_service
+    return {"enabled_models": pricing_service.get_enabled_models()}
+
+
+@app.put("/api/pricing/models-config")
+async def put_models_config(body: dict, user: dict = Depends(get_current_user)):
+    """保存用户启用的模型列表"""
+    from app.pricing import pricing_service
+    models = body.get("enabled_models", [])
+    if not isinstance(models, list):
+        return JSONResponse({"error": "enabled_models must be a list"}, status_code=400)
+    pricing_service.save_enabled_models(models)
+    return {"ok": True, "count": len(models)}
+
+
+@app.post("/api/pricing/refresh")
+async def pricing_refresh(user: dict = Depends(get_current_user)):
+    """手动刷新价格数据"""
+    from app.pricing import pricing_service
+    await pricing_service.refresh()
+    return {"ok": True, "total_models": len(pricing_service._cache)}
 
 
 # ---- SSE Stream ----
