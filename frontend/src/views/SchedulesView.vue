@@ -602,8 +602,8 @@ function renderTrendSummary() {
 
   const aSucc = avgField(r => r.summary?.success_rate);
   const aThr = avgField(r => r.summary?.throughput_rps);
-  const aTtft = avgField(r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 * 1000 : null);
-  const aE2e = avgField(r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 * 1000 : null);
+  const aTtft = avgField(r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 : null);
+  const aE2e = avgField(r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 : null);
 
   // 环比：最近一半 vs 之前一半
   const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
@@ -618,8 +618,8 @@ function renderTrendSummary() {
 
   const pSucc = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.summary?.success_rate) : null;
   const pThr = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.summary?.throughput_rps) : null;
-  const pTtft = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 * 1000 : null) : null;
-  const pE2e = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 * 1000 : null) : null;
+  const pTtft = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.TTFT?.P50 != null ? r.percentiles.TTFT.P50 : null) : null;
+  const pE2e = prevHalf.length > 0 ? avgHalf(prevHalf, r => r.percentiles?.E2E?.P50 != null ? r.percentiles.E2E.P50 : null) : null;
 
   function deltaStr(curr, prevVal, unit, higherIsBetter) {
     if (curr == null || prevVal == null) return { delta: '-', deltaStyle: '' };
@@ -633,14 +633,14 @@ function renderTrendSummary() {
 
   const succDelta = deltaStr(aSucc, pSucc, '%', true);
   const thrDelta = deltaStr(aThr, pThr, '/s', true);
-  const ttftDelta = aTtft != null ? deltaStr(aTtft, pTtft, 'ms', false) : { delta: '-', deltaStyle: '' };
-  const e2eDelta = aE2e != null ? deltaStr(aE2e, pE2e, 'ms', false) : { delta: '-', deltaStyle: '' };
+  const ttftDelta = aTtft != null ? deltaStr(aTtft, pTtft, 's', false) : { delta: '-', deltaStyle: '' };
+  const e2eDelta = aE2e != null ? deltaStr(aE2e, pE2e, 's', false) : { delta: '-', deltaStyle: '' };
 
   trendSummary.value = [
     { label: '成功率', value: aSucc != null ? aSucc.toFixed(1) + '%' : '-', valueStyle: aSucc >= 95 ? 'color:var(--success)' : aSucc >= 80 ? 'color:var(--warning)' : 'color:var(--danger)', ...succDelta },
     { label: '吞吐量', value: aThr != null ? aThr.toFixed(1) + '/s' : '-', valueStyle: '', ...thrDelta },
-    { label: 'TTFT P50', value: aTtft != null ? aTtft.toFixed(0) + 'ms' : '-', valueStyle: aTtft <= 500 ? 'color:var(--success)' : aTtft <= 2000 ? 'color:var(--warning)' : 'color:var(--danger)', ...ttftDelta },
-    { label: 'E2E P50', value: aE2e != null ? aE2e.toFixed(0) + 'ms' : '-', valueStyle: aE2e <= 2000 ? 'color:var(--success)' : aE2e <= 10000 ? 'color:var(--warning)' : 'color:var(--danger)', ...e2eDelta },
+    { label: 'TTFT P50', value: aTtft != null ? aTtft.toFixed(1) + 's' : '-', valueStyle: aTtft <= 0.5 ? 'color:var(--success)' : aTtft <= 2 ? 'color:var(--warning)' : 'color:var(--danger)', ...ttftDelta },
+    { label: 'E2E P50', value: aE2e != null ? aE2e.toFixed(1) + 's' : '-', valueStyle: aE2e <= 2 ? 'color:var(--success)' : aE2e <= 10 ? 'color:var(--warning)' : 'color:var(--danger)', ...e2eDelta },
   ];
 }
 
@@ -652,7 +652,7 @@ function renderLatencyChart() {
 
   const labels = trend.map(r => {
     const m = r.minute;
-    return `${m.slice(0,4)}-${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`;
+    return `${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`;
   });
   const ttftP50 = trend.map(r => r.avg_ttft_p50 != null ? r.avg_ttft_p50 : null);
   const e2eP50 = trend.map(r => r.avg_e2e_p50 != null ? r.avg_e2e_p50 : null);
@@ -663,7 +663,7 @@ function renderLatencyChart() {
       labels,
       datasets: [
         {
-          label: 'TTFT P50 (ms)',
+          label: 'TTFT P50',
           data: ttftP50,
           borderColor: '#3B7DD6',
           backgroundColor: '#3B7DD618',
@@ -674,7 +674,7 @@ function renderLatencyChart() {
           spanGaps: true,
         },
         {
-          label: 'E2E P50 (ms)',
+          label: 'E2E P50',
           data: e2eP50,
           borderColor: '#E85D26',
           backgroundColor: '#E85D2618',
@@ -698,15 +698,15 @@ function renderLatencyChart() {
         },
         tooltip: {
           callbacks: {
-            label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} ms` : '',
+            label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}s` : '',
           },
         },
       },
       scales: {
         y: {
-          title: { display: true, text: 'Latency (ms)', font: { size: 11 } },
+          title: { display: true, text: 'Latency (s)', font: { size: 11 } },
           grid: { color: '#F0EEE9' },
-          ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, callback: v => v.toFixed(1) + 's' },
           beginAtZero: true,
         },
         x: {
@@ -726,7 +726,7 @@ function renderQualityChart() {
 
   const labels = trend.map(r => {
     const m = r.minute;
-    return `${m.slice(0,4)}-${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`;
+    return `${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`;
   });
   const throughput = trend.map(r => r.avg_throughput ?? null);
   const successRate = trend.map(r => r.avg_success_rate != null ? r.avg_success_rate * 100 : null);

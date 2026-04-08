@@ -619,7 +619,7 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int) -> li
 
     buckets = {}
     for row in rows:
-        minute = row.timestamp[:12]  # e.g. "20260408_103"
+        minute = row.timestamp[:13]  # e.g. "20260408_1820" (YYYYMMDD_HHMM)
         if minute not in buckets:
             buckets[minute] = {"minute": minute, "count": 0, "success_rates": [],
                                "throughputs": [], "ttft_p50s": [], "e2e_p50s": []}
