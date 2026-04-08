@@ -325,7 +325,8 @@ function formatInterval(seconds) {
 function formatTime(iso) {
   if (!iso) return '-';
   try {
-    const d = new Date(iso + 'Z');
+    // PostgreSQL timestamptz 已带时区（如 +00），不要重复拼 Z
+    const d = new Date(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z');
     return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   } catch {
     return iso;
