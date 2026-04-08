@@ -2,13 +2,14 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-const VALID_TABS = ['dashboard', 'benchmark', 'history', 'schedules', 'config', 'settings', 'auth', 'admin-users'];
+const VALID_TABS = ['dashboard', 'benchmark', 'history', 'schedules', 'config', 'settings', 'auth', 'admin-users', 'models'];
 
 function isLoggedIn() {
   return !!localStorage.getItem('token');
 }
 
 export const useAppStore = defineStore('app', () => {
+  const router = useRouter();
   const userStr = localStorage.getItem('user');
   const user = ref(userStr ? JSON.parse(userStr) : null);
   const status = ref('idle');
@@ -21,7 +22,6 @@ export const useAppStore = defineStore('app', () => {
 
   function switchTab(t) {
     if (!isLoggedIn() && t !== 'auth') return;
-    const router = useRouter();
     router.push(t === 'dashboard' ? '/' : '/' + t);
   }
 
@@ -35,7 +35,6 @@ export const useAppStore = defineStore('app', () => {
     user.value = null;
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    const router = useRouter();
     router.push('/auth');
   }
 

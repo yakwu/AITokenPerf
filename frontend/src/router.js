@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/schedules', name: 'schedules', component: () => import('./views/SchedulesView.vue') },
     { path: '/config', name: 'config', component: () => import('./views/SettingsView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
+    { path: '/models', name: 'models', component: () => import('./views/ModelsView.vue') },
     { path: '/auth', name: 'auth', component: () => import('./views/AuthView.vue') },
     { path: '/admin-users', name: 'admin-users', component: () => import('./views/AdminUsersView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },

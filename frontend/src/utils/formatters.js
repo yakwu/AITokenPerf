@@ -21,6 +21,22 @@ export function fmtBigNum(v) {
   return v.toLocaleString();
 }
 
+export function fmtCost(v) {
+  if (v == null || isNaN(v)) return '-';
+  if (v === 0) return '$0';
+  if (v < 0.01) return '$' + v.toFixed(6);
+  if (v < 1) return '$' + v.toFixed(4);
+  return '$' + v.toFixed(2);
+}
+
+export function fmtCostShort(v) {
+  if (v == null || isNaN(v)) return '-';
+  if (v === 0) return '$0';
+  if (v < 0.0001) return '<$0.0001';
+  if (v < 0.01) return '$' + v.toFixed(4);
+  return '$' + v.toFixed(2);
+}
+
 export function escHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')

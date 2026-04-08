@@ -34,6 +34,7 @@
               <th style="width:100px">来源</th>
               <th style="width:72px" class="sortable" :class="sortKey === 'success_rate' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('success_rate')">成功率 <span class="sort-arrow" v-if="sortKey === 'success_rate'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
               <th style="width:82px" class="sortable" :class="sortKey === 'ttft' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('ttft')">TTFT P50 <span class="sort-arrow" v-if="sortKey === 'ttft'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
+              <th style="width:82px" class="sortable" :class="sortKey === 'cost' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('cost')">费用 <span class="sort-arrow" v-if="sortKey === 'cost'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
               <th style="width:82px" class="sortable" :class="sortKey === 'e2e' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('e2e')">E2E P50 <span class="sort-arrow" v-if="sortKey === 'e2e'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
               <th style="width:100px" class="sortable" :class="sortKey === 'throughput' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('throughput')">吞吐量 <span class="sort-arrow" v-if="sortKey === 'throughput'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
               <th style="width:64px"></th>
@@ -42,7 +43,7 @@
           <tbody>
             <template v-if="!filtered.length">
               <tr>
-                <td colspan="13" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
+                <td colspan="14" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
               </tr>
             </template>
             <template v-for="(r, idx) in filtered" :key="r.filename || idx">
@@ -72,6 +73,7 @@
                 </td>
                 <td :style="successRateStyle(r.summary?.success_rate) + ';font-weight:600'">{{ fmtPct(r.summary?.success_rate) }}</td>
                 <td :style="latencyColorStyle(r.percentiles?.TTFT?.P50, 0.5, 2) + ';font-weight:600'">{{ fmtTime(r.percentiles?.TTFT?.P50) }}</td>
+                <td style="font-weight:600">{{ fmtCostShort(r.summary?.cost_total_usd) }}</td>
                 <td :style="latencyColorStyle(r.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600'">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
                 <td :style="qualityColorStyle(r.summary?.throughput_rps, 20, 5) + ';font-weight:600'">{{ fmtNum(r.summary?.throughput_rps) }} /s</td>
                 <td style="white-space:nowrap">
@@ -101,6 +103,7 @@
                     <td style="font-size:11px;color:var(--text-tertiary)">{{ child.schedule_name || '' }}</td>
                     <td :style="successRateStyle(child.summary?.success_rate) + ';font-weight:600;font-size:12px'">{{ fmtPct(child.summary?.success_rate) }}</td>
                     <td :style="latencyColorStyle(child.percentiles?.TTFT?.P50, 0.5, 2) + ';font-weight:600;font-size:12px'">{{ fmtTime(child.percentiles?.TTFT?.P50) }}</td>
+                    <td style="font-weight:600;font-size:12px">{{ fmtCostShort(child.summary?.cost_total_usd) }}</td>
                     <td :style="latencyColorStyle(child.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600;font-size:12px'">{{ fmtTime(child.percentiles?.E2E?.P50) }}</td>
                     <td :style="qualityColorStyle(child.summary?.throughput_rps, 20, 5) + ';font-weight:600;font-size:12px'">{{ fmtNum(child.summary?.throughput_rps) }} /s</td>
                     <td>
@@ -108,7 +111,7 @@
                     </td>
                   </tr>
                   <tr class="detail-row" :class="{ open: groupChildDetailOpen(idx, ci) }">
-                    <td colspan="13">
+                    <td colspan="14">
                       <div v-html="groupChildDetailHtml(idx, ci)"></div>
                     </td>
                   </tr>
@@ -117,7 +120,7 @@
 
               <!-- Detail row (non-group) -->
               <tr v-if="!isGroup(r)" class="detail-row" :class="{ open: expandedRows.has(idx) }">
-                <td colspan="13">
+                <td colspan="14">
                   <div v-html="detailHtml[idx]"></div>
                 </td>
               </tr>
@@ -151,7 +154,7 @@ import { api } from '../api/index.js';
 import { useAppStore } from '../stores/app.js';
 import { toast } from '../composables/useToast.js';
 import {
-  fmtTime, fmtTimestamp, fmtPct, fmtNum, fmtBigNum,
+  fmtTime, fmtTimestamp, fmtPct, fmtNum, fmtBigNum, fmtCostShort,
   escHtml, qualityColorStyle, latencyColorStyle
 } from '../utils/formatters.js';
 import { renderResultDetail } from '../utils/resultDetail.js';
@@ -240,6 +243,7 @@ const filtered = computed(() => {
       case 'ttft': va = a.percentiles?.TTFT?.P50 || 999; vb = b.percentiles?.TTFT?.P50 || 999; break;
       case 'e2e': va = a.percentiles?.E2E?.P50 || 999; vb = b.percentiles?.E2E?.P50 || 999; break;
       case 'throughput': va = a.summary?.throughput_rps || 0; vb = b.summary?.throughput_rps || 0; break;
+      case 'cost': va = a.summary?.cost_total_usd || 0; vb = b.summary?.cost_total_usd || 0; break;
       default: va = a.timestamp || ''; vb = b.timestamp || '';
     }
     const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;

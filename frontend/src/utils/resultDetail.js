@@ -1,6 +1,6 @@
 import {
   fmtTime, fmtPct, fmtNum, fmtBigNum, fmtTimestamp, escHtml,
-  qualityColorClass, latencyColorClass, infoIconHtml
+  qualityColorClass, latencyColorClass, infoIconHtml, fmtCost
 } from './formatters';
 
 // Alias to match original global function name used in app.js
@@ -71,8 +71,19 @@ export function renderResultDetail(r) {
         <div class="metric-label">耗时</div>
         <div class="metric-value">${fmtTime(s.duration_seconds)}</div>
         <div class="metric-sub">并发: ${escHtml(c.concurrency || '-')}</div>
-      </div>
-    </div>`;
+      </div>`;
+
+  // 费用卡片
+  if (s.cost_total_usd != null && s.cost_total_usd > 0) {
+    html += `
+      <div class="metric-card">
+        <div class="metric-label">预估费用</div>
+        <div class="metric-value">${fmtCost(s.cost_total_usd)}</div>
+        <div class="metric-sub">输入: ${fmtCost(s.cost_input_usd)} / 输出: ${fmtCost(s.cost_output_usd)}</div>
+      </div>`;
+  }
+
+  html += `</div>`;
 
   // Percentile table
   if (p.TTFT || p.TPOT || p.E2E) {

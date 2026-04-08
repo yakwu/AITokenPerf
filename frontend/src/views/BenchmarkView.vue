@@ -63,6 +63,19 @@
           <input class="form-input" v-model="form.base_url" placeholder="https://api.anthropic.com" ref="baseUrlInputRef">
         </div>
         <div class="form-group">
+          <label class="form-label">模型厂商</label>
+          <div class="combobox" ref="providerComboboxRef">
+            <input class="form-input" :value="providerDropdownOpen ? providerSearch : providerLabel" :placeholder="'选择模型厂商'" @focus="onProviderFocus" @input="onProviderInput($event)" @keydown.escape="providerDropdownOpen = false" readonly autocomplete="off">
+            <button class="combobox-toggle" type="button" @click.stop="providerDropdownOpen = !providerDropdownOpen" @mousedown.prevent>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+            </button>
+            <div class="combobox-dropdown" v-show="providerDropdownOpen">
+              <div class="combobox-option" :class="{ active: form.provider === '' }" @mousedown.prevent="selectProvider('')">全部</div>
+              <div v-for="p in filteredProviders" :key="p.value" class="combobox-option" :class="{ active: form.provider === p.value }" @mousedown.prevent="selectProvider(p.value)">{{ p.label }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
           <label class="form-label">API Key</label>
           <div style="position:relative">
             <input class="form-input" v-model="form.api_key" :type="showApiKey ? 'text' : 'password'" placeholder="sk-..." autocomplete="off" data-1p-ignore style="width:100%;padding-right:40px">
@@ -73,23 +86,54 @@
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">模型</label>
-          <div class="combobox" ref="comboboxRef" @click="toggleCombobox">
-            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" :placeholder="form.model || '选择或直接输入模型 ID'" @focus="modelSearch = ''; modelDropdownOpen = true" @input="onModelInput($event)" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
+          <label class="form-label">模型
+            <span v-if="!multiModelMode" style="float:right;font-size:11px;cursor:pointer;color:var(--accent)" @click="toggleMultiModel">多模型测试</span>
+            <span v-else style="float:right;font-size:11px;cursor:pointer;color:var(--text-tertiary)" @click="toggleMultiModel">单模型</span>
+          </label>
+          <!-- 单模型模式 -->
+          <div v-show="!multiModelMode" class="combobox" ref="comboboxRef">
+            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" :placeholder="form.model || '选择或直接输入模型 ID'" @focus="modelDropdownOpen = true" @input="onModelInput($event)" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
             <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
             </button>
             <div class="combobox-dropdown" v-show="modelDropdownOpen">
-              <template v-for="m in filteredModels" :key="m">
-                <div class="combobox-option" :class="{ active: form.model === m }" @mousedown.prevent="form.model = m; modelDropdownOpen = false">{{ m }}</div>
+              <template v-for="m in filteredModels" :key="m.id || m">
+                <div class="combobox-option" :class="{ active: form.model === (m.id || m) }" @mousedown.prevent="selectModel(m)">{{ m.id || m }}</div>
               </template>
               <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">无匹配模型，将使用输入值</div>
               <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch">
-                <span v-if="!knownModels.length && !modelsApiLoading">暂无历史记录，可直接输入模型 ID<br><small style="color:var(--text-tertiary)">如 gpt-4o、claude-sonnet-4-6</small></span>
-                <span v-else-if="modelsApiLoading">正在获取可用模型列表…</span>
-                <span v-else>无匹配模型</span>
+                <span v-if="modelsApiLoading">正在获取模型列表…</span>
+                <span v-else-if="form.provider">该厂商下暂无模型数据</span>
+                <span v-else>请先选择模型厂商</span>
               </div>
             </div>
+          </div>
+          <!-- 多模型模式 -->
+          <div v-show="multiModelMode">
+            <div class="combobox" ref="comboboxRef">
+              <input class="form-input" :value="modelSearch" placeholder="输入模型 ID 回车添加，或从下拉选择" @focus="modelDropdownOpen = true" @input="onModelInput($event)" @keydown.enter.prevent="addMultiModel(modelSearch || '')" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
+              <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+              </button>
+              <div class="combobox-dropdown" v-show="modelDropdownOpen">
+                <template v-for="m in filteredModels" :key="m.id || m">
+                  <div class="combobox-option" @mousedown.prevent="addMultiModel(m.id || m)">{{ m.id || m }}</div>
+                </template>
+                <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">回车添加「{{ modelSearch }}」</div>
+                <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch">
+                  <span v-if="modelsApiLoading">正在获取模型列表…</span>
+                  <span v-else-if="form.provider">该厂商下暂无模型数据</span>
+                  <span v-else>请先选择模型厂商</span>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px" v-if="multiModels.length">
+              <span v-for="(m, i) in multiModels" :key="m" class="profile-chip active" style="font-size:12px;padding:3px 10px;cursor:default">
+                {{ m }}
+                <button @click="removeMultiModel(i)" style="background:none;border:none;cursor:pointer;color:var(--danger);margin-left:4px;font-size:14px;line-height:1">&times;</button>
+              </span>
+            </div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px" v-if="multiModels.length">已添加 {{ multiModels.length }} 个模型</div>
           </div>
         </div>
         <div class="form-group">
@@ -143,10 +187,11 @@
         </div>
       </div>
       <div class="btn-group" style="margin-top:20px">
-        <button class="btn btn-primary" v-show="!running && !multiMode" @click="startBench()">开始测试</button>
-        <button class="btn btn-primary" v-show="!running && multiMode" @click="startMultiBench()" :disabled="multiSelectedProfiles.length < 2">开始多配置对比测试</button>
+        <button class="btn btn-primary" v-show="!running && !multiModelMode && !multiMode" @click="startBench()">开始测试</button>
+        <button class="btn btn-primary" v-show="!running && multiModelMode" @click="startMultiModelBench()" :disabled="multiModels.length < 2">开始多模型测试</button>
+        <button class="btn btn-primary" v-show="!running && !multiModelMode && multiMode" @click="startMultiBench()" :disabled="multiSelectedProfiles.length < 2">开始多配置对比测试</button>
         <button class="btn btn-danger" v-show="running" @click="stopBench()">停止</button>
-        <button class="btn btn-ghost" v-show="!multiMode" @click="dryRun()">连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span></button>
+        <button class="btn btn-ghost" v-show="!running && !multiModelMode && !multiMode" @click="dryRun()">连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span></button>
       </div>
 
     <!-- Progress Panel -->
@@ -197,7 +242,7 @@
         <template v-for="tid in Object.keys(multiTasks)" :key="tid">
           <div class="multi-task-progress" style="margin-bottom:16px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-weight:600;font-size:13px">{{ multiTasks[tid]?.profile_name || tid }}</span>
+              <span style="font-weight:600;font-size:13px">{{ multiTasks[tid]?.model_name || multiTasks[tid]?.profile_name || tid }}</span>
               <span class="status-badge" :class="multiTasks[tid]?.status" style="font-size:11px">{{ multiTasks[tid]?.status === 'running' ? '运行中' : multiTasks[tid]?.status === 'completed' ? '已完成' : multiTasks[tid]?.status }}</span>
             </div>
             <div class="progress-bar-wrap">
@@ -263,6 +308,7 @@ const form = ref({
   base_url: '',
   api_key: '',
   model: '',
+  provider: '',
   max_tokens: 512,
   mode: 'burst',
   duration: 120,
@@ -309,15 +355,50 @@ const knownModels = ref([]);
 const modelsApiLoading = ref(false);
 const modelDropdownOpen = ref(false);
 const modelSearch = ref('');
+const providerDropdownOpen = ref(false);
+const providerSearch = ref('');
+const providerComboboxRef = ref(null);
+const providerOptions = [
+  { value: 'anthropic', label: 'Anthropic (Claude)' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'qwen', label: 'Qwen (通义千问)' },
+  { value: 'google', label: 'Google (Gemini)' },
+  { value: 'mistral', label: 'Mistral' },
+  { value: 'cohere', label: 'Cohere' },
+  { value: 'bytedance', label: '字节 (豆包)' },
+  { value: 'zhipu', label: '智谱 (GLM)' },
+  { value: 'moonshot', label: 'Moonshot (Kimi)' },
+  { value: 'other', label: '其他' },
+];
 const editingProfileName = ref(false);
 const profileDirty = ref(false);
 const savedProfileConfig = ref(null);
 
+// ---- Multi-model mode ----
+const multiModelMode = ref(false);
+const multiModels = ref([]);
+
 // ---- Computed ----
 const filteredModels = computed(() => {
   const q = (modelSearch.value || '').toLowerCase();
-  if (!q) return knownModels.value;
-  return knownModels.value.filter(m => m.toLowerCase().includes(q));
+  const models = knownModels.value;
+  if (!q) return models;
+  return models.filter(m => {
+    const id = typeof m === 'string' ? m : (m.id || '');
+    return id.toLowerCase().includes(q);
+  });
+});
+
+const providerLabel = computed(() => {
+  const p = providerOptions.find(o => o.value === form.value.provider);
+  return p ? p.label : '';
+});
+
+const filteredProviders = computed(() => {
+  const q = (providerSearch.value || '').toLowerCase();
+  if (!q) return providerOptions;
+  return providerOptions.filter(p => p.label.toLowerCase().includes(q) || p.value.toLowerCase().includes(q));
 });
 
 const currentProfile = computed(() => {
@@ -348,6 +429,7 @@ const profileDraftExists = computed(() => {
 watch(() => form.value.base_url, () => checkProfileDirty());
 watch(() => form.value.api_key, () => checkProfileDirty());
 watch(() => form.value.model, () => checkProfileDirty());
+watch(() => form.value.provider, () => checkProfileDirty());
 
 // 自动从 API 获取可用模型列表
 watch([() => form.value.base_url, () => form.value.api_key], ([url, key]) => {
@@ -403,20 +485,18 @@ onMounted(() => {
     snapshotProfileConfig();
     if (hasRerun) applyRerunConfig();
   });
-  loadKnownModels();
+  loadKnownModels(form.value.provider);
   checkRunningStatus();
-
-  // Click-outside handler for model combobox
-  document.addEventListener('click', handleComboboxOutside);
 });
 
 onUnmounted(() => {
   stopSSE();
   stopMultiPolling();
-  document.removeEventListener('click', handleComboboxOutside);
+  removeComboboxListener();
 });
 
 // ---- Combobox click-outside ----
+let comboboxListenerActive = false;
 function handleComboboxOutside(e) {
   if (comboboxRef.value && !comboboxRef.value.contains(e.target)) {
     if (modelSearch.value) {
@@ -425,6 +505,42 @@ function handleComboboxOutside(e) {
     modelDropdownOpen.value = false;
   }
 }
+function addComboboxListener() {
+  if (comboboxListenerActive) return;
+  comboboxListenerActive = true;
+  // 用 setTimeout 跳过当前事件循环，避免打开 dropdown 的同一个 click 立即触发 outside
+  setTimeout(() => document.addEventListener('mousedown', handleComboboxOutside), 0);
+}
+function removeComboboxListener() {
+  if (!comboboxListenerActive) return;
+  comboboxListenerActive = false;
+  document.removeEventListener('mousedown', handleComboboxOutside);
+}
+
+watch(modelDropdownOpen, (open) => {
+  if (open) addComboboxListener(); else removeComboboxListener();
+});
+
+// Provider combobox click-outside
+let providerListenerActive = false;
+function handleProviderOutside(e) {
+  if (providerComboboxRef.value && !providerComboboxRef.value.contains(e.target)) {
+    providerDropdownOpen.value = false;
+  }
+}
+watch(providerDropdownOpen, (open) => {
+  if (open) {
+    if (!providerListenerActive) {
+      providerListenerActive = true;
+      setTimeout(() => document.addEventListener('mousedown', handleProviderOutside), 0);
+    }
+  } else {
+    if (providerListenerActive) {
+      providerListenerActive = false;
+      document.removeEventListener('mousedown', handleProviderOutside);
+    }
+  }
+});
 
 function toggleCombobox() {
   if (modelDropdownOpen.value) {
@@ -462,6 +578,7 @@ async function applyRerunConfig() {
   }
 
   form.value.model = rc.model;
+  form.value.provider = rc.provider || form.value.provider;
   form.value.max_tokens = rc.max_tokens;
   form.value.mode = rc.mode;
   form.value.duration = rc.duration;
@@ -486,17 +603,42 @@ async function loadProfiles() {
   }
 }
 
-async function loadKnownModels() {
+async function loadKnownModels(provider) {
+  modelsApiLoading.value = true;
   try {
-    const data = await api('/api/results?limit=500');
-    const results = data.items || [];
-    const models = results
-      .map(r => r.config?.model)
-      .filter(Boolean);
-    knownModels.value = [...new Set(models)].sort();
+    const params = new URLSearchParams();
+    if (provider) params.set('provider', provider);
+    params.set('enabled_only', 'true');
+    const data = await api(`/api/pricing/models?${params}`);
+    knownModels.value = data.models || [];
   } catch {
     knownModels.value = [];
+  } finally {
+    modelsApiLoading.value = false;
   }
+}
+
+// Provider combobox handlers
+function onProviderFocus() {
+  providerSearch.value = '';
+  providerDropdownOpen.value = true;
+}
+function onProviderInput(e) {
+  providerSearch.value = e.target.value;
+  providerDropdownOpen.value = true;
+}
+function selectProvider(val) {
+  form.value.provider = val;
+  providerDropdownOpen.value = false;
+  providerSearch.value = '';
+  checkProfileDirty();
+  loadKnownModels(val);
+}
+
+function selectModel(m) {
+  const id = typeof m === 'string' ? m : (m.id || '');
+  form.value.model = id;
+  modelDropdownOpen.value = false;
 }
 
 let modelsApiTimer = null;
@@ -556,7 +698,8 @@ function checkProfileDirty() {
   profileDirty.value = (
     form.value.base_url !== (s.base_url || '') ||
     form.value.api_key !== (s.api_key || '') ||
-    form.value.model !== (s.model || '')
+    form.value.model !== (s.model || '') ||
+    form.value.provider !== (s.provider || '')
   );
 }
 
@@ -565,6 +708,7 @@ function snapshotProfileConfig() {
     base_url: form.value.base_url,
     api_key: form.value.api_key,
     model: form.value.model,
+    provider: form.value.provider,
   };
   profileDirty.value = false;
 }
@@ -599,6 +743,7 @@ async function finishRenameProfile() {
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         model: form.value.model,
+        provider: form.value.provider,
         api_version: '2023-06-01',
       }),
     });
@@ -626,6 +771,7 @@ async function saveAsNewProfile() {
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         model: form.value.model,
+        provider: form.value.provider,
         api_version: '2023-06-01',
       }),
     });
@@ -663,6 +809,7 @@ async function saveProfile() {
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         model: form.value.model,
+        provider: form.value.provider,
         api_version: '2023-06-01',
       }),
     });
@@ -703,6 +850,7 @@ async function switchProfile(name) {
     form.value.base_url = c.base_url || '';
     form.value.api_key = c.api_key_display || '';
     form.value.model = c.model || '';
+    form.value.provider = c.provider || '';
     currentProfileName.value = name;
     profileDraftName.value = name;
     profileDeleteCandidate.value = '';
@@ -772,6 +920,7 @@ function getFormConfig() {
     base_url: form.value.base_url,
     api_key: form.value.api_key,
     model: form.value.model,
+    provider: form.value.provider,
     concurrency_levels: [conc],
     mode: form.value.mode,
     max_tokens: parseInt(form.value.max_tokens) || 512,
@@ -935,6 +1084,77 @@ function addCustomConcurrency() {
   customConcurrency.value = '';
 }
 
+// ---- Multi-model methods ----
+function toggleMultiModel() {
+  multiModelMode.value = !multiModelMode.value;
+  if (multiModelMode.value && form.value.model) {
+    multiModels.value = [form.value.model];
+  } else if (!multiModelMode.value) {
+    multiModels.value = [];
+  }
+}
+
+function addMultiModel(model) {
+  const id = typeof model === 'string' ? model : (model?.id || '');
+  if (!id.trim()) return;
+  if (!multiModels.value.includes(id)) {
+    multiModels.value = [...multiModels.value, id];
+  }
+  modelSearch.value = '';
+  modelDropdownOpen.value = false;
+}
+
+function removeMultiModel(idx) {
+  multiModels.value = multiModels.value.filter((_, i) => i !== idx);
+}
+
+function getMultiModelConfig() {
+  const conc = selectedConcurrency.value || 100;
+  const requests = parseInt(requestsPerLevel.value);
+  const config = {
+    provider: form.value.provider,
+    models: multiModels.value,
+    concurrency_levels: [conc],
+    mode: form.value.mode,
+    max_tokens: parseInt(form.value.max_tokens) || 512,
+    timeout: parseInt(form.value.timeout) || 120,
+    duration: parseInt(form.value.duration) || 120,
+    system_prompt: form.value.system_prompt,
+    user_prompt: form.value.user_prompt,
+  };
+  if (!isNaN(requests) && requests > 0) config.requests_per_level = requests;
+  return config;
+}
+
+async function startMultiModelBench() {
+  if (multiModels.value.length < 2) {
+    toast('请至少添加 2 个模型', 'info');
+    return;
+  }
+  const config = getMultiModelConfig();
+  try {
+    const res = await api('/api/bench/start-multi-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (res.error) { toast(res.error, 'error'); return; }
+    groupId.value = res.group_id;
+    multiTasks.value = {};
+    multiLogs.value = {};
+    multiResults.value = {};
+    multiResultFiles.value = [];
+    for (const tid of res.task_ids) {
+      multiTasks.value[tid] = { profile_name: '', model_name: '', status: 'running', progress: { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' }, event_seq: 0 };
+      multiLogs.value[tid] = [];
+      multiResults.value[tid] = [];
+    }
+    setRunningState(true);
+    startMultiPolling();
+    toast('多模型测试已启动', 'success');
+  } catch (e) { toast('启动失败: ' + e.message, 'error'); }
+}
+
 // ---- Multi-server methods ----
 function toggleMultiMode() {
   multiMode.value = !multiMode.value;
@@ -1006,6 +1226,7 @@ async function pollMultiStatus() {
       const mt = multiTasks.value[t.task_id];
       if (!mt) continue;
       mt.profile_name = t.profile_name;
+      mt.model_name = t.model_name || '';
       mt.status = t.status;
       mt.progress = {
         done: t.done, total: t.total, success: t.success,

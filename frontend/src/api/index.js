@@ -66,3 +66,10 @@ export const deleteUserApi = (id) => api(`/api/admin/users/${id}`, { method: 'DE
 // Models
 export const getModels = (baseUrl, apiKey) =>
   api('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base_url: baseUrl, api_key: apiKey }) });
+
+// Pricing / Model Config
+export const getModelsConfig = () => api('/api/pricing/models-config');
+export const putModelsConfig = (enabledModels) =>
+  api('/api/pricing/models-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled_models: enabledModels }) });
+export const getPricingModels = (provider = '') =>
+  api(`/api/pricing/models?provider=${encodeURIComponent(provider)}`);
