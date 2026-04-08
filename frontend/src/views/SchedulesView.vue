@@ -706,7 +706,7 @@ function renderLatencyChart() {
         y: {
           title: { display: true, text: 'Latency (s)', font: { size: 11 } },
           grid: { color: '#F0EEE9' },
-          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, callback: v => v.toFixed(1) + 's' },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, callback: v => v.toFixed(1) + 's', stepSize: 0.5 },
           beginAtZero: true,
         },
         x: {
