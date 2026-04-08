@@ -27,7 +27,7 @@ from app.db import get_results_aggregated as db_get_results_aggregated
 from app.db import get_result_by_filename, delete_result as db_delete_result
 from app.db import get_settings, save_settings
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
-from app.db import list_users, update_user_display_name, delete_user as db_delete_user
+from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
 from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
 from app.auth import _is_public_path
 
@@ -557,7 +557,7 @@ async def admin_update_user_role(user_id: int, body: dict, user: dict = Depends(
         return JSONResponse({"error": "role must be 'admin' or 'user'"}, status_code=400)
     if user_id == user["user_id"]:
         return JSONResponse({"error": "不能修改自己的角色"}, status_code=400)
-    await db.update_user_role(user_id, role)
+    await update_user_role(user_id, role)
     return {"ok": True}
 
 
