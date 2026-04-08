@@ -635,12 +635,12 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int) -> li
             pass
         try:
             p = json.loads(row.percentiles_json)
-            ttft = p.get("ttft", {})
-            if ttft.get("p50") is not None:
-                b["ttft_p50s"].append(float(ttft["p50"]))
-            e2e = p.get("e2e", {})
-            if e2e.get("p50") is not None:
-                b["e2e_p50s"].append(float(e2e["p50"]))
+            ttft = p.get("TTFT", {})
+            if ttft.get("P50") is not None:
+                b["ttft_p50s"].append(float(ttft["P50"]))
+            e2e = p.get("E2E", {})
+            if e2e.get("P50") is not None:
+                b["e2e_p50s"].append(float(e2e["P50"]))
         except (json.JSONDecodeError, TypeError):
             pass
 
