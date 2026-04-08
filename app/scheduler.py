@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""定时任务调度器 — 每个任务一个独立 asyncio 循环协程"""
+"""定时任务调度器 — 全局单循环 + next_run_at 绝对时间调度"""
 
 import asyncio
+import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from app.db import (
     get_all_active_scheduled_tasks,
@@ -27,94 +28,127 @@ if not log.handlers:
 class TaskScheduler:
     def __init__(self):
         self._running = False
-        # task_id → asyncio.Task，管理所有循环的生命周期
-        self._loops: dict[int, asyncio.Task] = {}
+        self._main_loop: asyncio.Task | None = None
+        self._executing: set[int] = set()
 
     # ── 公开接口 ──────────────────────────────────────────
 
     async def start(self):
-        """服务启动时，为所有 active 任务启动循环"""
+        """服务启动时，为所有 active 任务补齐 next_run_at，启动全局循环"""
         self._running = True
         tasks = await get_all_active_scheduled_tasks()
+        now = datetime.now(timezone.utc)
         for t in tasks:
-            self.start_loop(t["id"])
+            if not t.get("next_run_at"):
+                await update_scheduled_task(t["id"], next_run_at=now)
+        self._main_loop = asyncio.create_task(self._run())
         log.info("调度器已启动，加载 %d 个活跃任务", len(tasks))
 
     async def stop(self):
-        """服务停止时，取消所有循环"""
+        """服务停止时，取消全局循环"""
         self._running = False
-        for task in self._loops.values():
-            task.cancel()
-        self._loops.clear()
+        if self._main_loop:
+            self._main_loop.cancel()
+            try:
+                await self._main_loop
+            except asyncio.CancelledError:
+                pass
+            self._main_loop = None
 
     def start_loop(self, task_id: int):
-        """启动或重启某个任务的调度循环"""
-        self.cancel_loop(task_id)
-        self._loops[task_id] = asyncio.create_task(self._loop(task_id))
+        """启动或重置某个任务的调度（设置 next_run_at=now 触发立即执行）"""
+        asyncio.create_task(self._trigger(task_id))
 
     def cancel_loop(self, task_id: int):
-        """取消某个任务的调度循环（暂停/删除/重启前调用）"""
-        old = self._loops.pop(task_id, None)
-        if old:
-            old.cancel()
+        """暂停/删除某个任务：从执行集合移除（循环会因 DB status 变化自动跳过）"""
+        self._executing.discard(task_id)
+
+    async def run_now(self, task_id: int):
+        """立即执行一次（run-now 端点调用）"""
+        if task_id in self._executing:
+            log.warning("定时任务 #%d 正在执行中，跳过 run-now", task_id)
+            return
+        self._executing.add(task_id)
+        asyncio.create_task(self._execute_and_schedule(task_id, skip_reschedule=True))
 
     def has_loop(self, task_id: int) -> bool:
-        return task_id in self._loops
+        # 全局循环模式下，只要任务是 active 就算"有循环"
+        return self._running
 
-    # ── 调度循环 ──────────────────────────────────────────
+    # ── 内部方法 ──────────────────────────────────────────
 
-    async def _loop(self, task_id: int):
-        """睡 → 执行 → 睡 → 执行 … 直到被 cancel 或任务不再是 active"""
+    async def _trigger(self, task_id: int):
+        """将任务的 next_run_at 设为 now，触发下一轮调度"""
+        task_row = await get_scheduled_task(task_id)
+        if not task_row or task_row.get("status") != "active":
+            return
+        await update_scheduled_task(task_id, next_run_at=datetime.now(timezone.utc))
+
+    async def _run(self):
+        """全局调度循环：每 5 秒扫一次 DB，触发到期任务"""
         while self._running:
-            task_row = await get_scheduled_task(task_id)
-            if not task_row or task_row.get("status") != "active":
-                return
-
-            delay = _calc_delay(task_row)
             try:
-                await asyncio.sleep(delay)
+                await asyncio.sleep(5)
             except asyncio.CancelledError:
                 return
-
             if not self._running:
                 return
+            try:
+                tasks = await get_all_active_scheduled_tasks()
+                now = datetime.now(timezone.utc)
+                for t in tasks:
+                    tid = t["id"]
+                    if tid in self._executing:
+                        continue
+                    next_run = t.get("next_run_at")
+                    if next_run:
+                        # 处理时区：PG 返回带时区的，SQLite 不带
+                        if isinstance(next_run, str):
+                            try:
+                                next_run = datetime.fromisoformat(next_run)
+                            except ValueError:
+                                continue
+                        if next_run.tzinfo is None:
+                            next_run = next_run.replace(tzinfo=timezone.utc)
+                        if next_run > now:
+                            continue
+                    # 到期了，触发执行
+                    self._executing.add(tid)
+                    asyncio.create_task(self._execute_and_schedule(tid))
+            except Exception as e:
+                log.error("调度循环异常: %s", e)
 
-            # sleep 后再确认一次（期间可能被暂停/删除/重启）
+    async def _execute_and_schedule(self, task_id: int, skip_reschedule: bool = False):
+        """执行任务，完成后计算下一次执行时间"""
+        try:
+            await _run_scheduled_task(task_id)
+        except Exception as e:
+            log.error("定时任务 #%d 执行异常: %s", task_id, e)
+            log_error("scheduler:task_error", error=str(e), task_id=task_id)
+        finally:
+            self._executing.discard(task_id)
+            if not skip_reschedule:
+                await self._reschedule(task_id)
+
+    async def _reschedule(self, task_id: int):
+        """执行完毕后，计算并写入下次执行时间"""
+        try:
             task_row = await get_scheduled_task(task_id)
-            if not task_row or task_row.get("status") != "active":
-                return
-
-            await self._execute(task_id)
-
-    # ── 执行 ──────────────────────────────────────────────
-
-    async def _execute(self, task_id: int):
-        """执行定时任务（外部 run-now 也会调用）"""
-        await _run_scheduled_task(task_id)
+            if task_row and task_row.get("status") == "active":
+                sv = int(task_row.get("schedule_value", "300"))
+                now = datetime.now(timezone.utc)
+                await update_scheduled_task(
+                    task_id,
+                    next_run_at=now + timedelta(seconds=sv),
+                    last_run_at=now,
+                    run_count=(task_row.get("run_count") or 0) + 1,
+                )
+                log.info("定时任务 #%d 执行完成，下次执行: %d 秒后", task_id, sv)
+        except Exception as e:
+            log.error("定时任务 #%d 更新调度失败: %s", task_id, e)
 
 
 # ── 模块级工具函数 ───────────────────────────────────────
-
-def _calc_delay(task_row: dict) -> float:
-    """根据 last_run_at 和 interval 算出距下次执行的秒数"""
-    schedule_value = int(task_row.get("schedule_value", "300"))
-    last_run = task_row.get("last_run_at")
-    if last_run:
-        try:
-            last_dt = last_run if isinstance(last_run, datetime) else datetime.fromisoformat(last_run)
-            # 统一为 naive datetime 做减法（PG timestamptz 带时区，SQLite 不带）
-            now = datetime.utcnow()
-            if last_dt.tzinfo is not None:
-                from datetime import timezone
-                now = now.replace(tzinfo=timezone.utc)
-            elapsed = (now - last_dt).total_seconds()
-            remaining = schedule_value - elapsed
-            if remaining > 0:
-                return remaining
-        except (ValueError, TypeError):
-            pass
-    return 5  # 首次运行或时间解析失败，5 秒后执行
-
 
 async def _run_scheduled_task(task_id: int):
     """执行一个定时任务：为每个 profile 并行跑 benchmark"""
@@ -195,12 +229,5 @@ async def _run_scheduled_task(task_id: int):
                 log_error("scheduler:task_error", error=str(e),
                           task_id=task_id, task_tid=bt.task_id)
 
-    try:
-        new_run_count = (task_row.get("run_count") or 0) + 1
-        await update_scheduled_task(task_id, last_run_at=datetime.utcnow(), run_count=new_run_count)
-        log.info("定时任务 #%d 执行完成，累计 %d 次，本次保存 %d 条结果",
-                 task_id, new_run_count, total_saved)
-        log_bench("scheduler:complete", task_id=task_id,
-                  run_count=new_run_count, results_saved=total_saved)
-    except Exception as e:
-        log.error("定时任务 #%d 更新 run_count 失败: %s", task_id, e)
+    log.info("定时任务 #%d 本次保存 %d 条结果", task_id, total_saved)
+    log_bench("scheduler:complete", task_id=task_id, results_saved=total_saved)

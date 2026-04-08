@@ -1101,9 +1101,8 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
     sid = await create_scheduled_task(
         user_id, name, profile_ids, configs_json, schedule_type, schedule_value,
     )
-    task_row = await get_scheduled_task(sid)
-    if task_row and _scheduler:
-        _scheduler.start_loop(task_row["id"])
+    if _scheduler:
+        _scheduler.start_loop(sid)
     return {"id": sid, "status": "created"}
 
 
@@ -1119,10 +1118,12 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
     fields = {k: v for k, v in body.items() if k in allowed}
     if fields:
         await update_scheduled_task(task_id, **fields)
-    if _scheduler and fields.get("status", task_row.get("status")) == "active":
-        updated = await get_scheduled_task(task_id)
-        if updated:
+    if _scheduler:
+        final_status = fields.get("status", task_row.get("status"))
+        if final_status == "active":
             _scheduler.start_loop(task_id)
+        else:
+            _scheduler.cancel_loop(task_id)
     return {"status": "updated"}
 
 
@@ -1173,7 +1174,7 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
     if _scheduler:
-        asyncio.create_task(_scheduler._execute(task_id))
+        await _scheduler.run_now(task_id)
     return {"status": "triggered"}
 
 
