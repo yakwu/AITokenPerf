@@ -53,7 +53,8 @@ export const deleteScheduleApi = (id) => api(`/api/schedules/${id}`, { method: '
 export const pauseScheduleApi = (id) => api(`/api/schedules/${id}/pause`, { method: 'POST' });
 export const resumeScheduleApi = (id) => api(`/api/schedules/${id}/resume`, { method: 'POST' });
 export const runNowApi = (id) => api(`/api/schedules/${id}/run-now`, { method: 'POST' });
-export const getScheduleResults = (id) => api(`/api/schedules/${id}/results`);
+export const getScheduleResults = (id, { limit = 100, offset = 0 } = {}) => api(`/api/schedules/${id}/results?limit=${limit}&offset=${offset}`);
+export const getScheduleTrend = (id) => api(`/api/schedules/${id}/trend`);
 
 // Settings
 export const updateProfileApi = (data) => api('/api/user/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });

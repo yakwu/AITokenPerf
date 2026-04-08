@@ -124,7 +124,7 @@
                   <div v-if="historyLoading" style="text-align:center;color:var(--text-tertiary);padding:20px">加载中...</div>
                   <div v-else-if="scheduleHistory.length === 0" style="text-align:center;color:var(--text-tertiary);padding:20px">暂无执行记录</div>
                   <div v-else>
-                    <div style="font-size:13px;font-weight:600;margin-bottom:12px">执行趋势 ({{ scheduleHistory.length }} 次执行)</div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:12px">执行趋势 (共 {{ scheduleHistoryTotal }} 次执行)</div>
 
                     <!-- 趋势汇总卡片 -->
                     <div v-if="trendSummary.length > 0" class="trend-summary-cards" style="margin-bottom:16px">
@@ -148,7 +148,7 @@
                     </div>
 
                     <!-- 执行记录表格 -->
-                    <div style="font-size:13px;font-weight:600;margin-bottom:8px">执行记录</div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:8px">最近执行记录 ({{ scheduleHistory.length }} / {{ scheduleHistoryTotal }})</div>
                     <table class="pct-table" style="width:100%">
                       <thead>
                         <tr>
@@ -180,6 +180,11 @@
                       </tr>
                     </tbody>
                   </table>
+                  <div v-if="scheduleHistory.length < scheduleHistoryTotal" style="text-align:center;margin-top:12px">
+                    <button class="btn btn-ghost btn-sm" @click.stop="loadMoreHistory" :disabled="historyLoadingMore" style="font-size:12px">
+                      {{ historyLoadingMore ? '加载中...' : '加载更多' }}
+                    </button>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -257,7 +262,7 @@ import { ref, nextTick, onUnmounted, watch } from 'vue';
 import { useAppStore } from '../stores/app';
 import {
   api, getSchedules, createScheduleApi, updateScheduleApi, deleteScheduleApi,
-  pauseScheduleApi, resumeScheduleApi, runNowApi, getScheduleResults, getProfiles,
+  pauseScheduleApi, resumeScheduleApi, runNowApi, getScheduleResults, getScheduleTrend, getProfiles,
 } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { fmtTime, fmtTimestamp, fmtPct, fmtNum, qualityColorStyle, latencyColorStyle } from '../utils/formatters.js';
@@ -298,8 +303,11 @@ const deleteCandidate = ref(null);
 
 const expandedScheduleId = ref(null);
 const scheduleHistory = ref([]);
+const scheduleHistoryTotal = ref(0);
+const scheduleTrend = ref([]);
 const trendSummary = ref([]);
 const historyLoading = ref(false);
+const historyLoadingMore = ref(false);
 
 const showEditForm = ref(false);
 const editLoading = ref(false);
@@ -547,12 +555,21 @@ async function toggleHistory(id) {
 async function loadHistory(id) {
   historyLoading.value = true;
   trendSummary.value = [];
+  scheduleHistory.value = [];
+  scheduleHistoryTotal.value = 0;
   try {
-    const data = await getScheduleResults(id);
-    scheduleHistory.value = data.results || [];
+    // 并行加载：表格取最近100条，趋势图取聚合数据
+    const [listData, trendData] = await Promise.all([
+      getScheduleResults(id, { limit: 100, offset: 0 }),
+      getScheduleTrend(id),
+    ]);
+    scheduleHistory.value = listData.results || [];
+    scheduleHistoryTotal.value = listData.total || 0;
+    scheduleTrend.value = trendData.trend || [];
   } catch (e) {
     toast('加载执行记录失败: ' + e.message, 'error');
     scheduleHistory.value = [];
+    scheduleTrend.value = [];
   }
   historyLoading.value = false;
   destroyCharts();
@@ -560,6 +577,18 @@ async function loadHistory(id) {
   renderTrendSummary();
   renderLatencyChart();
   renderQualityChart();
+}
+
+async function loadMoreHistory() {
+  if (expandedScheduleId.value == null) return;
+  historyLoadingMore.value = true;
+  try {
+    const data = await getScheduleResults(expandedScheduleId.value, { limit: 100, offset: scheduleHistory.value.length });
+    scheduleHistory.value = [...scheduleHistory.value, ...(data.results || [])];
+  } catch (e) {
+    toast('加载更多失败: ' + e.message, 'error');
+  }
+  historyLoadingMore.value = false;
 }
 
 function renderTrendSummary() {
@@ -616,15 +645,17 @@ function renderTrendSummary() {
 }
 
 function renderLatencyChart() {
-  const results = scheduleHistory.value;
-  if (!results || results.length < 2) return;
+  const trend = scheduleTrend.value;
+  if (!trend || trend.length < 2) return;
   const canvas = trendLatencyCanvas.value;
   if (!canvas) return;
 
-  const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-  const labels = sorted.map(r => fmtTimestamp(r.timestamp));
-  const ttftP50 = sorted.map(r => (r.percentiles?.TTFT?.P50 || 0) * 1000);
-  const e2eP50 = sorted.map(r => (r.percentiles?.E2E?.P50 || 0) * 1000);
+  const labels = trend.map(r => {
+    const m = r.minute;
+    return `${m.slice(0,4)}-${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`;
+  });
+  const ttftP50 = trend.map(r => r.avg_ttft_p50 != null ? r.avg_ttft_p50 : null);
+  const e2eP50 = trend.map(r => r.avg_e2e_p50 != null ? r.avg_e2e_p50 : null);
 
   trendLatencyChart = new Chart(canvas, {
     type: 'line',
@@ -637,9 +668,10 @@ function renderLatencyChart() {
           borderColor: '#3B7DD6',
           backgroundColor: '#3B7DD618',
           borderWidth: 2,
-          pointRadius: 3,
+          pointRadius: trend.length <= 50 ? 3 : 0,
           tension: 0.3,
           fill: true,
+          spanGaps: true,
         },
         {
           label: 'E2E P50 (ms)',
@@ -647,9 +679,10 @@ function renderLatencyChart() {
           borderColor: '#E85D26',
           backgroundColor: '#E85D2618',
           borderWidth: 2,
-          pointRadius: 3,
+          pointRadius: trend.length <= 50 ? 3 : 0,
           tension: 0.3,
           fill: true,
+          spanGaps: true,
         },
       ],
     },
@@ -665,7 +698,7 @@ function renderLatencyChart() {
         },
         tooltip: {
           callbacks: {
-            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(0)} ms`,
+            label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} ms` : '',
           },
         },
       },
@@ -678,7 +711,7 @@ function renderLatencyChart() {
         },
         x: {
           grid: { display: false },
-          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45 },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 20 },
         },
       },
     },
@@ -686,15 +719,17 @@ function renderLatencyChart() {
 }
 
 function renderQualityChart() {
-  const results = scheduleHistory.value;
-  if (!results || results.length < 2) return;
+  const trend = scheduleTrend.value;
+  if (!trend || trend.length < 2) return;
   const canvas = trendQualityCanvas.value;
   if (!canvas) return;
 
-  const sorted = [...results].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
-  const labels = sorted.map(r => fmtTimestamp(r.timestamp));
-  const throughput = sorted.map(r => r.summary?.throughput_rps || 0);
-  const successRate = sorted.map(r => r.summary?.success_rate ?? null);
+  const labels = trend.map(r => {
+    const m = r.minute;
+    return `${m.slice(0,4)}-${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`;
+  });
+  const throughput = trend.map(r => r.avg_throughput ?? null);
+  const successRate = trend.map(r => r.avg_success_rate != null ? r.avg_success_rate * 100 : null);
 
   trendQualityChart = new Chart(canvas, {
     type: 'line',
@@ -707,10 +742,11 @@ function renderQualityChart() {
           borderColor: '#2D8B55',
           backgroundColor: '#2D8B5518',
           borderWidth: 2,
-          pointRadius: 3,
+          pointRadius: trend.length <= 50 ? 3 : 0,
           tension: 0.3,
           fill: true,
           yAxisID: 'y',
+          spanGaps: true,
         },
         {
           label: '成功率 (%)',
@@ -718,11 +754,12 @@ function renderQualityChart() {
           borderColor: '#F59E3B',
           backgroundColor: '#F59E3B18',
           borderWidth: 2,
-          pointRadius: 3,
+          pointRadius: trend.length <= 50 ? 3 : 0,
           tension: 0.3,
           fill: true,
           yAxisID: 'y1',
           borderDash: [5, 3],
+          spanGaps: true,
         },
       ],
     },
@@ -739,8 +776,9 @@ function renderQualityChart() {
         tooltip: {
           callbacks: {
             label: ctx => {
-              if (ctx.dataset.yAxisID === 'y1') return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)}%`;
-              return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)} /s`;
+              if (ctx.parsed.y == null) return '';
+              if (ctx.dataset.yAxisID === 'y1') return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`;
+              return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} /s`;
             },
           },
         },
@@ -763,7 +801,7 @@ function renderQualityChart() {
         },
         x: {
           grid: { display: false },
-          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45 },
+          ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 20 },
         },
       },
     },

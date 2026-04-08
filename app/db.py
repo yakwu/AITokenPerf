@@ -569,15 +569,23 @@ async def delete_result(user_id: int, filename: str):
         )
 
 
-async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int) -> list[dict]:
+async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, limit: int = 100, offset: int = 0) -> dict:
+    """返回定时任务的结果列表（分页）和总数"""
     async with engine.connect() as conn:
+        count_cur = await conn.execute(
+            text("SELECT COUNT(*) FROM results WHERE user_id=:uid AND scheduled_task_id=:sid"),
+            {"uid": user_id, "sid": scheduled_task_id},
+        )
+        total = count_cur.scalar()
+
         cur = await conn.execute(
             text("""SELECT r.*, st.name AS schedule_name
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
                    WHERE r.user_id=:uid AND r.scheduled_task_id=:sid
-                   ORDER BY r.created_at DESC"""),
-            {"uid": user_id, "sid": scheduled_task_id},
+                   ORDER BY r.created_at DESC
+                   LIMIT :limit OFFSET :offset"""),
+            {"uid": user_id, "sid": scheduled_task_id, "limit": limit, "offset": offset},
         )
         rows = cur.fetchall()
         results = []
@@ -591,7 +599,63 @@ async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int) ->
             if not d.get("schedule_name"):
                 d["schedule_name"] = ""
             results.append(d)
-        return results
+        return {"results": results, "total": total}
+
+
+async def get_schedule_results_trend(user_id: int, scheduled_task_id: int) -> list[dict]:
+    """按分钟聚合定时任务结果，用于趋势图展示（最多返回最近500个点）。
+    只查询需要的字段，在 Python 层聚合，兼容 SQLite 和 PostgreSQL。
+    """
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("""SELECT timestamp, summary_json, percentiles_json
+                   FROM results
+                   WHERE user_id=:uid AND scheduled_task_id=:sid
+                   ORDER BY timestamp DESC
+                   LIMIT 10000"""),
+            {"uid": user_id, "sid": scheduled_task_id},
+        )
+        rows = cur.fetchall()
+
+    buckets = {}
+    for row in rows:
+        minute = row.timestamp[:12]  # e.g. "20260408_103"
+        if minute not in buckets:
+            buckets[minute] = {"minute": minute, "count": 0, "success_rates": [],
+                               "throughputs": [], "ttft_p50s": [], "e2e_p50s": []}
+        b = buckets[minute]
+        b["count"] += 1
+        try:
+            s = json.loads(row.summary_json)
+            if s.get("success_rate") is not None:
+                b["success_rates"].append(float(s["success_rate"]))
+            if s.get("throughput_rps") is not None:
+                b["throughputs"].append(float(s["throughput_rps"]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+        try:
+            p = json.loads(row.percentiles_json)
+            ttft = p.get("ttft", {})
+            if ttft.get("p50") is not None:
+                b["ttft_p50s"].append(float(ttft["p50"]))
+            e2e = p.get("e2e", {})
+            if e2e.get("p50") is not None:
+                b["e2e_p50s"].append(float(e2e["p50"]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    result = []
+    for minute in sorted(buckets.keys()):
+        b = buckets[minute]
+        result.append({
+            "minute": minute,
+            "run_count": b["count"],
+            "avg_success_rate": round(sum(b["success_rates"]) / len(b["success_rates"]), 4) if b["success_rates"] else None,
+            "avg_throughput": round(sum(b["throughputs"]) / len(b["throughputs"]), 2) if b["throughputs"] else None,
+            "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 2) if b["ttft_p50s"] else None,
+            "avg_e2e_p50": round(sum(b["e2e_p50s"]) / len(b["e2e_p50s"]), 2) if b["e2e_p50s"] else None,
+        })
+    return result[-500:]  # 最多500个点
 
 
 # ---- User Settings CRUD ----
