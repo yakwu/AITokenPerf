@@ -24,16 +24,10 @@
               <td>{{ u.email }}</td>
               <td>{{ u.display_name || '-' }}</td>
               <td>
-                <div class="role-cell" style="position:relative">
-                  <button class="role-badge" :class="u.role" @click="roleEditing = roleEditing === u.id ? null : u.id">
-                    {{ u.role === 'admin' ? '管理员' : '用户' }}
-                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-                  </button>
-                  <div class="role-dropdown" v-if="roleEditing === u.id">
-                    <button class="role-option" :class="{ active: u.role === 'user' }" @click="changeRole(u, 'user')">用户</button>
-                    <button class="role-option" :class="{ active: u.role === 'admin' }" @click="changeRole(u, 'admin')">管理员</button>
-                  </div>
-                </div>
+                <button class="role-badge" :class="u.role" :ref="el => { if (el) roleBtnRefs[u.id] = el }" @click="toggleRoleMenu($event, u.id)">
+                  {{ u.role === 'admin' ? '管理员' : '用户' }}
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+                </button>
               </td>
               <td>{{ formatDate(u.created_at) }}</td>
               <td>{{ formatDate(u.updated_at) }}</td>
@@ -55,10 +49,21 @@
       </div>
     </div>
   </section>
+  <Teleport to="body">
+    <div class="role-dropdown-portal" v-if="roleMenuOpen !== null"
+      :style="{ position: 'fixed', top: roleMenuPos.top + 'px', left: roleMenuPos.left + 'px', zIndex: 1000 }">
+      <div class="role-dropdown">
+        <button class="role-option" :class="{ active: users.find(u => u.id === roleMenuOpen)?.role === 'user' }"
+          @mousedown.prevent="changeRole(users.find(u => u.id === roleMenuOpen), 'user')">用户</button>
+        <button class="role-option" :class="{ active: users.find(u => u.id === roleMenuOpen)?.role === 'admin' }"
+          @mousedown.prevent="changeRole(users.find(u => u.id === roleMenuOpen), 'admin')">管理员</button>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { getUsers, deleteUserApi, updateUserRoleApi } from '../api';
 import { toast } from '../composables/useToast';
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
@@ -66,7 +71,27 @@ import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
 const users = ref([]);
 const loading = ref(false);
 const deleteCandidate = ref(null);
-const roleEditing = ref(null);
+const roleMenuOpen = ref(null);
+const roleMenuPos = ref({ top: 0, left: 0 });
+const roleBtnRefs = reactive({});
+
+function toggleRoleMenu(e, userId) {
+  if (roleMenuOpen.value === userId) {
+    roleMenuOpen.value = null;
+    return;
+  }
+  const rect = e.currentTarget.getBoundingClientRect();
+  roleMenuPos.value = { top: rect.bottom + 4, left: rect.left };
+  roleMenuOpen.value = userId;
+}
+
+function closeRoleMenu(e) {
+  if (e.target.closest('.role-dropdown-portal')) return;
+  roleMenuOpen.value = null;
+}
+
+onMounted(() => document.addEventListener('mousedown', closeRoleMenu));
+onUnmounted(() => document.removeEventListener('mousedown', closeRoleMenu));
 
 function formatDate(ts) {
   if (!ts) return '-';
@@ -98,7 +123,7 @@ async function confirmDelete(id) {
 }
 
 async function changeRole(u, newRole) {
-  if (u.role === newRole) { roleEditing.value = null; return; }
+  if (u.role === newRole) { roleMenuOpen.value = null; return; }
   try {
     await updateUserRoleApi(u.id, newRole);
     u.role = newRole;
@@ -106,7 +131,7 @@ async function changeRole(u, newRole) {
   } catch (e) {
     toast('更新失败: ' + e.message, 'error');
   }
-  roleEditing.value = null;
+  roleMenuOpen.value = null;
 }
 
 onMounted(load);
