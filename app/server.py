@@ -550,6 +550,17 @@ async def admin_list_users(user: dict = Depends(require_admin)):
     return {"users": users}
 
 
+@app.put("/api/admin/users/{user_id}/role")
+async def admin_update_user_role(user_id: int, body: dict, user: dict = Depends(require_admin)):
+    role = body.get("role", "")
+    if role not in ("admin", "user"):
+        return JSONResponse({"error": "role must be 'admin' or 'user'"}, status_code=400)
+    if user_id == user["user_id"]:
+        return JSONResponse({"error": "不能修改自己的角色"}, status_code=400)
+    await db.update_user_role(user_id, role)
+    return {"ok": True}
+
+
 @app.delete("/api/admin/users/{user_id}")
 async def admin_delete_user(user_id: int, user: dict = Depends(require_admin)):
     if user_id == user["user_id"]:

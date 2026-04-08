@@ -1952,15 +1952,48 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 }
 
 .role-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
 }
+.role-badge:hover { opacity: 0.8; }
 .role-badge.admin { background: var(--accent-light); color: var(--accent); }
-.role-badge.user { background: var(--bg); color: var(--text-tertiary); }
+.role-badge.user { background: var(--bg); color: var(--text-tertiary); border: 1px solid var(--border); }
+
+.role-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  padding: 4px;
+  min-width: 90px;
+}
+.role-option {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+}
+.role-option:hover { background: var(--bg-hover); }
+.role-option.active { background: var(--accent-light); color: var(--accent); }
 
 .inline-confirm {
   display: flex;

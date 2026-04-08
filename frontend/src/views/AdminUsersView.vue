@@ -24,7 +24,16 @@
               <td>{{ u.email }}</td>
               <td>{{ u.display_name || '-' }}</td>
               <td>
-                <span class="role-badge" :class="u.role">{{ u.role === 'admin' ? '管理员' : '用户' }}</span>
+                <div class="role-cell" style="position:relative">
+                  <button class="role-badge" :class="u.role" @click="roleEditing = roleEditing === u.id ? null : u.id">
+                    {{ u.role === 'admin' ? '管理员' : '用户' }}
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+                  </button>
+                  <div class="role-dropdown" v-if="roleEditing === u.id">
+                    <button class="role-option" :class="{ active: u.role === 'user' }" @click="changeRole(u, 'user')">用户</button>
+                    <button class="role-option" :class="{ active: u.role === 'admin' }" @click="changeRole(u, 'admin')">管理员</button>
+                  </div>
+                </div>
               </td>
               <td>{{ formatDate(u.created_at) }}</td>
               <td>{{ formatDate(u.updated_at) }}</td>
@@ -50,13 +59,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { getUsers, deleteUserApi } from '../api';
+import { getUsers, deleteUserApi, updateUserRoleApi } from '../api';
 import { toast } from '../composables/useToast';
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
 
 const users = ref([]);
 const loading = ref(false);
 const deleteCandidate = ref(null);
+const roleEditing = ref(null);
 
 function formatDate(ts) {
   if (!ts) return '-';
@@ -85,6 +95,18 @@ async function confirmDelete(id) {
   } catch (e) {
     toast('删除失败: ' + e.message, 'error');
   }
+}
+
+async function changeRole(u, newRole) {
+  if (u.role === newRole) { roleEditing.value = null; return; }
+  try {
+    await updateUserRoleApi(u.id, newRole);
+    u.role = newRole;
+    toast('角色已更新', 'success');
+  } catch (e) {
+    toast('更新失败: ' + e.message, 'error');
+  }
+  roleEditing.value = null;
 }
 
 onMounted(load);

@@ -297,6 +297,14 @@ async def update_user_display_name(user_id: int, display_name: str):
         )
 
 
+async def update_user_role(user_id: int, role: str):
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(f"UPDATE users SET role=:role, updated_at={_now_sql()} WHERE id=:id"),
+            {"role": role, "id": user_id},
+        )
+
+
 async def delete_user(user_id: int):
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM user_settings WHERE user_id=:id"), {"id": user_id})
