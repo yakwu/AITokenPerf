@@ -1014,7 +1014,7 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
     )
     task_row = await get_scheduled_task(sid)
     if task_row and _scheduler:
-        _scheduler._schedule(task_row)
+        _scheduler.start_loop(task_row["id"])
     return {"id": sid, "status": "created"}
 
 
@@ -1033,7 +1033,7 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
     if _scheduler and fields.get("status", task_row.get("status")) == "active":
         updated = await get_scheduled_task(task_id)
         if updated:
-            _scheduler._schedule(updated)
+            _scheduler.start_loop(task_id)
     return {"status": "updated"}
 
 
@@ -1044,9 +1044,8 @@ async def delete_schedule(task_id: int, user: dict = Depends(get_current_user)):
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    if _scheduler and task_id in _scheduler._timers:
-        _scheduler._timers[task_id].cancel()
-        del _scheduler._timers[task_id]
+    if _scheduler:
+        _scheduler.cancel_loop(task_id)
     await delete_scheduled_task(task_id)
     return {"status": "deleted"}
 
@@ -1059,9 +1058,8 @@ async def pause_schedule(task_id: int, user: dict = Depends(get_current_user)):
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
     await update_scheduled_task(task_id, status="paused")
-    if _scheduler and task_id in _scheduler._timers:
-        _scheduler._timers[task_id].cancel()
-        del _scheduler._timers[task_id]
+    if _scheduler:
+        _scheduler.cancel_loop(task_id)
     return {"status": "paused"}
 
 
@@ -1074,9 +1072,7 @@ async def resume_schedule(task_id: int, user: dict = Depends(get_current_user)):
         return JSONResponse({"error": "Not found"}, status_code=404)
     await update_scheduled_task(task_id, status="active")
     if _scheduler:
-        updated = await get_scheduled_task(task_id)
-        if updated:
-            _scheduler._schedule(updated)
+        _scheduler.start_loop(task_id)
     return {"status": "resumed"}
 
 
