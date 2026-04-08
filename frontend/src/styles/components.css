@@ -648,12 +648,13 @@ tbody tr:last-child td { border-bottom: none; }
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  right: 0;
+  min-width: 100%;
+  width: max-content;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow-md);
-  max-height: 220px;
+  max-height: 240px;
   overflow-y: auto;
   z-index: 50;
 }
@@ -664,6 +665,7 @@ tbody tr:last-child td { border-bottom: none; }
   font-family: var(--font-mono);
   color: var(--text-secondary);
   cursor: pointer;
+  white-space: nowrap;
   transition: var(--transition);
 }
 
@@ -1781,6 +1783,156 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 
 /* ---- Settings Page ---- */
 .settings-page { max-width: 600px; }
+
+/* ---- Models Page ---- */
+.models-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.btn-ghost.active {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 添加自定义模型面板 */
+.models-add-panel {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  align-items: center;
+}
+.models-add-panel .form-input {
+  flex: 1;
+  font-size: 13px;
+  padding: 7px 12px;
+  min-width: 0;
+}
+.models-add-panel .form-input:first-child { flex: 2; }
+
+/* 表格容器：固定表头 */
+.models-table-wrap {
+  overflow-y: auto;
+  max-height: 60vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* 表格 */
+.models-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.models-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.models-table thead th {
+  background: var(--bg);
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.models-table thead th:hover { color: var(--accent); }
+.models-sort-arrow { font-size: 10px; margin-left: 2px; }
+
+/* 列宽 */
+.models-th-check { width: 36px; text-align: center !important; padding: 8px 0 !important; }
+.models-th-name { width: auto; }
+.models-th-provider { width: 120px; }
+.models-th-price { width: 120px; text-align: right !important; }
+.models-th-action { width: 32px; }
+
+/* 单元格 */
+.models-table tbody td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.models-table tbody tr:hover { background: rgba(232, 93, 38, 0.03); }
+.models-table tbody tr:last-child td { border-bottom: none; }
+
+.models-td-check { text-align: center; padding: 7px 0; }
+.models-td-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.models-td-provider { color: var(--text-secondary); font-size: 12px; }
+.models-td-price { text-align: right; font-size: 12px; }
+.models-td-action { text-align: center; padding: 7px 4px; }
+
+/* 自定义模型标签 */
+.models-custom-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  background: var(--accent-light);
+  color: var(--accent);
+  vertical-align: middle;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.models-row-custom .models-td-name { color: var(--accent); }
+
+/* 删除按钮 */
+.models-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.models-remove-btn:hover { color: var(--danger); }
+
+/* 空状态 */
+.models-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 32px 12px !important;
+}
+
+/* 加载 */
+.models-loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-tertiary);
+}
+
+/* 保存消息 */
+.models-save-msg {
+  display: inline-block;
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  background: var(--success-light);
+  color: var(--success);
+}
 
 .settings-msg {
   margin-top: 12px;
