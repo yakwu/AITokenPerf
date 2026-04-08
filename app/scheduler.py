@@ -102,7 +102,12 @@ def _calc_delay(task_row: dict) -> float:
     if last_run:
         try:
             last_dt = last_run if isinstance(last_run, datetime) else datetime.fromisoformat(last_run)
-            elapsed = (datetime.utcnow() - last_dt).total_seconds()
+            # 统一为 naive datetime 做减法（PG timestamptz 带时区，SQLite 不带）
+            now = datetime.utcnow()
+            if last_dt.tzinfo is not None:
+                from datetime import timezone
+                now = now.replace(tzinfo=timezone.utc)
+            elapsed = (now - last_dt).total_seconds()
             remaining = schedule_value - elapsed
             if remaining > 0:
                 return remaining
