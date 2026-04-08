@@ -1253,8 +1253,8 @@ async def get_models_config(user: dict = Depends(get_current_user)):
 
 
 @app.put("/api/pricing/models-config")
-async def put_models_config(body: dict, user: dict = Depends(get_current_user)):
-    """保存用户启用的模型列表"""
+async def put_models_config(body: dict, user: dict = Depends(require_admin)):
+    """管理员保存全局启用的模型列表"""
     from app.pricing import pricing_service
     models = body.get("enabled_models", [])
     if not isinstance(models, list):
@@ -1264,8 +1264,8 @@ async def put_models_config(body: dict, user: dict = Depends(get_current_user)):
 
 
 @app.post("/api/pricing/refresh")
-async def pricing_refresh(user: dict = Depends(get_current_user)):
-    """手动刷新价格数据"""
+async def pricing_refresh(user: dict = Depends(require_admin)):
+    """管理员手动刷新价格数据"""
     from app.pricing import pricing_service
     await pricing_service.refresh()
     return {"ok": True, "total_models": len(pricing_service._cache)}
