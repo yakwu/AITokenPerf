@@ -279,8 +279,7 @@ function removeCustom(id) {
 
 function fmtPrice(v) {
   if (!v) return '-';
-  if (v < 0.00001) return '$' + (v * 1000000).toFixed(2) + '/M';
-  return '$' + (v * 1000).toFixed(2) + '/K';
+  return '$' + (v * 1000000).toFixed(2) + '/M';
 }
 
 async function save() {
