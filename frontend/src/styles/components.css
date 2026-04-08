@@ -342,7 +342,7 @@ tbody tr:last-child td { border-bottom: none; }
   flex-direction: column;
   gap: 3px;
   padding: 10px 14px;
-  border: 1.5px solid var(--border);
+  border: 1.25px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   cursor: pointer;
@@ -361,7 +361,7 @@ tbody tr:last-child td { border-bottom: none; }
 .profile-chip.active {
   border-color: var(--accent);
   background: var(--accent-light);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 /* --- Card text --- */
