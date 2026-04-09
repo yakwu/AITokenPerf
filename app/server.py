@@ -826,15 +826,47 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
                 continue
             config[key] = body[key]
 
-    task_id = uuid.uuid4().hex[:12]
-    profile_name = active["name"] if active else ""
-    task = manager.create_task(task_id, user_id, profile_name=profile_name)
-    task.status = "running"
-    task.stop_event = asyncio.Event()
-    task.start_time = time.monotonic()
-    task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
+    # 获取模型列表
+    models = []
+    if active and active.get("models"):
+        models = active["models"]
+    elif config.get("model"):
+        models = [config["model"]]
+    else:
+        return JSONResponse({"error": "No model configured"}, status_code=400)
 
-    return {"status": "started", "task_id": task_id}
+    profile_name = active["name"] if active else ""
+
+    if len(models) == 1:
+        # 单模型：保持原有行为，返回单个 task_id
+        config["model"] = models[0]
+        task_id = uuid.uuid4().hex[:12]
+        task = manager.create_task(task_id, user_id, profile_name=profile_name)
+        task.status = "running"
+        task.stop_event = asyncio.Event()
+        task.start_time = time.monotonic()
+        task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
+        return {"status": "started", "task_id": task_id}
+    else:
+        # 多模型：为每个模型创建独立 task
+        group_id = f"multi_{uuid.uuid4().hex[:12]}"
+        task_ids = []
+        from app.protocols import detect_protocol
+        for model_name in models:
+            model_config = dict(config)
+            model_config["model"] = model_name
+            model_config["protocol"] = detect_protocol(model_name, config.get("provider", ""))
+
+            task_id = uuid.uuid4().hex[:12]
+            task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
+            task.model_name = model_name
+            task.status = "running"
+            task.stop_event = asyncio.Event()
+            task.start_time = time.monotonic()
+            task.asyncio_task = asyncio.create_task(_run_benchmark_task(model_config, user_id, task))
+            task_ids.append(task_id)
+
+        return {"status": "started", "group_id": group_id, "task_ids": task_ids}
 
 
 @app.post("/api/bench/stop")
@@ -844,16 +876,24 @@ async def stop_bench(
 ):
     if task_id:
         task = manager.get_task(task_id)
+        if not task or task.status != "running":
+            return JSONResponse({"error": "No benchmark running"}, status_code=400)
+        if task.owner_id != user["user_id"]:
+            return JSONResponse({"error": "Not your benchmark"}, status_code=403)
+        task.status = "stopping"
+        task.stop_event.set()
+        return {"status": "stopping"}
     else:
-        task = manager.get_user_running_task(user["user_id"])
-
-    if not task or task.status != "running":
-        return JSONResponse({"error": "No benchmark running"}, status_code=400)
-    if task.owner_id != user["user_id"]:
-        return JSONResponse({"error": "Not your benchmark"}, status_code=403)
-    task.status = "stopping"
-    task.stop_event.set()
-    return {"status": "stopping"}
+        # 不指定 task_id：停止用户所有运行中的任务
+        stopped = []
+        for t in manager._tasks.values():
+            if t.owner_id == user["user_id"] and t.status == "running":
+                t.status = "stopping"
+                t.stop_event.set()
+                stopped.append(t.task_id)
+        if not stopped:
+            return JSONResponse({"error": "No benchmark running"}, status_code=400)
+        return {"status": "stopping", "task_ids": stopped}
 
 
 @app.get("/api/bench/status")

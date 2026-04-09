@@ -128,3 +128,58 @@ async def test_switch_profile_returns_models(client):
     assert resp.status_code == 200
     config = resp.json()["config"]
     assert config.get("models") == ["claude-opus-4-6", "claude-sonnet-4-6"]
+
+
+@pytest.mark.asyncio
+async def test_start_bench_expands_multi_model(client):
+    """多模型 Profile 启动 bench 应为每个模型创建独立 task"""
+    headers = await auth_headers(client)
+
+    # 创建多模型 profile
+    await client.post("/api/profiles/save", json={
+        "name": "bench-multi",
+        "base_url": "https://api.example.com",
+        "api_key": "sk-test",
+        "models": ["model-a", "model-b"],
+        "provider": "openai",
+    }, headers=headers)
+
+    resp = await client.post("/api/bench/start", json={
+        "concurrency_levels": [1],
+        "max_tokens": 16,
+        "duration": 1,
+    }, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "started"
+    assert len(data["task_ids"]) == 2  # 应创建 2 个 task
+
+    # 停止所有任务
+    await client.post("/api/bench/stop", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_start_bench_single_model_still_works(client):
+    """单模型 Profile 启动 bench 应只创建 1 个 task（向后兼容）"""
+    headers = await auth_headers(client)
+
+    await client.post("/api/profiles/save", json={
+        "name": "bench-single",
+        "base_url": "https://api.example.com",
+        "api_key": "sk-test",
+        "models": ["model-a"],
+        "provider": "openai",
+    }, headers=headers)
+
+    resp = await client.post("/api/bench/start", json={
+        "concurrency_levels": [1],
+        "max_tokens": 16,
+        "duration": 1,
+    }, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "started"
+    assert "task_id" in data  # 单模型保持原有返回格式
+    assert "task_ids" not in data
+
+    await client.post("/api/bench/stop", headers=headers)
