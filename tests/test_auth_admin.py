@@ -3,9 +3,7 @@
 import pytest
 
 from app.db import get_user_by_email
-
-DEFAULT_EMAIL = "admin@example.com"
-DEFAULT_PASSWORD = "AITokenPerf#123"
+from tests.conftest import DEFAULT_EMAIL, DEFAULT_PASSWORD
 
 
 @pytest.mark.asyncio
