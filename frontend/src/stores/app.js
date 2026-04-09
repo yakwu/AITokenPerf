@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-const VALID_TABS = ['dashboard', 'benchmark', 'history', 'schedules', 'config', 'settings', 'auth', 'admin-users', 'models'];
+const VALID_TABS = ['dashboard', 'bench', 'history', 'config', 'settings', 'auth', 'admin-users', 'models'];
 
 function isLoggedIn() {
   return !!localStorage.getItem('token');
