@@ -248,3 +248,23 @@ async def test_multi_model_bench_uses_profile_models(client):
 
     # 停止
     await client.post("/api/bench/stop", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_multi_model_bench_no_models_returns_error(client):
+    """start-multi-model 未传 models 且 Profile 无 models 时应返回明确错误"""
+    headers = await auth_headers(client)
+
+    # 创建无 models 的 profile
+    await client.post("/api/profiles/save", json={
+        "name": "no-models",
+        "base_url": "https://api.example.com",
+        "api_key": "sk-test",
+        "provider": "openai",
+    }, headers=headers)
+
+    resp = await client.post("/api/bench/start-multi-model", json={
+        "provider": "openai",
+    }, headers=headers)
+    assert resp.status_code == 400
+    assert "models" in resp.json()["error"].lower()

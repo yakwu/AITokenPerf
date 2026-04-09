@@ -1012,8 +1012,10 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
     if not models:
         models = active.get("models", [])
 
-    if not models or len(models) > 10:
-        return JSONResponse({"error": "models 数量需在 1-10 之间"}, status_code=400)
+    if not models:
+        return JSONResponse({"error": "未指定测试模型，请在请求中传入 models 或在 Profile 中配置 models"}, status_code=400)
+    if len(models) > 10:
+        return JSONResponse({"error": "models 数量不能超过 10 个"}, status_code=400)
 
     benchmark = await get_settings(user_id)
     provider = body.get("provider", active.get("provider", ""))
