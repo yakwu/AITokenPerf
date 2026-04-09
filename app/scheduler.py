@@ -248,6 +248,14 @@ async def _run_scheduled_task(task_id: int):
                 config[k] = profile[k]
         _apply_env_overrides(config)
 
+        # 检查必要配置
+        missing = [k for k in ("base_url", "api_key", "model") if not config.get(k)]
+        if missing:
+            log.warning("定时任务 #%d: profile '%s' 缺少配置 %s，跳过", task_id, pname, missing)
+            log_error("scheduler:config_missing", error=f"缺少配置: {', '.join(missing)}",
+                      task_id=task_id, profile=pname, missing=missing)
+            continue
+
         for key, val in configs_json.items():
             if val is not None:
                 config[key] = val

@@ -72,6 +72,13 @@ async def send_streaming_request(
     )
     adapter = get_adapter(protocol)
 
+    # 校验必要配置
+    missing = [k for k in ("base_url", "api_key", "model") if not config.get(k)]
+    if missing:
+        metrics.error = f"Missing config: {', '.join(missing)}"
+        metrics.end_time = time.monotonic()
+        return metrics
+
     url = adapter.build_url(config)
     metrics.url = url
     headers = adapter.build_headers(config)
