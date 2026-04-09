@@ -138,13 +138,15 @@
                     <!-- 延迟趋势图 -->
                     <div style="margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
                       <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:8px">延迟趋势 ↓ 越低越好</div>
-                      <canvas ref="trendLatencyCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
+                      <canvas v-show="scheduleTrend.length >= 1" ref="trendLatencyCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
+                      <div v-show="scheduleTrend.length < 1" style="height:180px;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:12px">暂无趋势数据，至少需要 1 次执行</div>
                     </div>
 
                     <!-- 质量趋势图 -->
                     <div style="margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden">
                       <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:8px">质量趋势 ↑ 越高越好</div>
-                      <canvas ref="trendQualityCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
+                      <canvas v-show="scheduleTrend.length >= 1" ref="trendQualityCanvas" style="width:100%;height:180px;max-height:180px"></canvas>
+                      <div v-show="scheduleTrend.length < 1" style="height:180px;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:12px">暂无趋势数据，至少需要 1 次执行</div>
                     </div>
 
                     <!-- 执行记录表格 -->
@@ -646,7 +648,7 @@ function renderTrendSummary() {
 
 function renderLatencyChart() {
   const trend = scheduleTrend.value;
-  if (!trend || trend.length < 2) return;
+  if (!trend || trend.length < 1) return;
   const canvas = trendLatencyCanvas.value;
   if (!canvas) return;
 
@@ -720,7 +722,7 @@ function renderLatencyChart() {
 
 function renderQualityChart() {
   const trend = scheduleTrend.value;
-  if (!trend || trend.length < 2) return;
+  if (!trend || trend.length < 1) return;
   const canvas = trendQualityCanvas.value;
   if (!canvas) return;
 
