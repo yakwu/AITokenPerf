@@ -131,19 +131,34 @@ class TaskScheduler:
                 await self._reschedule(task_id)
 
     async def _reschedule(self, task_id: int):
-        """执行完毕后，计算并写入下次执行时间"""
+        """执行完毕后，基于上一次 next_run_at + interval 推算下次，保持固定节奏"""
         try:
             task_row = await get_scheduled_task(task_id)
             if task_row and task_row.get("status") == "active":
                 sv = int(task_row.get("schedule_value", "300"))
                 now = datetime.now(timezone.utc)
+                prev_next = task_row.get("next_run_at")
+                if isinstance(prev_next, str):
+                    try:
+                        prev_next = datetime.fromisoformat(prev_next)
+                    except ValueError:
+                        prev_next = None
+                if prev_next and prev_next.tzinfo:
+                    # 固定节奏：上次计划时间 + interval，直到超过 now
+                    next_at = prev_next + timedelta(seconds=sv)
+                    while next_at <= now:
+                        next_at += timedelta(seconds=sv)
+                else:
+                    # 首次执行，从 now 开始
+                    next_at = now + timedelta(seconds=sv)
                 await update_scheduled_task(
                     task_id,
-                    next_run_at=now + timedelta(seconds=sv),
+                    next_run_at=next_at,
                     last_run_at=now,
                     run_count=(task_row.get("run_count") or 0) + 1,
                 )
-                log.info("定时任务 #%d 执行完成，下次执行: %d 秒后", task_id, sv)
+                delay = (next_at - now).total_seconds()
+                log.info("定时任务 #%d 执行完成，下次执行: %.0f 秒后", task_id, delay)
         except Exception as e:
             log.error("定时任务 #%d 更新调度失败: %s", task_id, e)
 
