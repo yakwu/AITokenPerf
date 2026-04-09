@@ -849,6 +849,14 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
         return {"status": "started", "task_id": task_id}
     else:
         # 多模型：为每个模型创建独立 task
+        # 并发限制检查
+        current_running = manager.get_running_count()
+        if current_running + len(models) > BenchTaskManager.MAX_GLOBAL:
+            return JSONResponse({"error": f"全局并发任务数已达上限 ({BenchTaskManager.MAX_GLOBAL})"}, status_code=429)
+        user_running = manager.get_user_task_count(user_id)
+        if user_running + len(models) > BenchTaskManager.MAX_PER_USER:
+            return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
+
         group_id = f"multi_{uuid.uuid4().hex[:12]}"
         task_ids = []
         from app.protocols import detect_protocol
