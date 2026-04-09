@@ -248,13 +248,11 @@ async def _run_scheduled_task(task_id: int):
                 config[k] = profile[k]
         _apply_env_overrides(config)
 
-        # 检查必要配置
-        missing = [k for k in ("base_url", "api_key", "model") if not config.get(k)]
-        if missing:
-            log.warning("定时任务 #%d: profile '%s' 缺少配置 %s，跳过", task_id, pname, missing)
-            log_error("scheduler:config_missing", error=f"缺少配置: {', '.join(missing)}",
-                      task_id=task_id, profile=pname, missing=missing)
-            continue
+        # 获取模型列表（支持多模型 Profile）
+        models = profile.get("models", [])
+        if not models:
+            raw_model = config.get("model", "")
+            models = [raw_model] if raw_model else []
 
         for key, val in configs_json.items():
             if val is not None:
@@ -273,14 +271,32 @@ async def _run_scheduled_task(task_id: int):
         except (ValueError, TypeError, json.JSONDecodeError):
             config["concurrency_levels"] = [100]
 
-        tid = uuid.uuid4().hex[:12]
-        bt = manager.create_task(tid, user_id, profile_name=pname, group_id=group_id)
-        bt.scheduled_task_id = task_id
-        bt.status = "running"
-        bt.stop_event = asyncio.Event()
-        bt.start_time = time.monotonic()
-        bt.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, bt))
-        bench_tasks.append(bt)
+        # 为每个模型创建独立 task
+        for model_name in models:
+            model_config = dict(config)
+            model_config["model"] = model_name
+
+            # 检查必要配置
+            missing = [k for k in ("base_url", "api_key", "model") if not model_config.get(k)]
+            if missing:
+                log.warning("定时任务 #%d: profile '%s' model '%s' 缺少配置 %s，跳过",
+                           task_id, pname, model_name, missing)
+                log_error("scheduler:config_missing", error=f"缺少配置: {', '.join(missing)}",
+                          task_id=task_id, profile=pname, model=model_name, missing=missing)
+                continue
+
+            from app.protocols import detect_protocol
+            model_config["protocol"] = detect_protocol(model_name, model_config.get("provider", ""))
+
+            tid = uuid.uuid4().hex[:12]
+            bt = manager.create_task(tid, user_id, profile_name=pname, group_id=group_id)
+            bt.scheduled_task_id = task_id
+            bt.model_name = model_name
+            bt.status = "running"
+            bt.stop_event = asyncio.Event()
+            bt.start_time = time.monotonic()
+            bt.asyncio_task = asyncio.create_task(_run_benchmark_task(model_config, user_id, bt))
+            bench_tasks.append(bt)
 
     if not bench_tasks:
         log.warning("定时任务 #%d: 没有有效的 profile，跳过执行", task_id)

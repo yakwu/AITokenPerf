@@ -183,3 +183,43 @@ async def test_start_bench_single_model_still_works(client):
     assert "task_ids" not in data
 
     await client.post("/api/bench/stop", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_task_expands_multi_model(client):
+    """定时任务对多模型 Profile 应为每个模型创建子任务"""
+    from app.db import create_scheduled_task
+    from app.scheduler import _run_scheduled_task
+    from unittest.mock import patch, AsyncMock
+
+    headers = await auth_headers(client)
+
+    # 创建多模型 profile
+    await client.post("/api/profiles/save", json={
+        "name": "sched-multi",
+        "base_url": "https://api.example.com",
+        "api_key": "sk-test",
+        "models": ["model-a", "model-b", "model-c"],
+        "provider": "openai",
+    }, headers=headers)
+
+    # 创建定时任务
+    task_id = await create_scheduled_task(
+        user_id=1,
+        name="test-schedule",
+        profile_ids=["sched-multi"],
+        configs_json={},
+        schedule_type="interval",
+        schedule_value="1h",
+    )
+
+    # mock _run_benchmark_task 避免实际发送请求
+    with patch("app.server._run_benchmark_task", new_callable=AsyncMock) as mock_run:
+        await _run_scheduled_task(task_id)
+
+    # 验证 _run_benchmark_task 被调用了 3 次（每个模型一次）
+    assert mock_run.call_count == 3
+
+    # 验证每次调用的 config 中 model 不同
+    models_called = [call.args[0]["model"] for call in mock_run.call_args_list]
+    assert sorted(models_called) == ["model-a", "model-b", "model-c"]
