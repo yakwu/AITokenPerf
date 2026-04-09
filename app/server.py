@@ -661,12 +661,15 @@ async def save_profile(request: Request, user: dict = Depends(get_current_user))
         active = await get_active_profile(user_id)
         api_key = active.get("api_key", "") if active else ""
 
+    models = data.get("models")
+    model = data.get("model", "")
     await upsert_profile(
         user_id, name,
         base_url=data.get("base_url", ""),
         api_key=api_key,
         api_version=data.get("api_version", "2023-06-01"),
-        model=data.get("model", ""),
+        models=models,
+        model=model,
         provider=data.get("provider", ""),
         protocol=data.get("protocol", ""),
         set_active=True,
@@ -711,12 +714,15 @@ async def update_profile(name: str, request: Request, user: dict = Depends(get_c
         active = await get_active_profile(user_id)
         api_key = active.get("api_key", "") if active else ""
 
+    models = data.get("models")
+    model = data.get("model", "")
     await upsert_profile(
         user_id, name,
         base_url=data.get("base_url", ""),
         api_key=api_key,
         api_version=data.get("api_version", "2023-06-01"),
-        model=data.get("model", ""),
+        models=models,
+        model=model,
         provider=data.get("provider", ""),
         protocol=data.get("protocol", ""),
         set_active=data.get("set_active", False),

@@ -332,12 +332,31 @@ async def delete_user(user_id: int):
 
 # ---- Profiles CRUD ----
 
+def _normalize_profile_models(p: dict):
+    """将旧格式 model 字符串转为 models 列表，同时保留 model 字段向后兼容"""
+    raw = p.get("model", "")
+    if isinstance(raw, str) and raw.startswith("["):
+        try:
+            p["models"] = json.loads(raw)
+        except json.JSONDecodeError:
+            p["models"] = [raw] if raw else []
+    elif raw:
+        p["models"] = [raw]
+    else:
+        p["models"] = []
+    # 保留 model 字段为第一个模型（向后兼容）
+    p["model"] = p["models"][0] if p["models"] else ""
+
+
 async def get_profiles(user_id: int) -> list[dict]:
     async with engine.connect() as conn:
         cur = await conn.execute(
             text("SELECT * FROM profiles WHERE user_id=:uid ORDER BY created_at DESC"), {"uid": user_id}
         )
-        return _rows_to_dicts(cur.fetchall())
+        rows = _rows_to_dicts(cur.fetchall())
+    for row in rows:
+        _normalize_profile_models(row)
+    return rows
 
 
 async def get_active_profile(user_id: int) -> Optional[dict]:
@@ -351,13 +370,24 @@ async def get_active_profile(user_id: int) -> Optional[dict]:
                 text("SELECT * FROM profiles WHERE user_id=:uid AND is_active=TRUE"), {"uid": user_id}
             )
         row = cur.fetchone()
-        return _row_to_dict(row)
+        d = _row_to_dict(row)
+    if d:
+        _normalize_profile_models(d)
+    return d
 
 
 async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: str = "",
-                          api_version: str = "2023-06-01", model: str = "",
+                          api_version: str = "2023-06-01", models: list = None,
+                          model: str = "",  # 向后兼容
                           provider: str = "", protocol: str = "",
                           set_active: bool = True):
+    # 向后兼容：如果传了 model 字符串，包装为列表
+    if models is None and model:
+        models = [model]
+    elif models is None:
+        models = []
+    # 存储为 JSON 字符串
+    model_json = json.dumps(models)
     async with engine.begin() as conn:
         if set_active:
             if _is_sqlite:
@@ -379,7 +409,7 @@ async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: s
                        provider=excluded.provider, protocol=excluded.protocol,
                        is_active=excluded.is_active, updated_at={_now_sql()}"""),
             {"uid": user_id, "name": name, "base_url": base_url, "api_key": api_key,
-             "api_version": api_version, "model": model, "provider": provider,
+             "api_version": api_version, "model": model_json, "provider": provider,
              "protocol": protocol, "active": active_val},
         )
 
