@@ -458,7 +458,7 @@ async def auth_register(request: Request):
         return JSONResponse({"error": "该邮箱已注册"}, status_code=409)
 
     user_count = await count_users()
-    role = "admin" if user_count == 0 else "user"
+    role = "user"
     user_id = await create_user(email, hash_password(password), display_name, role)
 
     token = create_jwt_token(user_id, email, role)
@@ -485,7 +485,8 @@ async def auth_login(request: Request):
     return {
         "token": token,
         "user": {"id": user["id"], "email": user["email"], "role": user["role"],
-                 "display_name": user["display_name"]},
+                 "display_name": user["display_name"],
+                 "must_change_password": bool(user.get("must_change_password"))},
     }
 
 
@@ -502,6 +503,7 @@ async def auth_me(user: dict = Depends(get_current_user)):
     return {
         "id": user_data["id"], "email": user_data["email"],
         "role": user_data["role"], "display_name": user_data["display_name"],
+        "must_change_password": bool(user_data.get("must_change_password")),
     }
 
 

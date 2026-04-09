@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     display_name  TEXT NOT NULL DEFAULT '',
     role          TEXT NOT NULL DEFAULT 'user',
+    must_change_password INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -123,6 +124,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     display_name  TEXT NOT NULL DEFAULT '',
     role          TEXT NOT NULL DEFAULT 'user',
+    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -247,11 +249,12 @@ def _rows_to_dicts(rows) -> list[dict]:
 
 # ---- Users CRUD ----
 
-async def create_user(email: str, password_hash: str, display_name: str = "", role: str = "user") -> int:
+async def create_user(email: str, password_hash: str, display_name: str = "", role: str = "user", must_change_password: bool = False) -> int:
+    mcp_val = 1 if _is_sqlite else must_change_password
     async with engine.begin() as conn:
         cur = await conn.execute(
-            text("INSERT INTO users (email, password_hash, display_name, role) VALUES (:email, :password_hash, :display_name, :role)"),
-            {"email": email.lower(), "password_hash": password_hash, "display_name": display_name, "role": role},
+            text("INSERT INTO users (email, password_hash, display_name, role, must_change_password) VALUES (:email, :password_hash, :display_name, :role, :mcp)"),
+            {"email": email.lower(), "password_hash": password_hash, "display_name": display_name, "role": role, "mcp": mcp_val},
         )
         # SQLite 返回 lastrowid，PG 需要 RETURNING
         if _is_sqlite:
@@ -279,10 +282,11 @@ async def get_user_by_id(user_id: int) -> Optional[dict]:
 
 
 async def update_user_password(user_id: int, password_hash: str):
+    mcp_val = 0 if _is_sqlite else False
     async with engine.begin() as conn:
         await conn.execute(
-            text(f"UPDATE users SET password_hash=:pw, updated_at={_now_sql()} WHERE id=:id"),
-            {"pw": password_hash, "id": user_id},
+            text(f"UPDATE users SET password_hash=:pw, must_change_password=:mcp, updated_at={_now_sql()} WHERE id=:id"),
+            {"pw": password_hash, "mcp": mcp_val, "id": user_id},
         )
 
 

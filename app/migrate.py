@@ -2,7 +2,6 @@
 """数据迁移脚本 — 从 config.yaml + results/*.json 迁移到 SQLite"""
 
 import json
-import secrets
 import shutil
 import sys
 from pathlib import Path
@@ -23,15 +22,12 @@ CONFIG_PATH = BASE_DIR / "config.yaml"
 RESULTS_DIR = BASE_DIR / "results"
 
 
-def _print_admin_password(email, password):
-    """安全输出管理员密码 — 仅在 TTY 时打印明文"""
+def _print_admin_info(email, password):
+    """输出管理员账号信息"""
     print(f"\n  管理员账号已创建:")
     print(f"    邮箱: {email}")
-    if sys.stdout.isatty():
-        print(f"    密码: {password}")
-    else:
-        print(f"    密码: [已隐藏 — 请查看终端启动日志]")
-    print(f"    (请登录后尽快修改密码)\n")
+    print(f"    密码: {password}")
+    print(f"    (首次登录后请尽快修改密码)\n")
 
 
 async def migrate():
@@ -59,10 +55,10 @@ async def migrate():
     print("  检测到旧数据，开始迁移...")
 
     # 1. 创建管理员用户
-    admin_password = secrets.token_urlsafe(12)
-    admin_email = "admin@local"
-    user_id = await create_user(admin_email, hash_password(admin_password), "Admin", "admin")
-    _print_admin_password(admin_email, admin_password)
+    admin_email = "admin@example.com"
+    admin_password = "AITokenPerf#123"
+    user_id = await create_user(admin_email, hash_password(admin_password), "Admin", "admin", must_change_password=True)
+    _print_admin_info(admin_email, admin_password)
 
     # 2. 迁移 profiles
     if has_config:
@@ -128,10 +124,10 @@ async def migrate():
 
 async def _create_default_admin():
     """无旧数据时创建默认管理员"""
-    admin_password = secrets.token_urlsafe(12)
-    admin_email = "admin@local"
-    await create_user(admin_email, hash_password(admin_password), "Admin", "admin")
-    _print_admin_password(admin_email, admin_password)
+    admin_email = "admin@example.com"
+    admin_password = "AITokenPerf#123"
+    await create_user(admin_email, hash_password(admin_password), "Admin", "admin", must_change_password=True)
+    _print_admin_info(admin_email, admin_password)
 
 
 async def _migrate_schema():
@@ -199,3 +195,23 @@ async def _migrate_schema():
 
     # scheduled_tasks 表由 init_db 中的 CREATE TABLE IF NOT EXISTS 处理
     # 无需额外迁移
+
+    # users 表新增 must_change_password 列
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            cur = await conn.execute(text("PRAGMA table_info(users)"))
+            rows = cur.fetchall()
+            columns = {row[1] for row in rows}
+        else:
+            cur = await conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='users'")
+            )
+            rows = cur.fetchall()
+            columns = {row[0] for row in rows}
+
+        if "must_change_password" not in columns:
+            if _is_sqlite:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"))
+            else:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"))
+            print("  schema 迁移: users 表添加 must_change_password 列")
