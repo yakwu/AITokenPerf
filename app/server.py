@@ -590,6 +590,7 @@ async def get_config(user: dict = Depends(get_current_user)):
             if active.get(k):
                 resolved[k] = active[k]
         resolved["profile_name"] = active["name"]
+        resolved["models"] = active.get("models", [])
         if "api_key" in resolved:
             resolved["api_key_display"] = _mask_api_key(resolved["api_key"])
             del resolved["api_key"]
@@ -697,6 +698,7 @@ async def switch_profile(request: Request, user: dict = Depends(get_current_user
             if active.get(k):
                 resolved[k] = active[k]
         resolved["profile_name"] = active["name"]
+        resolved["models"] = active.get("models", [])
         if "api_key" in resolved:
             resolved["api_key_display"] = _mask_api_key(resolved["api_key"])
             del resolved["api_key"]

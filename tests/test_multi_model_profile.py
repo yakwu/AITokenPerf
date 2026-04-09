@@ -91,3 +91,40 @@ async def test_update_profile_models(client):
     resp = await client.get("/api/profiles", headers=headers)
     profiles = resp.json()["profiles"]
     assert profiles[0]["models"] == ["model-a", "model-b", "model-c"]
+
+
+@pytest.mark.asyncio
+async def test_profile_api_returns_models_field(client):
+    """Profile API 返回应包含 models 数组和 model 兼容字段"""
+    headers = await auth_headers(client)
+    await client.post("/api/profiles/save", json={
+        "name": "api-test",
+        "base_url": "https://api.example.com",
+        "api_key": "sk-test",
+        "models": ["gpt-4o", "gpt-4o-mini"],
+        "provider": "openai",
+    }, headers=headers)
+
+    resp = await client.get("/api/profiles", headers=headers)
+    p = resp.json()["profiles"][0]
+    assert "models" in p
+    assert p["models"] == ["gpt-4o", "gpt-4o-mini"]
+    assert p["model"] == "gpt-4o"  # 向后兼容
+
+
+@pytest.mark.asyncio
+async def test_switch_profile_returns_models(client):
+    """切换 profile 返回的 config 应包含 models"""
+    headers = await auth_headers(client)
+    await client.post("/api/profiles/save", json={
+        "name": "switch-test",
+        "base_url": "https://api.example.com",
+        "api_key": "sk-test",
+        "models": ["claude-opus-4-6", "claude-sonnet-4-6"],
+        "provider": "anthropic",
+    }, headers=headers)
+
+    resp = await client.post("/api/profiles/switch", json={"name": "switch-test"}, headers=headers)
+    assert resp.status_code == 200
+    config = resp.json()["config"]
+    assert config.get("models") == ["claude-opus-4-6", "claude-sonnet-4-6"]
