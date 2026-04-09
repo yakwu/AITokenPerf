@@ -1002,13 +1002,18 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
     body = await request.json()
 
     models = body.get("models", [])
-    if not models or len(models) > 10:
-        return JSONResponse({"error": "models 数量需在 1-10 之间"}, status_code=400)
 
     # 获取 active profile 作为基础配置
     active = await get_active_profile(user_id)
     if not active:
         return JSONResponse({"error": "没有活跃的配置，请先创建一个 profile"}, status_code=400)
+
+    # 前端未传 models 时回退到 Profile 的 models
+    if not models:
+        models = active.get("models", [])
+
+    if not models or len(models) > 10:
+        return JSONResponse({"error": "models 数量需在 1-10 之间"}, status_code=400)
 
     benchmark = await get_settings(user_id)
     provider = body.get("provider", active.get("provider", ""))

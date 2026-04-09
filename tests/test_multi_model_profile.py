@@ -223,3 +223,28 @@ async def test_scheduled_task_expands_multi_model(client):
     # 验证每次调用的 config 中 model 不同
     models_called = [call.args[0]["model"] for call in mock_run.call_args_list]
     assert sorted(models_called) == ["model-a", "model-b", "model-c"]
+
+
+@pytest.mark.asyncio
+async def test_multi_model_bench_uses_profile_models(client):
+    """start-multi-model 未传 models 时应回退到 Profile 的 models"""
+    headers = await auth_headers(client)
+
+    await client.post("/api/profiles/save", json={
+        "name": "fallback-test",
+        "base_url": "https://api.example.com",
+        "api_key": "sk-test",
+        "models": ["model-x", "model-y"],
+        "provider": "openai",
+    }, headers=headers)
+
+    # 不传 models，应该使用 profile 的 models
+    resp = await client.post("/api/bench/start-multi-model", json={
+        "provider": "openai",
+    }, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["task_ids"]) == 2
+
+    # 停止
+    await client.post("/api/bench/stop", headers=headers)
