@@ -32,7 +32,11 @@ docker compose pull
 docker compose up -d
 ```
 
-访问 <http://localhost:8080>，首次启动自动创建管理员账号（密码见 `docker compose logs app`）。
+访问 <http://localhost:8080>，使用预置管理员账号登录：
+
+- 邮箱：`admin@example.com`
+- 密码：`AITokenPerf#123`
+- 首次登录后需修改密码
 
 > 镜像托管在 GitHub Container Registry，push 到 main 分支后自动构建。
 
@@ -69,7 +73,7 @@ python3 main.py
 
 ### 管理员
 
-首个注册用户自动成为管理员，可在"用户管理"页面管理其他用户。
+使用预置管理员账号登录后，可在"用户管理"页面管理其他用户和修改角色权限。
 
 ## 命令行参数
 
@@ -119,7 +123,10 @@ python3 main.py [--port PORT] [--host HOST] [--workers N]
 │   ├── auth.py          # 认证（bcrypt + JWT）
 │   ├── scheduler.py     # 定时任务调度器
 │   ├── migrate.py       # 数据库初始化 + schema 迁移
-│   └── logger.py        # 结构化日志（JSONL / stdout）
+│   ├── logger.py        # 结构化日志（JSONL / stdout）
+│   └── pricing.py       # 模型价格服务（LiteLLM 数据源）
+├── tests/               # 测试用例
+│   └── test_auth_admin.py
 ├── scripts/
 │   └── migrate_sqlite_to_pg.py  # SQLite → PostgreSQL 数据迁移
 ├── nginx/
