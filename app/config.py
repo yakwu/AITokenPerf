@@ -14,3 +14,6 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "")
 
 # JWT 签名密钥；空字符串 = 自动生成 data/data.secret
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
+
+# 定时任务单次执行超时（秒），超时后自动释放锁防止卡死
+SCHEDULER_TASK_TIMEOUT = int(os.environ.get("SCHEDULER_TASK_TIMEOUT", "1800"))

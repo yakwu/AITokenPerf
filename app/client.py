@@ -25,6 +25,8 @@ class RequestMetrics:
     success: bool = False
     error: Optional[str] = None
     status_code: int = 0
+    url: str = ""
+    phase: str = ""  # "connecting" | "streaming" — 超时时记录阶段
 
     @property
     def ttft(self) -> Optional[float]:
@@ -71,6 +73,7 @@ async def send_streaming_request(
     adapter = get_adapter(protocol)
 
     url = adapter.build_url(config)
+    metrics.url = url
     headers = adapter.build_headers(config)
     payload = adapter.build_payload(config)
 
@@ -78,12 +81,14 @@ async def send_streaming_request(
 
     async with sem_ctx:
         metrics.start_time = time.monotonic()
+        metrics.phase = "connecting"
         try:
             timeout = aiohttp.ClientTimeout(total=config.get("timeout", 120))
             async with session.post(
                 url, json=payload, headers=headers, timeout=timeout
             ) as resp:
                 metrics.status_code = resp.status
+                metrics.phase = "streaming"
 
                 if resp.status != 200:
                     body = await resp.text()
@@ -102,7 +107,11 @@ async def send_streaming_request(
 
         except asyncio.TimeoutError:
             metrics.end_time = time.monotonic()
-            metrics.error = "Request timed out"
+            if metrics.phase == "connecting":
+                metrics.error = "Connection timed out"
+            else:
+                tokens = len(metrics.token_timestamps)
+                metrics.error = f"Stream timed out (received {tokens} tokens in {metrics.e2e:.1f}s)"
         except aiohttp.ClientError as e:
             metrics.end_time = time.monotonic()
             metrics.error = f"Connection error: {str(e)}"

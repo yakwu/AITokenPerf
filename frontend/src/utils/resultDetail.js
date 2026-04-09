@@ -164,7 +164,11 @@ export function renderResultDetail(r) {
         html += `<div class="progress-log" style="max-height:240px;margin-top:8px">`;
         const showCount = Math.min(errorDetails.length, 30);
         errorDetails.slice(0, showCount).forEach(e => {
-          html += `<div><span class="fail">[#${escHtml(e.request_id)}]</span> <span style="color:#F59E3B">HTTP ${escHtml(e.status_code)}</span> ${escHtml(e.error || '')}</div>`;
+          let meta = '';
+          if (e.phase) meta += ` <span style="color:var(--text-tertiary)">[${escHtml(e.phase)}]</span>`;
+          if (e.duration != null) meta += ` <span style="color:var(--text-tertiary)">${e.duration}s</span>`;
+          if (e.tokens_received > 0) meta += ` <span style="color:var(--text-tertiary)">${e.tokens_received}toks</span>`;
+          html += `<div><span class="fail">[#${escHtml(e.request_id)}]</span> <span style="color:#F59E3B">HTTP ${escHtml(e.status_code)}</span> ${escHtml(e.error || '')}${meta}</div>`;
         });
         if (errorDetails.length > showCount) {
           html += `<div style="color:var(--text-tertiary)">... 还有 ${errorDetails.length - showCount} 条</div>`;

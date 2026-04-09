@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""定时任务调度器 — 全局单循环 + next_run_at 绝对时间调度"""
+"""定时任务调度器 — 全局单循环 + next_run_at 绝对时间调度 + DB 分布式锁"""
 
 import asyncio
 import json
 import logging
+import random
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.db import (
     get_all_active_scheduled_tasks,
+    get_due_scheduled_tasks,
     get_scheduled_task,
     update_scheduled_task,
     get_profiles,
     get_settings,
+    get_user_by_id,
+    claim_scheduled_task,
+    release_scheduled_task,
+    release_and_reschedule_scheduled_task,
 )
 from app.logger import log_bench, log_error
 
@@ -29,23 +35,26 @@ class TaskScheduler:
     def __init__(self):
         self._running = False
         self._main_loop: asyncio.Task | None = None
-        self._executing: set[int] = set()
+        self._child_tasks: set[asyncio.Task] = set()
 
     # ── 公开接口 ──────────────────────────────────────────
 
     async def start(self):
-        """服务启动时，为所有 active 任务补齐 next_run_at，启动全局循环"""
+        """服务启动时，为所有 active 任务补齐 next_run_at，释放过期锁，启动全局循环"""
         self._running = True
         tasks = await get_all_active_scheduled_tasks()
         now = datetime.now(timezone.utc)
         for t in tasks:
             if not t.get("next_run_at"):
                 await update_scheduled_task(t["id"], next_run_at=now)
+            # 启动时释放可能残留的锁（进程异常退出的情况）
+            if t.get("locked_until"):
+                await release_scheduled_task(t["id"])
         self._main_loop = asyncio.create_task(self._run())
         log.info("调度器已启动，加载 %d 个活跃任务", len(tasks))
 
     async def stop(self):
-        """服务停止时，取消全局循环"""
+        """服务停止时，取消全局循环和所有子任务"""
         self._running = False
         if self._main_loop:
             self._main_loop.cancel()
@@ -54,25 +63,30 @@ class TaskScheduler:
             except asyncio.CancelledError:
                 pass
             self._main_loop = None
+        # 取消所有正在执行的子任务
+        for task in list(self._child_tasks):
+            task.cancel()
+        if self._child_tasks:
+            await asyncio.gather(*self._child_tasks, return_exceptions=True)
+            self._child_tasks.clear()
 
     def start_loop(self, task_id: int):
         """启动或重置某个任务的调度（设置 next_run_at=now 触发立即执行）"""
         asyncio.create_task(self._trigger(task_id))
 
-    def cancel_loop(self, task_id: int):
-        """暂停/删除某个任务：从执行集合移除（循环会因 DB status 变化自动跳过）"""
-        self._executing.discard(task_id)
+    async def cancel_loop(self, task_id: int):
+        """暂停/删除某个任务：释放 DB 锁"""
+        await release_scheduled_task(task_id)
 
     async def run_now(self, task_id: int):
         """立即执行一次（run-now 端点调用）"""
-        if task_id in self._executing:
+        if not await claim_scheduled_task(task_id):
             log.warning("定时任务 #%d 正在执行中，跳过 run-now", task_id)
             return
-        self._executing.add(task_id)
         asyncio.create_task(self._execute_and_schedule(task_id, skip_reschedule=True))
 
     def has_loop(self, task_id: int) -> bool:
-        # 全局循环模式下，只要任务是 active 就算"有循环"
+        # 全局循环模式下，只要调度器在运行就算"有循环"
         return self._running
 
     # ── 内部方法 ──────────────────────────────────────────
@@ -86,52 +100,60 @@ class TaskScheduler:
 
     async def _run(self):
         """全局调度循环：每 5 秒扫一次 DB，触发到期任务"""
+        from app.server import BenchTaskManager
         while self._running:
             try:
-                await asyncio.sleep(5)
+                # 加随机 jitter 错开多实例查询峰值
+                await asyncio.sleep(5 + random.uniform(0, 1))
             except asyncio.CancelledError:
                 return
             if not self._running:
                 return
             try:
-                tasks = await get_all_active_scheduled_tasks()
                 now = datetime.now(timezone.utc)
+                tasks = await get_due_scheduled_tasks(now)
                 for t in tasks:
                     tid = t["id"]
-                    if tid in self._executing:
+                    # 到期了，尝试用 DB 锁抢占（多 worker 安全 + DB 级并发限制）
+                    if not await claim_scheduled_task(
+                        tid,
+                        max_global=BenchTaskManager.MAX_GLOBAL,
+                        max_per_user=BenchTaskManager.MAX_PER_USER,
+                    ):
                         continue
-                    next_run = t.get("next_run_at")
-                    if next_run:
-                        # 处理时区：PG 返回带时区的，SQLite 不带
-                        if isinstance(next_run, str):
-                            try:
-                                next_run = datetime.fromisoformat(next_run)
-                            except ValueError:
-                                continue
-                        if next_run.tzinfo is None:
-                            next_run = next_run.replace(tzinfo=timezone.utc)
-                        if next_run > now:
-                            continue
-                    # 到期了，触发执行
-                    self._executing.add(tid)
-                    asyncio.create_task(self._execute_and_schedule(tid))
+                    task = asyncio.create_task(self._execute_and_schedule(tid))
+                    self._child_tasks.add(task)
+                    task.add_done_callback(self._child_tasks.discard)
             except Exception as e:
                 log.error("调度循环异常: %s", e)
 
     async def _execute_and_schedule(self, task_id: int, skip_reschedule: bool = False):
-        """执行任务，完成后计算下一次执行时间"""
+        """执行任务（带超时保护），完成后计算下一次执行时间"""
+        from app.config import SCHEDULER_TASK_TIMEOUT
+        cancelled = False
         try:
-            await _run_scheduled_task(task_id)
+            await asyncio.wait_for(
+                _run_scheduled_task(task_id),
+                timeout=SCHEDULER_TASK_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.error("定时任务 #%d 执行超时（%ds），强制终止", task_id, SCHEDULER_TASK_TIMEOUT)
+            log_error("scheduler:timeout", error=f"超时 {SCHEDULER_TASK_TIMEOUT}s", task_id=task_id)
+        except asyncio.CancelledError:
+            cancelled = True
         except Exception as e:
             log.error("定时任务 #%d 执行异常: %s", task_id, e)
             log_error("scheduler:task_error", error=str(e), task_id=task_id)
         finally:
-            self._executing.discard(task_id)
-            if not skip_reschedule:
-                await self._reschedule(task_id)
+            if not skip_reschedule and not cancelled:
+                await self._release_and_reschedule(task_id)
+            else:
+                await release_scheduled_task(task_id)
+            if cancelled:
+                raise asyncio.CancelledError()
 
-    async def _reschedule(self, task_id: int):
-        """执行完毕后，基于上一次 next_run_at + interval 推算下次，保持固定节奏"""
+    async def _release_and_reschedule(self, task_id: int):
+        """原子释放锁并重新调度 — 防止 release→reschedule 窗口期的竞态"""
         try:
             task_row = await get_scheduled_task(task_id)
             if task_row and task_row.get("status") == "active":
@@ -144,23 +166,24 @@ class TaskScheduler:
                     except ValueError:
                         prev_next = None
                 if prev_next and prev_next.tzinfo:
-                    # 固定节奏：上次计划时间 + interval，直到超过 now
-                    next_at = prev_next + timedelta(seconds=sv)
-                    while next_at <= now:
-                        next_at += timedelta(seconds=sv)
+                    elapsed = (now - prev_next).total_seconds()
+                    intervals_elapsed = int(elapsed // sv) + 1
+                    next_at = prev_next + timedelta(seconds=sv * intervals_elapsed)
+                    # 防连续触发：确保下次执行至少在 now 之后
+                    if next_at <= now:
+                        next_at = now + timedelta(seconds=sv)
                 else:
-                    # 首次执行，从 now 开始
                     next_at = now + timedelta(seconds=sv)
-                await update_scheduled_task(
-                    task_id,
-                    next_run_at=next_at,
-                    last_run_at=now,
-                    run_count=(task_row.get("run_count") or 0) + 1,
-                )
+                new_count = (task_row.get("run_count") or 0) + 1
+                await release_and_reschedule_scheduled_task(task_id, next_at, now, new_count)
                 delay = (next_at - now).total_seconds()
                 log.info("定时任务 #%d 执行完成，下次执行: %.0f 秒后", task_id, delay)
+            else:
+                await release_scheduled_task(task_id)
         except Exception as e:
-            log.error("定时任务 #%d 更新调度失败: %s", task_id, e)
+            log.error("定时任务 #%d 原子调度失败: %s", task_id, e)
+            await release_scheduled_task(task_id)
+
 
 
 # ── 模块级工具函数 ───────────────────────────────────────
@@ -174,6 +197,29 @@ async def _run_scheduled_task(task_id: int):
         return
 
     user_id = task_row["user_id"]
+
+    # 检查用户状态 — 防止已删除/禁用用户的任务继续执行
+    user = await get_user_by_id(user_id)
+    if not user:
+        log.warning("定时任务 #%d: 用户 %d 已删除，暂停任务", task_id, user_id)
+        await update_scheduled_task(task_id, status="paused")
+        return
+
+    # 全局并发限制
+    if manager.get_running_count() >= BenchTaskManager.MAX_GLOBAL:
+        log.warning("全局并发已达上限（%d），跳过定时任务 #%d", BenchTaskManager.MAX_GLOBAL, task_id)
+        log_error("scheduler:skipped", error="全局并发已达上限",
+                  task_id=task_id, user_id=user_id)
+        return
+
+    # 用户并发限制
+    if manager.get_user_task_count(user_id) >= BenchTaskManager.MAX_PER_USER:
+        log.warning("用户 %d 并发已达上限，跳过定时任务 #%d", user_id, task_id)
+        log_error("scheduler:skipped", error="用户并发已达上限",
+                  task_id=task_id, user_id=user_id)
+        return
+
+    # 轻量检查通过后，才做较重的 DB 查询
     profile_ids = task_row.get("profile_ids", [])
     configs_json = task_row.get("configs", {})
 
@@ -184,12 +230,6 @@ async def _run_scheduled_task(task_id: int):
     log.info("执行定时任务 #%d '%s'，%d 个 profile", task_id, task_row["name"], len(profile_ids))
     log_bench("scheduler:start", task_id=task_id, name=task_row["name"],
               profiles=profile_ids, user_id=user_id)
-
-    if manager.get_user_task_count(user_id) >= BenchTaskManager.MAX_PER_USER:
-        log.warning("用户 %d 并发已达上限，跳过定时任务 #%d", user_id, task_id)
-        log_error("scheduler:skipped", error="用户并发已达上限",
-                  task_id=task_id, user_id=user_id)
-        return
 
     group_id = f"sched_{uuid.uuid4().hex[:12]}"
     bench_tasks = []
@@ -213,10 +253,17 @@ async def _run_scheduled_task(task_id: int):
                 config[key] = val
 
         cl = config.get("concurrency_levels", [100])
-        if isinstance(cl, (list, tuple)):
-            config["concurrency_levels"] = [int(v) for v in cl]
-        elif isinstance(cl, (int, str)):
-            config["concurrency_levels"] = [int(cl)]
+        try:
+            if isinstance(cl, str):
+                cl = json.loads(cl)
+            if isinstance(cl, (list, tuple)):
+                config["concurrency_levels"] = [int(v) for v in cl]
+            elif isinstance(cl, (int, float)):
+                config["concurrency_levels"] = [int(cl)]
+            else:
+                config["concurrency_levels"] = [100]
+        except (ValueError, TypeError, json.JSONDecodeError):
+            config["concurrency_levels"] = [100]
 
         tid = uuid.uuid4().hex[:12]
         bt = manager.create_task(tid, user_id, profile_name=pname, group_id=group_id)
@@ -233,16 +280,19 @@ async def _run_scheduled_task(task_id: int):
                   task_id=task_id, profile_ids=profile_ids)
         return
 
-    total_saved = 0
-    for bt in bench_tasks:
+    async def _wait_one(bt):
         if bt.asyncio_task:
             try:
                 await bt.asyncio_task
-                total_saved += len(bt.result_filenames)
+                return len(bt.result_filenames)
             except Exception as e:
                 log.error("定时子任务异常: %s", e)
                 log_error("scheduler:task_error", error=str(e),
                           task_id=task_id, task_tid=bt.task_id)
+        return 0
+
+    results = await asyncio.gather(*[_wait_one(bt) for bt in bench_tasks], return_exceptions=True)
+    total_saved = sum(r for r in results if isinstance(r, int))
 
     log.info("定时任务 #%d 本次保存 %d 条结果", task_id, total_saved)
     log_bench("scheduler:complete", task_id=task_id, results_saved=total_saved)

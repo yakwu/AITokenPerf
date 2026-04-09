@@ -115,11 +115,16 @@ def aggregate_metrics(
         if m.error:
             key = m.error.split(":")[0] if ":" in m.error else m.error
             error_counts[key] = error_counts.get(key, 0) + 1
-            error_details.append({
+            detail = {
                 "request_id": m.request_id,
                 "status_code": m.status_code,
                 "error": m.error,
-            })
+                "duration": round(m.e2e, 2) if m.e2e else None,
+                "tokens_received": len(m.token_timestamps),
+                "phase": m.phase or "",
+                "url": m.url or "",
+            }
+            error_details.append(detail)
 
     ttft_values = [m.ttft for m in metrics_list if m.ttft is not None and m.success]
     tpot_values = [m.tpot for m in metrics_list if m.tpot is not None and m.success]

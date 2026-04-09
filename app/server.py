@@ -184,6 +184,9 @@ async def _publish(task: BenchTask, event_type: str, data: dict):
         "type": event_type,
         "data": data,
     })
+    # 限制事件列表长度，防止内存无限增长
+    if len(task.events) > 500:
+        task.events = task.events[-300:]
     for waiter in task.event_waiters:
         waiter.set()
 
@@ -1077,6 +1080,16 @@ async def dry_run(request: Request, user: dict = Depends(get_current_user)):
 
 # ---- Schedule Routes ----
 
+# run-now 冷却时间（秒），同一任务在此时间内不能重复触发
+_RUN_NOW_COOLDOWN = 30
+
+# configs_json 允许覆盖的字段白名单
+_SCHEDULE_CONFIG_WHITELIST = {
+    "model", "max_tokens", "temperature", "top_p", "stream",
+    "concurrency_levels", "num_requests", "request_timeout",
+    "api_base", "api_key", "custom_api_base",
+}
+
 @app.get("/api/schedules")
 async def list_schedules(user: dict = Depends(get_current_user)):
     from app.db import get_scheduled_tasks
@@ -1086,7 +1099,7 @@ async def list_schedules(user: dict = Depends(get_current_user)):
 
 @app.post("/api/schedules")
 async def create_schedule(request: Request, user: dict = Depends(get_current_user)):
-    from app.db import create_scheduled_task, get_scheduled_task
+    from app.db import create_scheduled_task, get_scheduled_task, count_user_scheduled_tasks
     user_id = user["user_id"]
     body = await request.json()
     name = body.get("name", "").strip()
@@ -1095,9 +1108,30 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
     profile_ids = body.get("profile_ids", [])
     if not profile_ids:
         return JSONResponse({"error": "请至少选择一个 Profile"}, status_code=400)
+
+    # 定时任务数量限制
+    MAX_SCHEDULES_PER_USER = 10
+    count = await count_user_scheduled_tasks(user_id)
+    if count >= MAX_SCHEDULES_PER_USER:
+        return JSONResponse({"error": f"定时任务数量已达上限（{MAX_SCHEDULES_PER_USER}个）"}, status_code=400)
+
     configs_json = body.get("configs_json", {})
+    # 白名单过滤，防止覆盖内部关键字段
+    if isinstance(configs_json, dict):
+        configs_json = {k: v for k, v in configs_json.items() if k in _SCHEDULE_CONFIG_WHITELIST}
+    else:
+        configs_json = {}
     schedule_type = body.get("schedule_type", "interval")
     schedule_value = str(body.get("schedule_value", "300"))
+
+    # 最小间隔限制
+    try:
+        sv_int = int(schedule_value)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "schedule_value 必须是正整数"}, status_code=400)
+    if sv_int < 60:
+        return JSONResponse({"error": "定时任务间隔不能小于 60 秒"}, status_code=400)
+
     sid = await create_scheduled_task(
         user_id, name, profile_ids, configs_json, schedule_type, schedule_value,
     )
@@ -1116,6 +1150,20 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
     body = await request.json()
     allowed = {"name", "profile_ids", "configs_json", "schedule_type", "schedule_value", "status"}
     fields = {k: v for k, v in body.items() if k in allowed}
+
+    # configs_json 白名单过滤
+    if "configs_json" in fields and isinstance(fields["configs_json"], dict):
+        fields["configs_json"] = {k: v for k, v in fields["configs_json"].items() if k in _SCHEDULE_CONFIG_WHITELIST}
+
+    # 最小间隔限制
+    if "schedule_value" in fields:
+        try:
+            sv_int = int(fields["schedule_value"])
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "schedule_value 必须是正整数"}, status_code=400)
+        if sv_int < 60:
+            return JSONResponse({"error": "定时任务间隔不能小于 60 秒"}, status_code=400)
+
     if fields:
         await update_scheduled_task(task_id, **fields)
     if _scheduler:
@@ -1123,7 +1171,7 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
         if final_status == "active":
             _scheduler.start_loop(task_id)
         else:
-            _scheduler.cancel_loop(task_id)
+            await _scheduler.cancel_loop(task_id)
     return {"status": "updated"}
 
 
@@ -1135,7 +1183,7 @@ async def delete_schedule(task_id: int, user: dict = Depends(get_current_user)):
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
     if _scheduler:
-        _scheduler.cancel_loop(task_id)
+        await _scheduler.cancel_loop(task_id)
     await delete_scheduled_task(task_id)
     return {"status": "deleted"}
 
@@ -1149,7 +1197,7 @@ async def pause_schedule(task_id: int, user: dict = Depends(get_current_user)):
         return JSONResponse({"error": "Not found"}, status_code=404)
     await update_scheduled_task(task_id, status="paused")
     if _scheduler:
-        _scheduler.cancel_loop(task_id)
+        await _scheduler.cancel_loop(task_id)
     return {"status": "paused"}
 
 
@@ -1173,6 +1221,20 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
+    # DB 级冷却检查（跨实例安全）
+    if task_row.get("last_run_at"):
+        from datetime import datetime, timezone
+        last_run = task_row["last_run_at"]
+        if isinstance(last_run, str):
+            try:
+                last_run = datetime.fromisoformat(last_run)
+            except ValueError:
+                last_run = None
+        if last_run:
+            elapsed = (datetime.now(timezone.utc) - last_run.replace(tzinfo=timezone.utc)).total_seconds()
+            if elapsed < _RUN_NOW_COOLDOWN:
+                remaining = int(_RUN_NOW_COOLDOWN - elapsed)
+                return JSONResponse({"error": f"请等待 {remaining} 秒后再试"}, status_code=429)
     if _scheduler:
         await _scheduler.run_now(task_id)
     return {"status": "triggered"}

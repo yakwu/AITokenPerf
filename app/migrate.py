@@ -180,5 +180,22 @@ async def _migrate_schema():
             await conn.execute(text("ALTER TABLE profiles ADD COLUMN protocol TEXT NOT NULL DEFAULT ''"))
             print("  schema 迁移: profiles 表添加 protocol 列")
 
+    # scheduled_tasks 表新增 locked_until 列（分布式锁）
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            cur = await conn.execute(text("PRAGMA table_info(scheduled_tasks)"))
+            rows = cur.fetchall()
+            columns = {row[1] for row in rows}
+        else:
+            cur = await conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='scheduled_tasks'")
+            )
+            rows = cur.fetchall()
+            columns = {row[0] for row in rows}
+
+        if "locked_until" not in columns:
+            await conn.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN locked_until TEXT"))
+            print("  schema 迁移: scheduled_tasks 表添加 locked_until 列")
+
     # scheduled_tasks 表由 init_db 中的 CREATE TABLE IF NOT EXISTS 处理
     # 无需额外迁移

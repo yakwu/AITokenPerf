@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection
 
 from app.config import DATABASE_URL
@@ -29,6 +29,14 @@ engine = create_async_engine(
     pool_pre_ping=True,
     **({} if not _is_sqlite else {"connect_args": {"check_same_thread": False}}),
 )
+
+# SQLite 默认不启用外键约束，需要每个连接都设置
+if _is_sqlite:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.close()
 
 # SQLite schema（保持原样）
 _SQLITE_SCHEMA = """
@@ -100,6 +108,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     status          TEXT NOT NULL DEFAULT 'active',
     last_run_at     TEXT,
     next_run_at     TEXT,
+    locked_until    TEXT,
     run_count       INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
@@ -176,6 +185,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     status          TEXT NOT NULL DEFAULT 'active',
     last_run_at     TIMESTAMPTZ,
     next_run_at     TIMESTAMPTZ,
+    locked_until    TIMESTAMPTZ,
     run_count       INTEGER NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -199,8 +209,6 @@ async def init_db():
     schema = _SQLITE_SCHEMA if _is_sqlite else _PG_SCHEMA
     async with engine.begin() as conn:
         if _is_sqlite:
-            # SQLite 支持 executescript 但 SQLAlchemy async 不直接支持
-            # 拆分执行每条语句
             for stmt in schema.strip().split(";"):
                 stmt = stmt.strip()
                 if stmt:
@@ -215,6 +223,10 @@ async def init_db():
                 stmt = stmt.strip()
                 if stmt:
                     await conn.execute(text(stmt))
+        # 定时任务调度索引
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_sched_status_next ON scheduled_tasks (status, next_run_at)"
+        ))
 
 
 async def close_db():
@@ -776,3 +788,145 @@ async def get_all_active_scheduled_tasks() -> list[dict]:
             d["configs"] = json.loads(d["configs_json"])
             results.append(d)
         return results
+
+
+async def get_due_scheduled_tasks(now, limit: int = 50) -> list[dict]:
+    """只查询已到期的活跃定时任务，避免全表扫描"""
+    async with engine.connect() as conn:
+        if _is_sqlite:
+            now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+            cur = await conn.execute(
+                text("""SELECT * FROM scheduled_tasks
+                        WHERE status='active'
+                          AND next_run_at IS NOT NULL
+                          AND next_run_at <= :now
+                        ORDER BY id
+                        LIMIT :limit"""),
+                {"now": now_str, "limit": limit},
+            )
+        else:
+            cur = await conn.execute(
+                text("""SELECT * FROM scheduled_tasks
+                        WHERE status='active'
+                          AND next_run_at IS NOT NULL
+                          AND next_run_at <= :now
+                        ORDER BY id
+                        LIMIT :limit"""),
+                {"now": now, "limit": limit},
+            )
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row._mapping)
+            d["profile_ids"] = json.loads(d["profile_ids"])
+            d["configs"] = json.loads(d["configs_json"])
+            results.append(d)
+        return results
+
+
+async def claim_scheduled_task(task_id: int, lock_seconds: int = 3600,
+                               max_global: int | None = None,
+                               max_per_user: int | None = None) -> bool:
+    """原子抢占定时任务锁。返回 True 表示成功获取锁。
+
+    条件：任务未被锁定 或 锁已过期。
+    多 worker/多实例同时调用时，只有一个能成功（DB 保证原子性）。
+    可选：通过 max_global / max_per_user 在 DB 级做并发限制（跨实例安全）。
+    """
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            sql = """UPDATE scheduled_tasks
+                     SET locked_until = datetime('now', :lock_sec || ' seconds')
+                     WHERE id = :tid
+                       AND (locked_until IS NULL OR locked_until < datetime('now'))"""
+            params: dict = {"tid": task_id, "lock_sec": str(lock_seconds)}
+            if max_global is not None:
+                sql = sql.replace(
+                    "WHERE id = :tid",
+                    """WHERE id = :tid
+                       AND (SELECT COUNT(*) FROM scheduled_tasks
+                            WHERE locked_until IS NOT NULL AND locked_until >= datetime('now')) < :max_global""",
+                )
+                params["max_global"] = max_global
+            if max_per_user is not None:
+                sql += """ AND (SELECT COUNT(*) FROM scheduled_tasks
+                              WHERE locked_until IS NOT NULL AND locked_until >= datetime('now')
+                                AND user_id = (SELECT user_id FROM scheduled_tasks WHERE id = :tid)) < :max_per_user"""
+                params["max_per_user"] = max_per_user
+            result = await conn.execute(text(sql), params)
+        else:
+            sql = """UPDATE scheduled_tasks
+                     SET locked_until = NOW() + (:lock_sec || ' seconds')::interval
+                     WHERE id = :tid
+                       AND (locked_until IS NULL OR locked_until < NOW())"""
+            params = {"tid": task_id, "lock_sec": str(lock_seconds)}
+            if max_global is not None:
+                sql = sql.replace(
+                    "WHERE id = :tid",
+                    """WHERE id = :tid
+                       AND (SELECT COUNT(*) FROM scheduled_tasks
+                            WHERE locked_until IS NOT NULL AND locked_until >= NOW()) < :max_global""",
+                )
+                params["max_global"] = max_global
+            if max_per_user is not None:
+                sql += """ AND (SELECT COUNT(*) FROM scheduled_tasks
+                              WHERE locked_until IS NOT NULL AND locked_until >= NOW()
+                                AND user_id = (SELECT user_id FROM scheduled_tasks WHERE id = :tid)) < :max_per_user"""
+                params["max_per_user"] = max_per_user
+            result = await conn.execute(text(sql), params)
+        return result.rowcount > 0
+
+
+async def release_scheduled_task(task_id: int):
+    """释放定时任务锁"""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE scheduled_tasks SET locked_until=NULL WHERE id=:tid"),
+            {"tid": task_id},
+        )
+
+
+async def reschedule_scheduled_task(task_id: int, next_run_at, last_run_at, run_count: int):
+    """原子更新调度时间，仅在任务仍为 active 时生效（防止竞态）"""
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            next_str = next_run_at.strftime("%Y-%m-%d %H:%M:%S")
+            last_str = last_run_at.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            next_str = next_run_at
+            last_str = last_run_at
+        await conn.execute(
+            text("""UPDATE scheduled_tasks
+                    SET next_run_at=:next, last_run_at=:last, run_count=:rc,
+                        updated_at={now}
+                    WHERE id=:tid AND status='active'""".format(now=_now_sql())),
+            {"tid": task_id, "next": next_str, "last": last_str, "rc": run_count},
+        )
+
+
+async def release_and_reschedule_scheduled_task(task_id: int, next_run_at, last_run_at, run_count: int):
+    """原子释放锁并更新调度时间 — 合并 release + reschedule 防止竞态窗口"""
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            next_str = next_run_at.strftime("%Y-%m-%d %H:%M:%S")
+            last_str = last_run_at.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            next_str = next_run_at
+            last_str = last_run_at
+        await conn.execute(
+            text("""UPDATE scheduled_tasks
+                    SET locked_until=NULL, next_run_at=:next, last_run_at=:last,
+                        run_count=:rc, updated_at={now}
+                    WHERE id=:tid AND status='active'""".format(now=_now_sql())),
+            {"tid": task_id, "next": next_str, "last": last_str, "rc": run_count},
+        )
+
+
+async def count_user_scheduled_tasks(user_id: int) -> int:
+    """统计用户拥有的定时任务数量"""
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT COUNT(*) FROM scheduled_tasks WHERE user_id=:uid"),
+            {"uid": user_id},
+        )
+        return cur.fetchone()[0]
