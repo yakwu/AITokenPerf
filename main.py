@@ -130,9 +130,42 @@ def main():
 
     import uvicorn
     log_fmt = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
-    logging.basicConfig(level=logging.INFO, format=log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
+    date_fmt = "%Y-%m-%d %H:%M:%S"
+    logging.basicConfig(level=logging.INFO, format=log_fmt, datefmt=date_fmt)
+
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": log_fmt,
+                "datefmt": date_fmt,
+            },
+            "access": {
+                "format": log_fmt,
+                "datefmt": date_fmt,
+            },
+        },
+        "handlers": {
+            "default": {
+                "formatter": "default",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+            "access": {
+                "formatter": "access",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        },
+    }
     uvicorn.run("app.server:app", host=args.host, port=args.port,
-                log_level="info", workers=args.workers, log_config=None)
+                log_level="info", workers=args.workers, log_config=log_config)
 
 
 if __name__ == "__main__":
