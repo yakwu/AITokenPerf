@@ -620,8 +620,8 @@ async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, li
     params: dict = {"uid": user_id, "sid": scheduled_task_id, "limit": limit, "offset": offset}
     time_filter = ""
     if hours is not None:
-        from datetime import datetime, timedelta, timezone
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
         time_filter = "AND r.timestamp >= :cutoff"
         params["cutoff"] = cutoff
 
@@ -664,8 +664,8 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
     params: dict = {"uid": user_id, "sid": scheduled_task_id}
     where_extra = ""
     if hours is not None:
-        from datetime import datetime, timedelta, timezone
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
         where_extra = "AND timestamp >= :cutoff"
         params["cutoff"] = cutoff
 

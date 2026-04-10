@@ -302,6 +302,8 @@
                   <td>{{ formatInterval(s.schedule_value) }}</td>
                   <td>
                     <span class="status-badge" :class="s.status">
+                      <span v-if="s.status === 'active'" class="status-dot"></span>
+                      <i v-if="s.status === 'paused'" class="ph ph-pause" style="font-size:10px"></i>
                       {{ s.status === 'active' ? '运行中' : s.status === 'paused' ? '已暂停' : s.status }}
                     </span>
                   </td>
@@ -784,7 +786,7 @@ async function changeTimeRange(hours) {
   destroyCharts(); await nextTick(); renderTrendSummary(); renderLatencyChart(); renderQualityChart();
 }
 
-async function loadMoreHistory() { if (expandedScheduleId.value == null) return; historyLoadingMore.value = true; try { const data = await getScheduleResults(expandedScheduleId.value, { limit: 100, offset: scheduleHistory.value.length }); scheduleHistory.value = [...scheduleHistory.value, ...(data.results || [])]; } catch (e) { toast('加载更多失败: ' + e.message, 'error'); } historyLoadingMore.value = false; }
+async function loadMoreHistory() { if (expandedScheduleId.value == null) return; historyLoadingMore.value = true; try { const data = await getScheduleResults(expandedScheduleId.value, { limit: 100, offset: scheduleHistory.value.length, hours: selectedTimeRange.value }); scheduleHistory.value = [...scheduleHistory.value, ...(data.results || [])]; } catch (e) { toast('加载更多失败: ' + e.message, 'error'); } historyLoadingMore.value = false; }
 
 function renderTrendSummary() {
   const results = scheduleHistory.value; if (!results || results.length === 0) { trendSummary.value = []; return; }

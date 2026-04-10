@@ -46,6 +46,9 @@
 .status-badge.idle { background: var(--border-subtle); color: var(--text-tertiary); }
 .status-badge.running { background: var(--accent-light); color: var(--accent); }
 .status-badge.stopping { background: var(--warning-light); color: var(--warning); }
+.status-badge.active { background: var(--success-light); color: var(--success); }
+.status-badge.paused { background: var(--warning-light); color: var(--warning); }
+.status-badge.active .status-dot { animation: pulse 1.5s ease-in-out infinite; }
 
 .status-dot {
   width: 7px; height: 7px;
