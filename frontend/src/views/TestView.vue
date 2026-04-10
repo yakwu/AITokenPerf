@@ -211,7 +211,6 @@
         <div class="card-header">
           <div class="card-title">定时任务</div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost btn-sm" @click="refreshSchedules" title="刷新"><i class="ph ph-arrows-clockwise"></i></button>
             <button class="btn btn-primary btn-sm" @click="showCreateForm = !showCreateForm">
               {{ showCreateForm ? '取消' : '新建定时任务' }}
             </button>
@@ -868,9 +867,10 @@ onMounted(() => {
   startSchedulePolling();
   if (store.rerunConfig) loadProfiles().then(() => applyRerunConfig());
   checkRunningStatus();
+  store.refreshFn = () => { if (subMode.value === 'schedule') refreshSchedules(); else loadProfiles(); };
 });
 
-onUnmounted(() => { stopSSE(); stopMultiPolling(); stopSchedulePolling(); destroyCharts(); });
+onUnmounted(() => { stopSSE(); stopMultiPolling(); stopSchedulePolling(); destroyCharts(); store.refreshFn = null; });
 
 async function checkRunningStatus() {
   const data = await api('/api/bench/status');

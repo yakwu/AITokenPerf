@@ -1,17 +1,18 @@
 /* ---- Header ---- */
 .header {
-  background: var(--surface);
+  background: rgba(255,255,255,0.92);
   border-bottom: 1px solid var(--border);
   padding: 0 32px;
   height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100;
   backdrop-filter: blur(12px);
-  background: rgba(255,255,255,0.92);
 }
 
 .header-left {
@@ -72,6 +73,11 @@
   padding: 0 32px;
   display: flex;
   gap: 0;
+  position: fixed;
+  top: 64px;
+  left: 0;
+  right: 0;
+  z-index: 100;
 }
 
 .tab-btn {
@@ -97,7 +103,7 @@
 }
 
 /* ---- Main Content ---- */
-.main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
+.main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; padding-top: 128px; }
 
 .tab-content { display: none; animation: fadeIn 0.25s ease; }
 .tab-content.active { display: block; }
@@ -1814,6 +1820,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 .header-right {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 .header { justify-content: space-between; }
 .user-menu { position: relative; }

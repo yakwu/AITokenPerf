@@ -17,7 +17,6 @@
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost btn-sm" @click="refresh" title="刷新"><i class="ph ph-arrows-clockwise"></i></button>
         <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">
           <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
           <button class="btn btn-ghost btn-sm" @click="clearCompare()">清除</button>
@@ -601,10 +600,12 @@ onMounted(() => {
   if (localStorage.getItem('token')) {
     refresh();
   }
+  store.refreshFn = refresh;
 });
 
 onUnmounted(() => {
   if (deleteTimer) clearTimeout(deleteTimer);
+  store.refreshFn = null;
 });
 
 import { useRoute } from 'vue-router';
