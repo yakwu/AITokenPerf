@@ -101,7 +101,7 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
-import { getSitesSummary } from '../api';
+import { api, getSitesSummary } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
@@ -220,8 +220,64 @@ function getErrorTypes(site) {
   return [...errors].slice(0, 5);
 }
 
-function testSite(site) {
-  toast('测试功能开发中，敬请期待', 'info');
+async function testSite(site) {
+  const profile = site.profile;
+  if (!profile?.models?.length) {
+    toast('该站点未配置模型', 'info');
+    return;
+  }
+
+  try {
+    const res = await api('/api/bench/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base_url: profile.base_url,
+        api_key: profile.api_key_display || '',
+        model: profile.models[0],
+        provider: profile.provider || '',
+        concurrency_levels: [10],
+        requests_per_level: 10,
+        mode: 'burst',
+        max_tokens: 512,
+        timeout: 120,
+        duration: 120,
+        system_prompt: 'You are a helpful assistant.',
+        user_prompt: 'Say hello.',
+      }),
+    });
+
+    if (res.error) {
+      toast(res.error, 'error');
+      return;
+    }
+
+    toast('测试已启动', 'success');
+
+    // Poll until test completes, then refresh data
+    pollTestCompletion(res.task_id);
+  } catch (e) {
+    toast('启动测试失败: ' + e.message, 'error');
+  }
+}
+
+async function pollTestCompletion(taskId) {
+  const poll = async () => {
+    try {
+      const status = await api('/api/bench/status');
+      if (status.running) {
+        setTimeout(poll, 2000);
+      } else {
+        // Test complete, refresh site data
+        await loadData();
+        toast('测试完成，数据已刷新', 'success');
+      }
+    } catch {
+      // On error, just refresh
+      await loadData();
+    }
+  };
+  setTimeout(poll, 2000);
 }
 
 function goDetail(site) {
