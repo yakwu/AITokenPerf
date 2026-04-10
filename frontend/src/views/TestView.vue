@@ -210,9 +210,11 @@
       <div class="card" style="margin-bottom:20px">
         <div class="card-header">
           <div class="card-title">定时任务</div>
-          <button class="btn btn-primary btn-sm" @click="showCreateForm = !showCreateForm">
-            {{ showCreateForm ? '取消' : '新建定时任务' }}
-          </button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" @click="showCreateForm = !showCreateForm">
+              {{ showCreateForm ? '取消' : '新建定时任务' }}
+            </button>
+          </div>
         </div>
 
         <!-- 创建表单 -->
@@ -273,8 +275,8 @@
       </div>
 
       <!-- 任务列表 -->
-      <div class="card" style="padding:0;overflow-x:auto">
-        <div v-if="loading" style="text-align:center;color:var(--text-tertiary);padding:32px">加载中...</div>
+      <div class="card" style="padding:0;overflow-x:auto;position:relative">
+        <div v-if="loading && schedules.length === 0" style="text-align:center;color:var(--text-tertiary);padding:32px">加载中...</div>
         <div v-else class="table-wrap">
           <table>
             <thead>
@@ -302,6 +304,8 @@
                   <td>{{ formatInterval(s.schedule_value) }}</td>
                   <td>
                     <span class="status-badge" :class="s.status">
+                      <span v-if="s.status === 'active'" class="status-dot"></span>
+                      <i v-if="s.status === 'paused'" class="ph ph-pause" style="font-size:10px"></i>
                       {{ s.status === 'active' ? '运行中' : s.status === 'paused' ? '已暂停' : s.status }}
                     </span>
                   </td>
@@ -714,7 +718,15 @@ function autoGenerateName() {
 watch([() => createForm.value.profile_ids, () => createForm.value.schedule_value], () => autoGenerateName(), { deep: true });
 function destroyCharts() { if (trendLatencyChart) { trendLatencyChart.destroy(); trendLatencyChart = null; } if (trendQualityChart) { trendQualityChart.destroy(); trendQualityChart = null; } }
 
-async function refreshSchedules() { loading.value = true; try { const data = await getSchedules(); schedules.value = data.schedules || []; } catch (e) { toast('加载失败: ' + e.message, 'error'); } loading.value = false; }
+async function refreshSchedules() {
+  loading.value = true;
+  try {
+    const data = await getSchedules();
+    schedules.value = data.schedules || [];
+    if (expandedScheduleId.value != null) await loadHistory(expandedScheduleId.value);
+  } catch (e) { toast('加载失败: ' + e.message, 'error'); }
+  loading.value = false;
+}
 
 async function createSchedule() {
   const f = createForm.value; if (!f.name.trim()) { toast('请输入任务名称', 'info'); return; } if (f.profile_ids.length === 0) { toast('请至少选择一个配置', 'info'); return; }
@@ -784,7 +796,7 @@ async function changeTimeRange(hours) {
   destroyCharts(); await nextTick(); renderTrendSummary(); renderLatencyChart(); renderQualityChart();
 }
 
-async function loadMoreHistory() { if (expandedScheduleId.value == null) return; historyLoadingMore.value = true; try { const data = await getScheduleResults(expandedScheduleId.value, { limit: 100, offset: scheduleHistory.value.length }); scheduleHistory.value = [...scheduleHistory.value, ...(data.results || [])]; } catch (e) { toast('加载更多失败: ' + e.message, 'error'); } historyLoadingMore.value = false; }
+async function loadMoreHistory() { if (expandedScheduleId.value == null) return; historyLoadingMore.value = true; try { const data = await getScheduleResults(expandedScheduleId.value, { limit: 100, offset: scheduleHistory.value.length, hours: selectedTimeRange.value }); scheduleHistory.value = [...scheduleHistory.value, ...(data.results || [])]; } catch (e) { toast('加载更多失败: ' + e.message, 'error'); } historyLoadingMore.value = false; }
 
 function renderTrendSummary() {
   const results = scheduleHistory.value; if (!results || results.length === 0) { trendSummary.value = []; return; }
@@ -821,19 +833,18 @@ function viewResultInHistory(r) { window.showDetailOverlay(renderResultDetail(r)
 // ========== Schedule Polling ==========
 async function pollScheduleUpdates() {
   if (subMode.value !== 'schedule') return;
-  for (const s of schedules.value) {
-    try {
-      const res = await getScheduleResults(s.id, { limit: 1 });
-      const results = res.results || [];
-      if (results.length > 0) {
-        const latestId = results[0].test_id || results[0].filename;
-        if (lastKnownResultIds.value[s.id] !== undefined && lastKnownResultIds.value[s.id] !== latestId) {
-          toast(`定时任务「${s.name}」有新执行结果`, 'info');
-        }
-        lastKnownResultIds.value[s.id] = latestId;
+  try {
+    const data = await getSchedules();
+    const list = data.schedules || [];
+    for (const s of list) {
+      const latestId = s.latest_result_id;
+      if (latestId && lastKnownResultIds.value[s.id] !== undefined && lastKnownResultIds.value[s.id] !== latestId) {
+        toast(`定时任务「${s.name}」有新执行结果`, 'info');
       }
-    } catch (e) { /* 静默忽略 */ }
-  }
+      if (latestId) lastKnownResultIds.value[s.id] = latestId;
+    }
+    schedules.value = list;
+  } catch (e) { /* 静默忽略 */ }
 }
 
 function startSchedulePolling() {
@@ -856,9 +867,10 @@ onMounted(() => {
   startSchedulePolling();
   if (store.rerunConfig) loadProfiles().then(() => applyRerunConfig());
   checkRunningStatus();
+  store.refreshFn = () => { if (subMode.value === 'schedule') refreshSchedules(); else loadProfiles(); };
 });
 
-onUnmounted(() => { stopSSE(); stopMultiPolling(); stopSchedulePolling(); destroyCharts(); });
+onUnmounted(() => { stopSSE(); stopMultiPolling(); stopSchedulePolling(); destroyCharts(); store.refreshFn = null; });
 
 async function checkRunningStatus() {
   const data = await api('/api/bench/status');

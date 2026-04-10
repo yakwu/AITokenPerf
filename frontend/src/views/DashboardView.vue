@@ -1,6 +1,6 @@
 <template>
   <section class="tab-content active">
-    <div v-if="loading" style="text-align:center;color:var(--text-tertiary);padding:40px">加载中...</div>
+    <div v-if="loading && !contentHtml" style="text-align:center;color:var(--text-tertiary);padding:40px">加载中...</div>
     <div v-else v-html="contentHtml"></div>
   </section>
 </template>
@@ -240,7 +240,7 @@ function renderRecentTests(results) {
     const rate = s.success_rate;
     const rateClass = (rate || 0) >= 95 ? 'success' : (rate || 0) >= 80 ? 'accent' : 'danger';
     const tid = r.test_id || '-';
-    html += `<tr class="recent-row" style="cursor:pointer" onclick="window.location.href='/history';window._autoExpandTestId='${escHtml(tid)}'">
+    html += `<tr class="recent-row" style="cursor:pointer" onclick="window.__goHistory('${escHtml(r.filename || '')}')">
       <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">${escHtml(tid)}</td>
       <td>${relativeTime(r.timestamp)}</td>
       <td class="matrix-model">${escHtml(shortModel(c.model))}</td>
@@ -278,8 +278,17 @@ async function refreshDashboard() {
 }
 
 import { useRoute } from 'vue-router';
+import { onUnmounted } from 'vue';
 const route = useRoute();
 watch(() => route.path, (val) => {
   if (val === '/') refreshDashboard();
 }, { immediate: true });
+
+window.__goHistory = (filename) => {
+  store.pendingFilename = filename;
+  store.switchTab('history');
+};
+store.refreshFn = refreshDashboard;
+
+onUnmounted(() => { delete window.__goHistory; store.refreshFn = null; });
 </script>

@@ -1,17 +1,18 @@
 /* ---- Header ---- */
 .header {
-  background: var(--surface);
+  background: rgba(255,255,255,0.92);
   border-bottom: 1px solid var(--border);
   padding: 0 32px;
   height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100;
   backdrop-filter: blur(12px);
-  background: rgba(255,255,255,0.92);
 }
 
 .header-left {
@@ -46,6 +47,9 @@
 .status-badge.idle { background: var(--border-subtle); color: var(--text-tertiary); }
 .status-badge.running { background: var(--accent-light); color: var(--accent); }
 .status-badge.stopping { background: var(--warning-light); color: var(--warning); }
+.status-badge.active { background: var(--success-light); color: var(--success); }
+.status-badge.paused { background: var(--warning-light); color: var(--warning); }
+.status-badge.active .status-dot { animation: pulse 1.5s ease-in-out infinite; }
 
 .status-dot {
   width: 7px; height: 7px;
@@ -69,6 +73,11 @@
   padding: 0 32px;
   display: flex;
   gap: 0;
+  position: fixed;
+  top: 64px;
+  left: 0;
+  right: 0;
+  z-index: 100;
 }
 
 .tab-btn {
@@ -94,7 +103,7 @@
 }
 
 /* ---- Main Content ---- */
-.main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
+.main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; padding-top: 128px; }
 
 .tab-content { display: none; animation: fadeIn 0.25s ease; }
 .tab-content.active { display: block; }
@@ -916,6 +925,34 @@ tbody tr:last-child td { border-bottom: none; }
   gap: 4px;
   align-items: center;
   flex: 1;
+}
+
+.time-range-pills {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.time-range-pill {
+  padding: 8px 12px;
+  border: none;
+  background: var(--surface);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  border-right: 1px solid var(--border);
+}
+.time-range-pill:last-child { border-right: none; }
+.time-range-pill:hover { background: var(--bg); }
+.time-range-pill.active {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .filter-dropdown {
@@ -1783,6 +1820,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 .header-right {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 .header { justify-content: space-between; }
 .user-menu { position: relative; }

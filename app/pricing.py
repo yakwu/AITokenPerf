@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Optional
@@ -14,6 +15,8 @@ LITELLM_PRICING_URL = (
     "model_prices_and_context_window.json"
 )
 _CACHE_PATH = Path(__file__).parent.parent / "data" / "pricing_cache.json"
+
+log = logging.getLogger("pricing")
 _MODELS_CONFIG_PATH = Path(__file__).parent.parent / "data" / "models_config.json"
 _REFRESH_INTERVAL = 86400  # 24 hours
 
@@ -47,9 +50,9 @@ class PricingService:
                 self._cache = data.get("models", {})
                 self._last_refresh = data.get("last_refresh", 0.0)
                 self._loaded = True
-                print(f"  [Pricing] 本地缓存已加载: {len(self._cache)} 个模型")
+                log.info("本地缓存已加载: %d 个模型", len(self._cache))
             except Exception as e:
-                print(f"  [Pricing] 本地缓存读取失败: {e}")
+                log.warning("本地缓存读取失败: %s", e)
 
         # 如果缓存过期或不存在，尝试刷新
         if not self._loaded or (time.time() - self._last_refresh) > _REFRESH_INTERVAL:
@@ -59,14 +62,14 @@ class PricingService:
         """从远程下载最新价格数据"""
         async with self._lock:
             try:
-                print(f"  [Pricing] 正在从 GitHub 下载模型价格数据...")
+                log.info("正在从 GitHub 下载模型价格数据...")
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
                         LITELLM_PRICING_URL,
                         timeout=aiohttp.ClientTimeout(total=30),
                     ) as resp:
                         if resp.status != 200:
-                            print(f"  [Pricing] 下载失败: HTTP {resp.status}")
+                            log.warning("下载失败: HTTP %d", resp.status)
                             return
                         raw = json.loads(await resp.text())
 
@@ -92,7 +95,7 @@ class PricingService:
                 self._last_refresh = time.time()
                 self._loaded = True
 
-                print(f"  [Pricing] 已加载 {len(models)} 个模型的价格数据")
+                log.info("已加载 %d 个模型的价格数据", len(models))
 
                 # 保存到本地
                 _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +107,7 @@ class PricingService:
                     encoding="utf-8",
                 )
             except Exception as e:
-                print(f"  [Pricing] 刷新失败: {e!r}")
+                log.error("刷新失败: %r", e)
 
     def get_pricing(self, model_name: str) -> Optional[dict]:
         """根据模型名获取价格信息。返回 {input_cost_per_token, output_cost_per_token} 或 None"""

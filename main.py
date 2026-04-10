@@ -9,6 +9,7 @@ AITokenPerf — API SSE 流式压测工具 (Web 模式)
 
 import argparse
 import asyncio
+import logging
 import os
 import time
 
@@ -128,8 +129,10 @@ def main():
     args = parser.parse_args()
 
     import uvicorn
+    log_fmt = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    logging.basicConfig(level=logging.INFO, format=log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
     uvicorn.run("app.server:app", host=args.host, port=args.port,
-                log_level="info", workers=args.workers)
+                log_level="info", workers=args.workers, log_config=None)
 
 
 if __name__ == "__main__":

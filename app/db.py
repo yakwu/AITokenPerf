@@ -493,16 +493,24 @@ async def get_results(user_id: int) -> list[dict]:
         return [_row_to_result_dict(row) for row in rows]
 
 
-async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0) -> dict:
-    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。"""
+async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None) -> dict:
+    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。hours 可选，仅返回最近 N 小时的数据。"""
+    params: dict = {"uid": user_id}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND r.timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
     async with engine.connect() as conn:
         cur = await conn.execute(
-            text("""SELECT r.*, st.name AS schedule_name
+            text(f"""SELECT r.*, st.name AS schedule_name
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-                   WHERE r.user_id=:uid
+                   WHERE r.user_id=:uid {time_filter}
                    ORDER BY r.created_at DESC"""),
-            {"uid": user_id},
+            params,
         )
         rows = cur.fetchall()
 
@@ -620,8 +628,8 @@ async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, li
     params: dict = {"uid": user_id, "sid": scheduled_task_id, "limit": limit, "offset": offset}
     time_filter = ""
     if hours is not None:
-        from datetime import datetime, timedelta, timezone
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
         time_filter = "AND r.timestamp >= :cutoff"
         params["cutoff"] = cutoff
 
@@ -664,8 +672,8 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
     params: dict = {"uid": user_id, "sid": scheduled_task_id}
     where_extra = ""
     if hours is not None:
-        from datetime import datetime, timedelta, timezone
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
         where_extra = "AND timestamp >= :cutoff"
         params["cutoff"] = cutoff
 
@@ -764,6 +772,28 @@ async def create_scheduled_task(user_id: int, name: str, profile_ids: list,
             return cur.lastrowid
         result = await conn.execute(text("SELECT lastval()"))
         return (result.fetchone())[0]
+
+
+async def get_latest_result_ids_by_user(user_id: int) -> dict[int, str | None]:
+    """批量返回该用户所有定时任务的最新一条结果的 test_id 或 filename。
+    用一条 SQL + GROUP BY 替代 N 条单独查询。
+    """
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("""SELECT r.scheduled_task_id, r.test_id, r.filename
+                    FROM results r
+                    INNER JOIN (
+                        SELECT scheduled_task_id, MAX(created_at) AS max_at
+                        FROM results
+                        WHERE user_id = :uid AND scheduled_task_id IS NOT NULL
+                        GROUP BY scheduled_task_id
+                    ) latest ON r.scheduled_task_id = latest.scheduled_task_id
+                             AND r.created_at = latest.max_at
+                    WHERE r.user_id = :uid"""),
+            {"uid": user_id},
+        )
+        rows = cur.fetchall()
+    return {row[0]: (row[1] or row[2]) for row in rows}
 
 
 async def get_scheduled_tasks(user_id: int) -> list[dict]:

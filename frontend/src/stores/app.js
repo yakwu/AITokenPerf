@@ -19,6 +19,7 @@ export const useAppStore = defineStore('app', () => {
   const rerunConfig = ref(null);
   const pendingFilename = ref(null);
   const pendingCompareFilenames = ref(null);
+  const refreshFn = ref(null);
 
   function switchTab(t) {
     if (!isLoggedIn() && t !== 'auth') return;
@@ -40,7 +41,7 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     user, status, statusLabels,
-    rerunConfig, pendingFilename, pendingCompareFilenames,
+    rerunConfig, pendingFilename, pendingCompareFilenames, refreshFn,
     switchTab, setUser, logout,
   };
 });

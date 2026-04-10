@@ -9,6 +9,7 @@
       </div>
     </div>
     <div class="header-right" v-if="store.user">
+      <button v-if="store.refreshFn" class="btn btn-ghost btn-sm header-refresh" @click="store.refreshFn()" title="刷新"><i class="ph ph-arrows-clockwise"></i></button>
       <div class="user-menu" v-click-outside="() => userMenuOpen = false">
         <button class="user-avatar" @click="userMenuOpen = !userMenuOpen">
           {{ (store.user?.email || '?')[0].toUpperCase() }}

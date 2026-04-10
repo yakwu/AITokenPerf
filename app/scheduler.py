@@ -27,7 +27,7 @@ log = logging.getLogger("scheduler")
 log.setLevel(logging.INFO)
 if not log.handlers:
     _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("[scheduler] %(message)s"))
+    _handler.setFormatter(logging.Formatter("%(asctime)s [scheduler] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
     log.addHandler(_handler)
 
 

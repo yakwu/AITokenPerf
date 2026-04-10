@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
@@ -20,6 +21,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.client import send_streaming_request
 from app.stats import aggregate_metrics, build_report_dict
 from app.logger import log_access, log_security
+
+log = logging.getLogger("server")
 from app.db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
 from app.db import switch_active_profile, delete_profile as db_delete_profile
 from app.db import save_result as db_save_result, get_results as db_get_results
@@ -310,7 +313,7 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
                         scheduled_task_id=task.scheduled_task_id,
                     )
                 except Exception as db_err:
-                    print(f"Warning: failed to save result to DB: {db_err}")
+                    log.warning("failed to save result to DB: %s", db_err)
 
                 await _publish(task, "bench:level_complete", {
                     "concurrency": level,
@@ -332,8 +335,7 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
     except Exception as e:
         import traceback
         log_security("bench_error", error=str(e))
-        print(f"[BENCH ERROR] {e}")
-        traceback.print_exc()
+        log.error("bench error: %s", e, exc_info=True)
         await _publish(task, "bench:error", {"error": "Benchmark execution failed, check server logs for details"})
     finally:
         task.status = "idle"
@@ -744,9 +746,10 @@ async def delete_profile_handler(name: str, user: dict = Depends(get_current_use
 async def list_results(
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    hours: int | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
-    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset)
+    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours)
     return {"total": result["total"], "items": result["items"]}
 
 
@@ -1159,8 +1162,11 @@ _SCHEDULE_CONFIG_WHITELIST = {
 
 @app.get("/api/schedules")
 async def list_schedules(user: dict = Depends(get_current_user)):
-    from app.db import get_scheduled_tasks
+    from app.db import get_scheduled_tasks, get_latest_result_ids_by_user
     tasks = await get_scheduled_tasks(user["user_id"])
+    latest = await get_latest_result_ids_by_user(user["user_id"])
+    for t in tasks:
+        t["latest_result_id"] = latest.get(t["id"])
     return {"schedules": tasks}
 
 

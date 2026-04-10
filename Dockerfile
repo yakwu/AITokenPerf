@@ -4,7 +4,7 @@ FROM oven/bun:1 AS builder
 WORKDIR /app/frontend
 
 # 先复制依赖声明，利用 Docker 层缓存
-COPY frontend/package.json frontend/bun.lockb ./
+COPY frontend/package.json frontend/bun.lock ./
 RUN bun install --frozen-lockfile
 
 # 再复制源码（源码变更不会使 install 层失效）

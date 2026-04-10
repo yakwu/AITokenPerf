@@ -12,10 +12,15 @@
         <FilterDropdown v-model="concurrencyFilter" :options="uniqueConcurrenciesStr" all-label="全部并发" />
         <FilterDropdown v-model="modeFilter" :options="['burst','sustained']" all-label="全部模式" />
         <FilterDropdown v-model="sourceFilter" :options="sourceOptions" all-label="全部来源" />
+        <div class="time-range-pills">
+          <button v-for="opt in timeRangeOptions" :key="opt.label" class="time-range-pill" :class="{ active: timeRange === opt.value }" @click="setTimeRange(opt.value)">{{ opt.label }}</button>
+        </div>
       </div>
-      <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">
-        <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
-        <button class="btn btn-ghost btn-sm" @click="clearCompare()">清除</button>
+      <div style="display:flex;gap:8px">
+        <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">
+          <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
+          <button class="btn btn-ghost btn-sm" @click="clearCompare()">清除</button>
+        </div>
       </div>
     </div>
 
@@ -175,6 +180,13 @@ const modelFilter = ref('');
 const urlFilter = ref('');
 const concurrencyFilter = ref('');
 const sourceFilter = ref('');
+const timeRange = ref(6);
+const timeRangeOptions = [
+  { label: '全部', value: null },
+  { label: '6h', value: 6 },
+  { label: '24h', value: 24 },
+  { label: '7d', value: 168 },
+];
 const sortKey = ref('timestamp');
 const sortDir = ref('desc');
 const compareSet = reactive(new Set());
@@ -287,7 +299,9 @@ function groupChildDetailHtml(idx, ci) {
 
 // ---- Actions ----
 async function refresh() {
-  const data = await api(`/api/results?limit=${pageSize}&offset=${(page.value - 1) * pageSize}`);
+  const params = new URLSearchParams({ limit: pageSize, offset: (page.value - 1) * pageSize });
+  if (timeRange.value) params.set('hours', timeRange.value);
+  const data = await api(`/api/results?${params}`);
   results.value = data.items || [];
   total.value = data.total || 0;
   await nextTick();
@@ -303,6 +317,13 @@ function goToPage(p) {
   for (const k of Object.keys(groupChildDetailHtmlMap)) delete groupChildDetailHtmlMap[k];
   expandedRows.clear();
   expandedGroups.clear();
+  refresh();
+}
+
+function setTimeRange(val) {
+  if (timeRange.value === val) return;
+  timeRange.value = val;
+  page.value = 1;
   refresh();
 }
 
@@ -579,10 +600,12 @@ onMounted(() => {
   if (localStorage.getItem('token')) {
     refresh();
   }
+  store.refreshFn = refresh;
 });
 
 onUnmounted(() => {
   if (deleteTimer) clearTimeout(deleteTimer);
+  store.refreshFn = null;
 });
 
 import { useRoute } from 'vue-router';
