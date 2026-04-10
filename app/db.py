@@ -1011,3 +1011,53 @@ async def count_user_scheduled_tasks(user_id: int) -> int:
             {"uid": user_id},
         )
         return cur.fetchone()[0]
+
+
+# ---- Sites Summary ----
+
+async def get_sites_summary(user_id: int) -> list[dict]:
+    """获取用户所有站点的最新测试摘要"""
+    profiles = await get_profiles(user_id)
+    results = await get_results(user_id)
+
+    # 按 profile name 分组，聚合最新结果
+    summary = {}
+    for p in profiles:
+        key = p["name"]
+        summary[key] = {
+            "profile": p,
+            "latest_results": [],
+            "health": "unknown",
+            "last_test_at": None,
+        }
+
+    for r in results:
+        config = r.get("config", {})
+        profile_name = config.get("_profile_name", "")
+        if profile_name in summary:
+            summary[profile_name]["latest_results"].append(r)
+
+    # 计算健康状态
+    for key, val in summary.items():
+        # 截断 latest_results 到最近 10 条，防止内存膨胀
+        val["latest_results"] = val["latest_results"][:10]
+
+        latest = val["latest_results"][:5]  # 最近 5 次用于健康计算
+        if not latest:
+            val["health"] = "untested"
+            continue
+
+        val["last_test_at"] = latest[0].get("timestamp", "")
+        success_rates = []
+        for r in latest:
+            s = r.get("summary", {})
+            if s.get("total_requests", 0) > 0:
+                success_rates.append(s["successful_requests"] / s["total_requests"])
+
+        if not success_rates:
+            val["health"] = "unknown"
+        else:
+            avg_rate = sum(success_rates) / len(success_rates)
+            val["health"] = "healthy" if avg_rate >= 0.95 else "error"
+
+    return list(summary.values())

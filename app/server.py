@@ -29,6 +29,7 @@ from app.db import save_result as db_save_result, get_results as db_get_results
 from app.db import get_results_aggregated as db_get_results_aggregated
 from app.db import get_result_by_filename, delete_result as db_delete_result
 from app.db import get_settings, save_settings
+from app.db import get_sites_summary as db_get_sites_summary
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
 from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
 from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
@@ -629,6 +630,19 @@ async def update_config(request: Request, user: dict = Depends(get_current_user)
         await upsert_profile(user_id, set_active=False, **profile_data)
 
     return {"status": "ok"}
+
+
+# ---- Sites Routes ----
+
+@app.get("/api/sites/summary")
+async def sites_summary(user: dict = Depends(get_current_user)):
+    summary = await db_get_sites_summary(user["user_id"])
+    for entry in summary:
+        p = entry.get("profile")
+        if p and "api_key" in p:
+            p["api_key_display"] = _mask_api_key(p["api_key"])
+            del p["api_key"]
+    return {"summary": summary}
 
 
 # ---- Profiles Routes ----
