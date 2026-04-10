@@ -37,6 +37,10 @@ async def setup_db():
     await init_db()
     await migrate()
     yield
+    # 清理内存中的 manager tasks，避免测试间互相影响
+    from app.server import manager
+    manager._tasks.clear()
+    manager._group_tasks.clear()
 
 
 @pytest_asyncio.fixture

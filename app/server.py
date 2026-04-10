@@ -918,6 +918,7 @@ async def bench_status(
     if not task:
         return {
             "task_id": "", "status": "idle",
+            "scheduled_task_id": 0,
             "concurrency": 0, "level": 0, "total_levels": 0,
             "done": 0, "total": 0, "success": 0, "failed": 0,
             "elapsed": 0, "events": [],
@@ -929,6 +930,7 @@ async def bench_status(
     return {
         "task_id": task.task_id,
         "status": task.status,
+        "scheduled_task_id": task.scheduled_task_id or 0,
         "concurrency": task.current_concurrency,
         "level": task.current_level,
         "total_levels": task.total_levels,
