@@ -59,12 +59,19 @@
 
         <!-- Model Metrics Table -->
         <div v-else class="site-card-metrics">
+          <!-- Degradation Warning -->
+          <div v-if="getDegradation(site)" class="site-degradation-warning" @click="goSiteHistory(site)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>{{ getDegradation(site) }}</span>
+          </div>
+
           <div class="table-wrap">
             <table class="matrix-table">
               <thead>
                 <tr>
                   <th>模型</th>
                   <th>TTFT P50</th>
+                  <th style="width:70px">趋势</th>
                   <th>TPOT P50</th>
                   <th>Token·s⁻¹</th>
                   <th>成功率</th>
@@ -74,6 +81,14 @@
                 <tr v-for="m in getModelMetrics(site)" :key="m.model">
                   <td class="matrix-model">{{ m.model }}</td>
                   <td :style="latencyColorStyle(m.ttft, 0.5, 2)">{{ fmtTime(m.ttft) }}</td>
+                  <td class="sparkline-cell">
+                    <svg v-if="m.ttftTrend && m.ttftTrend.length >= 2" width="60" height="20" class="sparkline">
+                      <polyline :points="sparklinePoints(m.ttftTrend)" fill="none"
+                        :stroke="m.ttftTrend.length >= 2 && m.ttftTrend[m.ttftTrend.length-1] > m.ttftTrend[0] ? 'var(--danger)' : 'var(--success)'"
+                        stroke-width="1.5" stroke-linejoin="round" />
+                    </svg>
+                    <span v-else class="sparkline-na">-</span>
+                  </td>
                   <td :style="latencyColorStyle(m.tpot, 0.01, 0.05)">{{ fmtTime(m.tpot) }}</td>
                   <td>{{ m.tps != null ? fmtNum(m.tps, 0) + ' t/s' : '-' }}</td>
                   <td><span class="rate-badge" :class="rateClass(m.successRate)">{{ fmtPct(m.successRate) }}</span></td>
@@ -84,7 +99,8 @@
 
           <!-- Error Distribution Tags -->
           <div v-if="getErrorTypes(site).length" class="site-error-tags">
-            <span class="site-error-tag" v-for="err in getErrorTypes(site)" :key="err">{{ err }}</span>
+            <span class="site-error-label">近 {{ getTotalErrorCount(site) }} 次错误</span>
+            <span class="site-error-tag" v-for="err in getErrorTypes(site)" :key="err.type" @click.stop="goHistoryWithError(site, err.type)">{{ err.type }} &times; {{ err.count }}</span>
           </div>
         </div>
 
@@ -196,28 +212,98 @@ function getModelMetrics(site) {
     const ttfts = results.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
     const ttft = ttfts.length ? ttfts.reduce((a, b) => a + b, 0) / ttfts.length : null;
 
+    // Sparkline trend: last 10 TTFT P50 values (results are ordered newest-first, reverse for chart)
+    const ttftTrend = ttfts.slice(0, 10).reverse();
+
     const tpots = results.map(r => r.percentiles?.TPOT?.P50).filter(v => v != null);
     const tpot = tpots.length ? tpots.reduce((a, b) => a + b, 0) / tpots.length : null;
 
     const tpsList = results.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
     const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
 
-    return { model, ttft, tpot, tps, successRate };
+    return { model, ttft, ttftTrend, tpot, tps, successRate };
   }).sort((a, b) => a.model.localeCompare(b.model));
+}
+
+function sparklinePoints(values) {
+  if (!values || values.length < 2) return '';
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  return values.map((v, i) => {
+    const x = (i / (values.length - 1)) * 60;
+    const y = 20 - ((v - min) / range) * 18;
+    return `${x},${y}`;
+  }).join(' ');
 }
 
 function getErrorTypes(site) {
   const results = site.latest_results || [];
-  const errors = new Set();
+  const errorCounts = {};
   for (const r of results) {
     const errDetails = r.error_details;
     if (Array.isArray(errDetails)) {
       for (const e of errDetails) {
-        if (e?.error_type) errors.add(e.error_type);
+        const type = e?.error_type;
+        if (type) {
+          errorCounts[type] = (errorCounts[type] || 0) + 1;
+        }
       }
     }
   }
-  return [...errors].slice(0, 5);
+  return Object.entries(errorCounts)
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+}
+
+function getTotalErrorCount(site) {
+  return getErrorTypes(site).reduce((s, e) => s + e.count, 0);
+}
+
+function getDegradation(site) {
+  const results = site.latest_results || [];
+  if (results.length < 3) return null;
+
+  // Split results: earlier half vs recent half
+  const half = Math.ceil(results.length / 2);
+  const recent = results.slice(0, half);
+  const earlier = results.slice(half);
+
+  const calcAvgRate = (list) => {
+    const rates = list
+      .map(r => {
+        const s = r.summary || {};
+        const total = s.total_requests || 0;
+        return total > 0 ? (s.successful_requests || 0) / total * 100 : null;
+      })
+      .filter(v => v != null);
+    return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
+  };
+
+  const recentRate = calcAvgRate(recent);
+  const earlierRate = calcAvgRate(earlier);
+
+  if (recentRate == null || earlierRate == null) return null;
+  const drop = earlierRate - recentRate;
+  if (drop >= 5) {
+    return `成功率较近期下降 ${drop.toFixed(0)}%`;
+  }
+  return null;
+}
+
+function goHistoryWithError(site, errorType) {
+  const name = site.profile?.name;
+  if (name && errorType) {
+    router.push({ path: '/history', query: { site: name, error: errorType } });
+  }
+}
+
+function goSiteHistory(site) {
+  const name = site.profile?.name;
+  if (name) {
+    router.push(`/sites/${encodeURIComponent(name)}`);
+  }
 }
 
 async function testSite(site) {
@@ -483,10 +569,18 @@ onUnmounted(() => { store.refreshFn = null; });
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  align-items: center;
+}
+
+.site-error-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-right: 2px;
 }
 
 .site-error-tag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--danger-light);
@@ -494,6 +588,49 @@ onUnmounted(() => { store.refreshFn = null; });
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.site-error-tag:hover {
+  opacity: 0.8;
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ---- Degradation Warning ---- */
+.site-degradation-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--warning-light, #fef3cd);
+  color: var(--warning, #d97706);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.site-degradation-warning:hover {
+  opacity: 0.85;
+}
+
+/* ---- Sparkline ---- */
+.sparkline-cell {
+  padding: 4px 6px !important;
+  vertical-align: middle;
+}
+
+.sparkline {
+  display: block;
+  vertical-align: middle;
+}
+
+.sparkline-na {
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 /* ---- Card Actions ---- */
