@@ -117,6 +117,16 @@ def test_test_view_imports_schedule_apis():
     assert "createScheduleApi" in tv, "TestView 应该导入 createScheduleApi"
 
 
+def test_check_running_status_skips_sse_for_scheduled_task():
+    """checkRunningStatus 应根据 scheduled_task_id 决定是否启动 SSE"""
+    vue_file = Path(__file__).parent.parent / "frontend" / "src" / "views" / "TestView.vue"
+    content = vue_file.read_text()
+    # 应该有条件判断：只有非定时任务才启动 SSE
+    assert "data.scheduled_task_id" in content, \
+        "checkRunningStatus should check scheduled_task_id before starting SSE"
+    assert "startSSE" in content
+
+
 if __name__ == "__main__":
     import sys
     tests = [v for k, v in globals().items() if k.startswith("test_")]

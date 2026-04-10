@@ -798,7 +798,7 @@ onUnmounted(() => { stopSSE(); stopMultiPolling(); destroyCharts(); });
 
 async function checkRunningStatus() {
   const data = await api('/api/bench/status');
-  if (data.status === 'running') { taskId.value = data.task_id; running.value = true; store.status = 'running'; subMode.value = 'single'; startSSE(); }
+  if (data.status === 'running') { taskId.value = data.task_id; running.value = true; store.status = 'running'; subMode.value = 'single'; if (!data.scheduled_task_id) startSSE(); }
 }
 </script>
 
