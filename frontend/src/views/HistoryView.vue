@@ -12,19 +12,64 @@
         <FilterDropdown v-model="concurrencyFilter" :options="uniqueConcurrenciesStr" all-label="全部并发" />
         <FilterDropdown v-model="modeFilter" :options="['burst','sustained']" all-label="全部模式" />
         <FilterDropdown v-model="sourceFilter" :options="sourceOptions" all-label="全部来源" />
+        <FilterDropdown v-model="siteFilter" :options="uniqueProfiles" all-label="全部站点" wide />
         <div class="time-range-pills">
           <button v-for="opt in timeRangeOptions" :key="opt.label" class="time-range-pill" :class="{ active: timeRange === opt.value }" @click="setTimeRange(opt.value)">{{ opt.label }}</button>
         </div>
       </div>
-      <div style="display:flex;gap:8px">
-        <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">
-          <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
-          <button class="btn btn-ghost btn-sm" @click="clearCompare()">清除</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="compare-bar" :class="{ visible: compareSet.size >= 1 }">
+          <span class="compare-bar-label">已选 {{ compareSet.size }} 条</span>
+          <span class="compare-bar-tags">
+            <span v-for="idx in [...compareSet]" :key="idx" class="compare-tag">
+              {{ compareTagLabel(filtered[idx]) }}
+              <button class="compare-tag-remove" @click="toggleCompare(idx)">&times;</button>
+            </span>
+          </span>
+          <button class="btn btn-primary btn-sm" :disabled="compareSet.size < 2" @click="enterCompare()">对比</button>
+          <button class="btn btn-ghost btn-sm" @click="clearCompare()">取消</button>
         </div>
       </div>
     </div>
 
-    <div class="card" style="padding:0;overflow:hidden">
+    <!-- Comparison view -->
+    <div v-if="showCompareView && compareData" class="card" style="padding:0;overflow:hidden">
+      <div style="padding:16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)">
+        <a href="#" class="compare-back-link" @click.prevent="exitCompare">&larr; 返回列表</a>
+        <span style="font-weight:600;font-size:15px">对比分析</span>
+        <span style="color:var(--text-tertiary);font-size:13px">{{ compareData.records.length }} 条记录</span>
+      </div>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th style="position:sticky;left:0;background:var(--card);z-index:1;min-width:100px">指标</th>
+              <th v-for="(rec, ri) in compareData.records" :key="ri">
+                {{ rec.config?._profile_name || rec.config?.model || '?' }}
+                <br><small style="font-weight:400">{{ rec.config?.concurrency || '?' }}c &middot; {{ fmtTimestamp(rec.timestamp).slice(5) }}</small>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="metric in compareData.metrics" :key="metric.label">
+              <td style="position:sticky;left:0;background:var(--card);z-index:1;font-weight:600;white-space:nowrap">{{ metric.label }}</td>
+              <td v-for="(rec, ri) in compareData.records" :key="ri"
+                :class="getCompareCellClassFor(metric, compareData.records, ri)">
+                <span>{{ formatMetricValue(metric, rec) }}</span>
+                <span v-if="getPctDiff(metric, compareData.records, ri)"
+                  class="compare-pct-diff"
+                  :style="{ color: isPositiveDiff(metric, compareData.records, ri) ? 'var(--danger)' : 'var(--success)' }">
+                  {{ getPctDiff(metric, compareData.records, ri) }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Normal table view -->
+    <div v-else class="card" style="padding:0;overflow:hidden">
       <div class="table-wrap">
         <table>
           <thead>
@@ -42,7 +87,7 @@
               <th style="width:82px" class="sortable" :class="sortKey === 'cost' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('cost')">费用 <span class="sort-arrow" v-if="sortKey === 'cost'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
               <th style="width:82px" class="sortable" :class="sortKey === 'e2e' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('e2e')">E2E P50 <span class="sort-arrow" v-if="sortKey === 'e2e'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
               <th style="width:100px" class="sortable" :class="sortKey === 'throughput' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('throughput')">吞吐量 <span class="sort-arrow" v-if="sortKey === 'throughput'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:64px"></th>
+              <th style="width:90px"></th>
             </tr>
           </thead>
           <tbody>
@@ -55,7 +100,7 @@
               <!-- Main row -->
               <tr
                 class="history-row"
-                :class="{ expanded: !isGroup(r) && expandedRows.has(idx) }"
+                :class="{ expanded: !isGroup(r) && expandedRows.has(idx), 'error-row': !isGroup(r) && r.summary?.success_rate != null && r.summary.success_rate < 95 }"
                 style="cursor:pointer"
                 @click="onRowClick(r, idx, $event)"
               >
@@ -82,6 +127,7 @@
                 <td :style="latencyColorStyle(r.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600'">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
                 <td :style="qualityColorStyle(r.summary?.throughput_rps, 20, 5) + ';font-weight:600'">{{ fmtNum(r.summary?.throughput_rps) }} /s</td>
                 <td style="white-space:nowrap">
+                  <button v-if="!isGroup(r) && r.config?._profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(r)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
                   <button class="del-btn expand-btn" @click.stop="rerunResult(r)" title="重新运行" style="color:var(--accent)">&#8635;</button>
                   <button class="del-btn expand-btn" @click.stop="deleteResult(r.filename || '')" title="删除" style="color:var(--danger)">
                     <span v-if="pendingDelete === (r.filename || '')" class="delete-undo">确认删除</span>
@@ -95,6 +141,7 @@
                 <template v-for="(child, ci) in (r.children || [])" :key="child.filename || ci">
                   <tr
                     class="history-row group-child"
+                    :class="{ 'error-row': child.summary?.success_rate != null && child.summary.success_rate < 95 }"
                     style="cursor:pointer"
                     @click="toggleGroupChildDetail(idx, ci)"
                   >
@@ -112,6 +159,7 @@
                     <td :style="latencyColorStyle(child.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600;font-size:12px'">{{ fmtTime(child.percentiles?.E2E?.P50) }}</td>
                     <td :style="qualityColorStyle(child.summary?.throughput_rps, 20, 5) + ';font-weight:600;font-size:12px'">{{ fmtNum(child.summary?.throughput_rps) }} /s</td>
                     <td>
+                      <button v-if="child.config?._profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(child)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
                       <button class="del-btn expand-btn" @click.stop="rerunResult(child)" title="重新运行" style="color:var(--accent);font-size:11px">&#8635;</button>
                     </td>
                   </tr>
@@ -155,6 +203,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api/index.js';
 import { useAppStore } from '../stores/app.js';
 import { toast } from '../composables/useToast.js';
@@ -180,6 +229,7 @@ const modelFilter = ref('');
 const urlFilter = ref('');
 const concurrencyFilter = ref('');
 const sourceFilter = ref('');
+const siteFilter = ref('');
 const timeRange = ref(6);
 const timeRangeOptions = [
   { label: '全部', value: null },
@@ -227,6 +277,13 @@ const sourceOptions = computed(() =>
   ['手动', ...uniqueScheduleNames.value]
 );
 
+const uniqueProfiles = computed(() =>
+  [...new Set(results.value.map(r => r.config?._profile_name).filter(Boolean))].sort()
+);
+
+// Comparison view state
+const showCompareView = ref(false);
+
 const filtered = computed(() => {
   let list = results.value.filter(r => {
     const c = r.config || {};
@@ -238,6 +295,7 @@ const filtered = computed(() => {
       const src = r.schedule_name || '手动';
       if (src !== sourceFilter.value) return false;
     }
+    if (siteFilter.value && (r.config?._profile_name || '') !== siteFilter.value) return false;
     if (search.value) {
       const hay = `${c.model} ${c.base_url} ${r.timestamp} ${r.test_id || ''} ${r.schedule_name || ''}`.toLowerCase();
       if (!hay.includes(search.value.toLowerCase())) return false;
@@ -273,6 +331,29 @@ const pageNumbers = computed(() => {
     if (i >= 1 && i <= t) pages.add(i);
   }
   return [...pages].sort((a, b) => a - b);
+});
+
+// Comparison data for inline compare view
+const compareData = computed(() => {
+  const list = filtered.value;
+  const selected = [...compareSet].map(i => list[i]).filter(Boolean);
+  if (selected.length < 2) return null;
+
+  const metrics = [
+    { label: '模型', getValue: r => r.config?.model || '-', higherIsBetter: null },
+    { label: '并发', getValue: r => String(r.config?.concurrency || '-'), higherIsBetter: null },
+    { label: 'TTFT P50', getValue: r => r.percentiles?.TTFT?.P50, higherIsBetter: false, format: fmtTime },
+    { label: 'TPOT P50', getValue: r => r.percentiles?.TPOT?.P50, higherIsBetter: false, format: fmtTime },
+    { label: 'Token/s', getValue: r => r.summary?.throughput_rps, higherIsBetter: true, format: v => fmtNum(v) + ' /s' },
+    { label: '成功率', getValue: r => r.summary?.success_rate, higherIsBetter: true, format: fmtPct },
+    { label: '错误', getValue: r => {
+      const total = r.summary?.total_requests || 0;
+      const success = r.summary?.successful_requests || 0;
+      return total - success;
+    }, higherIsBetter: false, format: v => String(v ?? '-') },
+  ];
+
+  return { records: selected, metrics };
 });
 
 // ---- Helpers ----
@@ -389,6 +470,103 @@ function toggleCompare(idx) {
 
 function clearCompare() {
   compareSet.clear();
+  showCompareView.value = false;
+}
+
+function enterCompare() {
+  if (compareSet.size < 2) { toast('请至少选择 2 条记录', 'info'); return; }
+  showCompareView.value = true;
+}
+
+function exitCompare() {
+  showCompareView.value = false;
+}
+
+function rerunAtSite(r) {
+  const profileName = r.config?._profile_name;
+  if (!profileName) { toast('该记录无站点信息', 'info'); return; }
+  router.push('/sites/' + encodeURIComponent(profileName));
+}
+
+function getCompareCellClass(metric, records) {
+  if (metric.higherIsBetter === null) return '';
+  const vals = records.map(r => metric.getValue(r));
+  const current = metric.getValue(records[arguments[2]]);
+  if (current == null) return '';
+  const nonNull = vals.filter(v => v != null);
+  if (nonNull.length < 2) return '';
+  if (metric.higherIsBetter) {
+    const best = Math.max(...nonNull);
+    if (current === best) return 'compare-best';
+  } else {
+    const best = Math.min(...nonNull);
+    if (current === best) return 'compare-best';
+  }
+  return '';
+}
+
+function getPctDiff(metric, records, idx) {
+  if (metric.higherIsBetter === null) return null;
+  const vals = records.map(r => metric.getValue(r));
+  const current = vals[idx];
+  if (current == null) return null;
+  const nonNull = vals.filter(v => v != null);
+  if (nonNull.length < 2) return null;
+
+  let best;
+  if (metric.higherIsBetter) {
+    best = Math.max(...nonNull);
+  } else {
+    best = Math.min(...nonNull);
+  }
+  if (best === 0 || current === best) return null;
+  const diff = ((current - best) / Math.abs(best)) * 100;
+  if (Math.abs(diff) < 0.1) return null;
+  return diff > 0 ? `+${diff.toFixed(0)}%` : `${diff.toFixed(0)}%`;
+}
+
+function removeCompareItem(idx) {
+  compareSet.delete(idx);
+  if (compareSet.size < 2) {
+    showCompareView.value = false;
+  }
+}
+
+function compareTagLabel(r) {
+  if (!r) return '?';
+  const c = r.config || {};
+  return c._profile_name || c.model || r.test_id || '?';
+}
+
+function getCompareCellClassFor(metric, records, idx) {
+  if (metric.higherIsBetter === null) return '';
+  const vals = records.map(r => metric.getValue(r));
+  const current = vals[idx];
+  if (current == null || typeof current !== 'number') return '';
+  const nonNull = vals.filter(v => v != null && typeof v === 'number');
+  if (nonNull.length < 2) return '';
+  const best = metric.higherIsBetter ? Math.max(...nonNull) : Math.min(...nonNull);
+  if (current === best) return 'compare-best';
+  return '';
+}
+
+function formatMetricValue(metric, rec) {
+  const val = metric.getValue(rec);
+  if (val == null) return '-';
+  if (metric.format) return metric.format(val);
+  return String(val);
+}
+
+function isPositiveDiff(metric, records, idx) {
+  const vals = records.map(r => metric.getValue(r));
+  const current = vals[idx];
+  if (current == null) return false;
+  const nonNull = vals.filter(v => v != null && typeof v === 'number');
+  if (nonNull.length < 2) return false;
+  const best = metric.higherIsBetter ? Math.max(...nonNull) : Math.min(...nonNull);
+  if (best === 0) return false;
+  const diff = ((current - best) / Math.abs(best)) * 100;
+  return diff > 0;
 }
 
 function rerunResult(r) {
@@ -552,7 +730,7 @@ function tryAutoCompare() {
     }
     if (indices.length >= 2) {
       indices.forEach(i => compareSet.add(i));
-      setTimeout(() => openCompare(), 200);
+      setTimeout(() => { showCompareView.value = true; }, 200);
     }
   });
 }
@@ -608,8 +786,8 @@ onUnmounted(() => {
   store.refreshFn = null;
 });
 
-import { useRoute } from 'vue-router';
 const route = useRoute();
+const router = useRouter();
 // Watch for route change to refresh
 watch(() => route.path, (val) => {
   if (val === '/history') refresh();
