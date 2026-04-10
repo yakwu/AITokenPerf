@@ -1668,18 +1668,26 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 }
 
 /* ---- Toast ---- */
-.toast {
+.toast-container {
   position: fixed;
   bottom: 24px;
   right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
   padding: 12px 20px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
   color: white;
-  z-index: 1000;
   animation: slideUp 0.3s ease;
   box-shadow: var(--shadow-lg);
+  pointer-events: auto;
 }
 
 .toast.success { background: var(--success); }
