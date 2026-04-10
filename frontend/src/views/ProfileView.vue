@@ -85,15 +85,21 @@
         <div class="form-group">
           <label class="form-label">模型</label>
           <div class="combobox" ref="comboboxRef">
-            <input class="form-input" :value="modelDropdownOpen ? modelSearch : form.model" :placeholder="form.model || '选择或直接输入模型 ID'" @focus="modelDropdownOpen = true" @input="onModelInput($event)" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
+            <div class="model-tags-input" @click="modelDropdownOpen = true">
+              <span v-for="(m, i) in form.models" :key="m" class="model-tag">
+                {{ m }}
+                <button type="button" class="model-tag-remove" @click.stop="removeModel(i)">&times;</button>
+              </span>
+              <input class="model-tag-search" v-model="modelSearch" :placeholder="form.models.length ? '' : '选择或输入模型 ID'" @focus="modelDropdownOpen = true" @keydown.enter.prevent="addModelFromSearch()" @keydown.backspace="onModelBackspace()" @keydown.escape="modelDropdownOpen = false" autocomplete="off" ref="modelSearchInputRef">
+            </div>
             <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
             </button>
             <div class="combobox-dropdown" v-show="modelDropdownOpen">
               <template v-for="m in filteredModels" :key="m.id || m">
-                <div class="combobox-option" :class="{ active: form.model === (m.id || m) }" @mousedown.prevent="selectModel(m)">{{ m.id || m }}</div>
+                <div class="combobox-option" :class="{ active: form.models.includes(m.id || m) }" @mousedown.prevent="selectModel(m)">{{ m.id || m }}</div>
               </template>
-              <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">无匹配模型，将使用输入值</div>
+              <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">无匹配模型，按回车添加「{{ modelSearch }}」</div>
               <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch">
                 <span v-if="modelsApiLoading">正在获取模型列表…</span>
                 <span v-else-if="form.provider">该厂商下暂无模型数据</span>
@@ -108,7 +114,7 @@
         <button class="btn btn-primary" @click="saveProfile()" :disabled="!canSaveProfile()">
           {{ profileMode === 'new' ? '保存配置' : '更新配置' }}
         </button>
-        <button class="btn btn-ghost" @click="dryRunTest()" v-if="profileMode === 'selected' && form.base_url && form.api_key && form.model">
+        <button class="btn btn-ghost" @click="dryRunTest()" v-if="profileMode === 'selected' && form.base_url && form.api_key && form.models.length">
           连通性验证
         </button>
       </div>
@@ -135,12 +141,13 @@ const comboboxRef = ref(null);
 const baseUrlInputRef = ref(null);
 const newProfileNameInputRef = ref(null);
 const providerComboboxRef = ref(null);
+const modelSearchInputRef = ref(null);
 
 // ---- Form state ----
 const form = ref({
   base_url: '',
   api_key: '',
-  model: '',
+  models: [],
   provider: '',
 });
 const showApiKey = ref(false);
@@ -199,7 +206,7 @@ const filteredProviders = computed(() => {
 // ---- Watchers ----
 watch(() => form.value.base_url, () => checkProfileDirty());
 watch(() => form.value.api_key, () => checkProfileDirty());
-watch(() => form.value.model, () => checkProfileDirty());
+watch(() => form.value.models, () => checkProfileDirty(), { deep: true });
 watch(() => form.value.provider, () => checkProfileDirty());
 
 // ---- Combobox click-outside ----
@@ -207,7 +214,8 @@ let comboboxListenerActive = false;
 function handleComboboxOutside(e) {
   if (comboboxRef.value && !comboboxRef.value.contains(e.target)) {
     if (modelSearch.value) {
-      form.value.model = modelSearch.value;
+      addModel(modelSearch.value);
+      modelSearch.value = '';
     }
     modelDropdownOpen.value = false;
   }
@@ -248,11 +256,6 @@ watch(providerDropdownOpen, (open) => {
   }
 });
 
-function onModelInput(e) {
-  modelSearch.value = e.target.value;
-  modelDropdownOpen.value = true;
-}
-
 // Provider combobox handlers
 function onProviderFocus() {
   providerSearch.value = '';
@@ -270,10 +273,34 @@ function selectProvider(val) {
   loadKnownModels(val);
 }
 
+function addModel(name) {
+  const n = name.trim();
+  if (!n || form.value.models.includes(n)) return;
+  form.value.models.push(n);
+}
+
+function removeModel(index) {
+  form.value.models.splice(index, 1);
+}
+
 function selectModel(m) {
   const id = typeof m === 'string' ? m : (m.id || '');
-  form.value.model = id;
+  addModel(id);
+  modelSearch.value = '';
   modelDropdownOpen.value = false;
+}
+
+function addModelFromSearch() {
+  if (modelSearch.value) {
+    addModel(modelSearch.value);
+    modelSearch.value = '';
+  }
+}
+
+function onModelBackspace() {
+  if (!modelSearch.value && form.value.models.length) {
+    form.value.models.pop();
+  }
 }
 
 // ---- Profile methods ----
@@ -289,7 +316,7 @@ async function loadProfiles() {
       if (p) {
         form.value.base_url = p.base_url || '';
         form.value.api_key = p.api_key_display || '';
-        form.value.model = p.model || '';
+        form.value.models = p.models || (p.model ? [p.model] : []);
         form.value.provider = p.provider || '';
         snapshotProfileConfig();
       }
@@ -318,7 +345,7 @@ function canSaveProfile() {
   return Boolean(
     profileDraftName.value.trim() &&
     form.value.base_url.trim() &&
-    form.value.model.trim()
+    form.value.models.length > 0
   );
 }
 
@@ -331,7 +358,7 @@ function checkProfileDirty() {
   profileDirty.value = (
     form.value.base_url !== (s.base_url || '') ||
     form.value.api_key !== (s.api_key || '') ||
-    form.value.model !== (s.model || '') ||
+    JSON.stringify(form.value.models) !== JSON.stringify(s.models || []) ||
     form.value.provider !== (s.provider || '')
   );
 }
@@ -340,7 +367,7 @@ function snapshotProfileConfig() {
   savedProfileConfig.value = {
     base_url: form.value.base_url,
     api_key: form.value.api_key,
-    model: form.value.model,
+    models: [...form.value.models],
     provider: form.value.provider,
   };
   profileDirty.value = false;
@@ -375,7 +402,7 @@ async function finishRenameProfile() {
         name: newName,
         base_url: form.value.base_url,
         api_key: form.value.api_key,
-        model: form.value.model,
+        models: form.value.models,
         provider: form.value.provider,
         api_version: '2023-06-01',
       }),
@@ -401,8 +428,8 @@ async function saveProfile() {
     toast('请先填写目标地址', 'info');
     return;
   }
-  if (!form.value.model.trim()) {
-    toast('请先填写模型名称', 'info');
+  if (!form.value.models.length) {
+    toast('请至少选择一个模型', 'info');
     return;
   }
 
@@ -414,7 +441,7 @@ async function saveProfile() {
         name: trimmed,
         base_url: form.value.base_url,
         api_key: form.value.api_key,
-        model: form.value.model,
+        models: form.value.models,
         provider: form.value.provider,
         api_version: '2023-06-01',
       }),
@@ -433,7 +460,7 @@ async function saveProfile() {
 function newProfile() {
   form.value.base_url = '';
   form.value.api_key = '';
-  form.value.model = '';
+  form.value.models = [];
   form.value.provider = '';
   currentProfileName.value = '';
   profileDraftName.value = '';
@@ -456,7 +483,7 @@ async function selectProfile(name) {
     const c = data.config || {};
     form.value.base_url = c.base_url || '';
     form.value.api_key = c.api_key_display || '';
-    form.value.model = c.model || '';
+    form.value.models = c.models || (c.model ? [c.model] : []);
     form.value.provider = c.provider || '';
     currentProfileName.value = name;
     profileDraftName.value = name;
@@ -484,7 +511,7 @@ async function confirmDeleteProfile(name) {
       currentProfileName.value = '';
       form.value.base_url = '';
       form.value.api_key = '';
-      form.value.model = '';
+      form.value.models = [];
       form.value.provider = '';
       profileMode.value = 'new';
     }
@@ -518,7 +545,7 @@ async function dryRunTest() {
       body: JSON.stringify({
         base_url: form.value.base_url,
         api_key: form.value.api_key,
-        model: form.value.model,
+        model: form.value.models[0] || '',
         provider: form.value.provider,
         concurrency_levels: [1],
         requests_per_level: 1,

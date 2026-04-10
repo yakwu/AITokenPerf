@@ -48,7 +48,7 @@
           </div>
           <div class="profile-info-row">
             <span class="profile-info-label">模型</span>
-            <span class="profile-info-value">{{ currentProfile.model || '未设置' }}</span>
+            <span class="profile-info-value">{{ (currentProfile.models || []).join(', ') || currentProfile.model || '未设置' }}</span>
           </div>
           <div class="profile-info-row" v-if="currentProfile.provider">
             <span class="profile-info-label">厂商</span>
