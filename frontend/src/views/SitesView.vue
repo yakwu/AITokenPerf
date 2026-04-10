@@ -374,8 +374,8 @@ function goDetail(site) {
 }
 
 function createSite() {
-  toast('请通过配置页创建新站点', 'info');
-  store.switchTab('config');
+  // 新建站点：导航到旧配置页（临时方案，后续可改为内联创建）
+  router.push('/config');
 }
 
 async function loadData() {

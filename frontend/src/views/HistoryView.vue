@@ -571,19 +571,12 @@ function isPositiveDiff(metric, records, idx) {
 
 function rerunResult(r) {
   const c = r.config || {};
-  store.rerunConfig = {
-    profile_name: c.profile_name || '',
-    base_url: c.base_url || '',
-    model: c.model || '',
-    max_tokens: c.max_tokens || 512,
-    concurrency: c.concurrency || 100,
-    mode: c.mode || 'burst',
-    duration: c.duration || 120,
-    timeout: c.timeout || 120,
-    system_prompt: c.system_prompt || '',
-    user_prompt: c.user_prompt || '',
-  };
-  store.switchTab('bench');
+  const profileName = c._profile_name || c.profile_name || '';
+  if (profileName) {
+    router.push(`/sites/${encodeURIComponent(profileName)}`);
+  } else {
+    toast('无法定位站点', 'info');
+  }
 }
 
 function deleteResult(filename) {
