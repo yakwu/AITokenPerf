@@ -823,19 +823,18 @@ function viewResultInHistory(r) { window.showDetailOverlay(renderResultDetail(r)
 // ========== Schedule Polling ==========
 async function pollScheduleUpdates() {
   if (subMode.value !== 'schedule') return;
-  for (const s of schedules.value) {
-    try {
-      const res = await getScheduleResults(s.id, { limit: 1 });
-      const results = res.results || [];
-      if (results.length > 0) {
-        const latestId = results[0].test_id || results[0].filename;
-        if (lastKnownResultIds.value[s.id] !== undefined && lastKnownResultIds.value[s.id] !== latestId) {
-          toast(`定时任务「${s.name}」有新执行结果`, 'info');
-        }
-        lastKnownResultIds.value[s.id] = latestId;
+  try {
+    const data = await getSchedules();
+    const list = data.schedules || [];
+    for (const s of list) {
+      const latestId = s.latest_result_id;
+      if (latestId && lastKnownResultIds.value[s.id] !== undefined && lastKnownResultIds.value[s.id] !== latestId) {
+        toast(`定时任务「${s.name}」有新执行结果`, 'info');
       }
-    } catch (e) { /* 静默忽略 */ }
-  }
+      if (latestId) lastKnownResultIds.value[s.id] = latestId;
+    }
+    schedules.value = list;
+  } catch (e) { /* 静默忽略 */ }
 }
 
 function startSchedulePolling() {

@@ -12,6 +12,11 @@
         <FilterDropdown v-model="concurrencyFilter" :options="uniqueConcurrenciesStr" all-label="全部并发" />
         <FilterDropdown v-model="modeFilter" :options="['burst','sustained']" all-label="全部模式" />
         <FilterDropdown v-model="sourceFilter" :options="sourceOptions" all-label="全部来源" />
+        <div class="radio-group-inline" style="margin:0">
+          <label v-for="opt in timeRangeOptions" :key="opt.label" class="radio-pill" :class="{ active: timeRange === opt.value }" @click="setTimeRange(opt.value)" style="cursor:pointer">
+            <span>{{ opt.label }}</span>
+          </label>
+        </div>
       </div>
       <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">
         <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
@@ -175,6 +180,13 @@ const modelFilter = ref('');
 const urlFilter = ref('');
 const concurrencyFilter = ref('');
 const sourceFilter = ref('');
+const timeRange = ref(6);
+const timeRangeOptions = [
+  { label: '全部', value: null },
+  { label: '6h', value: 6 },
+  { label: '24h', value: 24 },
+  { label: '7d', value: 168 },
+];
 const sortKey = ref('timestamp');
 const sortDir = ref('desc');
 const compareSet = reactive(new Set());
@@ -287,7 +299,9 @@ function groupChildDetailHtml(idx, ci) {
 
 // ---- Actions ----
 async function refresh() {
-  const data = await api(`/api/results?limit=${pageSize}&offset=${(page.value - 1) * pageSize}`);
+  const params = new URLSearchParams({ limit: pageSize, offset: (page.value - 1) * pageSize });
+  if (timeRange.value) params.set('hours', timeRange.value);
+  const data = await api(`/api/results?${params}`);
   results.value = data.items || [];
   total.value = data.total || 0;
   await nextTick();
@@ -303,6 +317,13 @@ function goToPage(p) {
   for (const k of Object.keys(groupChildDetailHtmlMap)) delete groupChildDetailHtmlMap[k];
   expandedRows.clear();
   expandedGroups.clear();
+  refresh();
+}
+
+function setTimeRange(val) {
+  if (timeRange.value === val) return;
+  timeRange.value = val;
+  page.value = 1;
   refresh();
 }
 

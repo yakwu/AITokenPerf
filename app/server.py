@@ -746,9 +746,10 @@ async def delete_profile_handler(name: str, user: dict = Depends(get_current_use
 async def list_results(
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    hours: int | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
-    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset)
+    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours)
     return {"total": result["total"], "items": result["items"]}
 
 
@@ -1161,8 +1162,11 @@ _SCHEDULE_CONFIG_WHITELIST = {
 
 @app.get("/api/schedules")
 async def list_schedules(user: dict = Depends(get_current_user)):
-    from app.db import get_scheduled_tasks
+    from app.db import get_scheduled_tasks, get_latest_result_ids_by_user
     tasks = await get_scheduled_tasks(user["user_id"])
+    latest = await get_latest_result_ids_by_user(user["user_id"])
+    for t in tasks:
+        t["latest_result_id"] = latest.get(t["id"])
     return {"schedules": tasks}
 
 
