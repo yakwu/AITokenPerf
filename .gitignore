@@ -30,6 +30,9 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Visual companion
+.superpowers/
+
 # IDE
 .idea/
 .vscode/
