@@ -46,11 +46,7 @@
       </div>
 
       <div v-if="activeTab === 'schedule'" class="site-detail-panel">
-        <div class="site-detail-placeholder">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          <div class="placeholder-text">定时任务开发中</div>
-          <div class="placeholder-hint">即将支持在此页面管理站点定时任务</div>
-        </div>
+        <SiteSchedulesTab :profile="profile" />
       </div>
 
       <div v-if="activeTab === 'history'" class="site-detail-panel">
@@ -71,6 +67,7 @@ import { getProfiles, getSitesSummary } from '../api';
 import { toast } from '../composables/useToast';
 import SiteConfigTab from '../components/SiteConfigTab.vue';
 import SiteTestTab from '../components/SiteTestTab.vue';
+import SiteSchedulesTab from '../components/SiteSchedulesTab.vue';
 
 const route = useRoute();
 const router = useRouter();
