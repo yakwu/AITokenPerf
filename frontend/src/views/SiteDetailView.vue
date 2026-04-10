@@ -50,11 +50,7 @@
       </div>
 
       <div v-if="activeTab === 'history'" class="site-detail-panel">
-        <div class="site-detail-placeholder">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          <div class="placeholder-text">历史趋势开发中</div>
-          <div class="placeholder-hint">即将支持在此页面查看站点历史趋势</div>
-        </div>
+        <SiteTrendsTab :profile="profile" />
       </div>
     </template>
   </section>
@@ -68,6 +64,7 @@ import { toast } from '../composables/useToast';
 import SiteConfigTab from '../components/SiteConfigTab.vue';
 import SiteTestTab from '../components/SiteTestTab.vue';
 import SiteSchedulesTab from '../components/SiteSchedulesTab.vue';
+import SiteTrendsTab from '../components/SiteTrendsTab.vue';
 
 const route = useRoute();
 const router = useRouter();
