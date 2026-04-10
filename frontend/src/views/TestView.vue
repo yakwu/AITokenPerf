@@ -548,6 +548,8 @@ const trendLatencyCanvas = ref(null);
 const trendQualityCanvas = ref(null);
 let trendLatencyChart = null;
 let trendQualityChart = null;
+const lastKnownResultIds = ref({});
+const schedulePollTimer = ref(null);
 
 // ---- Rerun config ----
 watch(() => route.path, (val) => {
@@ -786,15 +788,47 @@ function renderQualityChart() {
 
 function viewResultInHistory(r) { window.showDetailOverlay(renderResultDetail(r)); }
 
+// ========== Schedule Polling ==========
+async function pollScheduleUpdates() {
+  if (subMode.value !== 'schedule') return;
+  for (const s of schedules.value) {
+    try {
+      const res = await getScheduleResults(s.id, { limit: 1 });
+      const results = res.results || [];
+      if (results.length > 0) {
+        const latestId = results[0].test_id || results[0].filename;
+        if (lastKnownResultIds.value[s.id] !== undefined && lastKnownResultIds.value[s.id] !== latestId) {
+          toast(`定时任务「${s.name}」有新执行结果`, 'info');
+        }
+        lastKnownResultIds.value[s.id] = latestId;
+      }
+    } catch (e) { /* 静默忽略 */ }
+  }
+}
+
+function startSchedulePolling() {
+  stopSchedulePolling();
+  pollScheduleUpdates();
+  schedulePollTimer.value = setInterval(() => pollScheduleUpdates(), 30000);
+}
+
+function stopSchedulePolling() {
+  if (schedulePollTimer.value) {
+    clearInterval(schedulePollTimer.value);
+    schedulePollTimer.value = null;
+  }
+}
+
 // ========== Lifecycle ==========
 onMounted(() => {
   if (!localStorage.getItem('token')) return;
   loadProfiles(); refreshSchedules();
+  startSchedulePolling();
   if (store.rerunConfig) loadProfiles().then(() => applyRerunConfig());
   checkRunningStatus();
 });
 
-onUnmounted(() => { stopSSE(); stopMultiPolling(); destroyCharts(); });
+onUnmounted(() => { stopSSE(); stopMultiPolling(); stopSchedulePolling(); destroyCharts(); });
 
 async function checkRunningStatus() {
   const data = await api('/api/bench/status');
