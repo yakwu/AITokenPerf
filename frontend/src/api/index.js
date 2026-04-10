@@ -9,7 +9,7 @@ export async function api(path, opts = {}) {
   if (res.status === 401) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    window.location.href = '/auth';
+    import('../router').then(m => m.default.push('/auth'));
     throw new Error('Unauthorized');
   }
   return res.json();

@@ -138,6 +138,17 @@ def test_bench_complete_has_guard_before_switch():
         "bench:complete should guard switchTab with a condition"
 
 
+def test_no_hard_redirect_on_401():
+    """401 处理不应使用 window.location.href 硬刷新"""
+    api_file = Path(__file__).parent.parent / "frontend" / "src" / "api" / "index.js"
+    content = api_file.read_text()
+    match = re.search(r"if\s*\(res\.status\s*===\s*401\)(.+?)(?:return|throw|\n\s*\})", content, re.DOTALL)
+    assert match, "401 handler not found"
+    handler = match.group(1)
+    assert "window.location.href" not in handler, \
+        "401 handler should not use window.location.href (hard redirect)"
+
+
 if __name__ == "__main__":
     import sys
     tests = [v for k, v in globals().items() if k.startswith("test_")]
