@@ -629,7 +629,7 @@ function handleEvent(type, d) {
     case 'bench:start': logLine(`<span class="info">[第 ${escHtml(d.current_level)}/${escHtml(d.total_levels)} 级] 启动 并发=${escHtml(d.concurrency)} 模式=${escHtml(d.mode)}</span>`); break;
     case 'bench:progress': progress.value = { ...progress.value, done: d.done, success: d.success, failed: d.failed, total: d.total, elapsed: d.elapsed }; if (d.elapsed > 0) progress.value.rate = (d.done / d.elapsed).toFixed(1); break;
     case 'bench:level_complete': logLine(`<span class="ok">[完成] 并发=${escHtml(d.concurrency)} ✓</span>`); liveResults.value = [...liveResults.value, { concurrency: d.concurrency, result: d.result }]; if (d.filename) lastCompletedFilename.value = d.filename; break;
-    case 'bench:complete': stopSSE(); setRunningState(false); toast('测试完成！', 'success'); logLine('<span class="ok">测试完成！</span>'); if (lastCompletedFilename.value) store.pendingFilename = lastCompletedFilename.value; store.switchTab('history'); break;
+    case 'bench:complete': stopSSE(); setRunningState(false); toast('测试完成！', 'success'); logLine('<span class="ok">测试完成！</span>'); if (lastCompletedFilename.value) store.pendingFilename = lastCompletedFilename.value; if (liveResults.value.length > 0) store.switchTab('history'); break;
     case 'bench:stopped': stopSSE(); setRunningState(false); toast('测试已停止', 'info'); logLine('<span class="fail">测试已被用户停止</span>'); break;
     case 'bench:error': stopSSE(); setRunningState(false); toast('错误: ' + d.error, 'error'); logLine(`<span class="fail">错误: ${escHtml(d.error)}</span>`); break;
   }

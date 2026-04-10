@@ -127,6 +127,17 @@ def test_check_running_status_skips_sse_for_scheduled_task():
     assert "startSSE" in content
 
 
+def test_bench_complete_has_guard_before_switch():
+    """bench:complete 处理应在 switchTab 前有守卫条件"""
+    vue_file = Path(__file__).parent.parent / "frontend" / "src" / "views" / "TestView.vue"
+    content = vue_file.read_text()
+    match = re.search(r"case 'bench:complete':(.+?)(?:break|case)", content, re.DOTALL)
+    assert match, "bench:complete case not found"
+    case_body = match.group(1)
+    assert "liveResults" in case_body or "running" in case_body, \
+        "bench:complete should guard switchTab with a condition"
+
+
 if __name__ == "__main__":
     import sys
     tests = [v for k, v in globals().items() if k.startswith("test_")]
