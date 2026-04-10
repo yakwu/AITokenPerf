@@ -16,9 +16,12 @@
           <button v-for="opt in timeRangeOptions" :key="opt.label" class="time-range-pill" :class="{ active: timeRange === opt.value }" @click="setTimeRange(opt.value)">{{ opt.label }}</button>
         </div>
       </div>
-      <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">
-        <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
-        <button class="btn btn-ghost btn-sm" @click="clearCompare()">清除</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" @click="refresh" title="刷新"><i class="ph ph-arrows-clockwise"></i></button>
+        <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">
+          <button class="btn btn-primary btn-sm" @click="openCompare()">对比</button>
+          <button class="btn btn-ghost btn-sm" @click="clearCompare()">清除</button>
+        </div>
       </div>
     </div>
 
