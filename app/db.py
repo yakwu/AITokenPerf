@@ -615,23 +615,31 @@ async def delete_result(user_id: int, filename: str):
         )
 
 
-async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, limit: int = 100, offset: int = 0) -> dict:
-    """返回定时任务的结果列表（分页）和总数"""
+async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, limit: int = 100, offset: int = 0, hours: int | None = None) -> dict:
+    """返回定时任务的结果列表（分页）和总数。hours 可选，仅返回最近 N 小时的数据。"""
+    params: dict = {"uid": user_id, "sid": scheduled_task_id, "limit": limit, "offset": offset}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND r.timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
     async with engine.connect() as conn:
         count_cur = await conn.execute(
-            text("SELECT COUNT(*) FROM results WHERE user_id=:uid AND scheduled_task_id=:sid"),
-            {"uid": user_id, "sid": scheduled_task_id},
+            text(f"SELECT COUNT(*) FROM results r WHERE r.user_id=:uid AND r.scheduled_task_id=:sid {time_filter}"),
+            params,
         )
         total = count_cur.scalar()
 
         cur = await conn.execute(
-            text("""SELECT r.*, st.name AS schedule_name
+            text(f"""SELECT r.*, st.name AS schedule_name
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-                   WHERE r.user_id=:uid AND r.scheduled_task_id=:sid
+                   WHERE r.user_id=:uid AND r.scheduled_task_id=:sid {time_filter}
                    ORDER BY r.created_at DESC
                    LIMIT :limit OFFSET :offset"""),
-            {"uid": user_id, "sid": scheduled_task_id, "limit": limit, "offset": offset},
+            params,
         )
         rows = cur.fetchall()
         results = []
@@ -648,18 +656,27 @@ async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, li
         return {"results": results, "total": total}
 
 
-async def get_schedule_results_trend(user_id: int, scheduled_task_id: int) -> list[dict]:
-    """按分钟聚合定时任务结果，用于趋势图展示（最多返回最近500个点）。
+async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours: int | None = None) -> list[dict]:
+    """按分钟聚合定时任务结果，用于趋势图展示（最多返回最近2000个点）。
     只查询需要的字段，在 Python 层聚合，兼容 SQLite 和 PostgreSQL。
+    hours: 可选，仅返回最近 N 小时的数据。
     """
+    params: dict = {"uid": user_id, "sid": scheduled_task_id}
+    where_extra = ""
+    if hours is not None:
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        where_extra = "AND timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
     async with engine.connect() as conn:
         cur = await conn.execute(
-            text("""SELECT timestamp, summary_json, percentiles_json
+            text(f"""SELECT timestamp, summary_json, percentiles_json
                    FROM results
-                   WHERE user_id=:uid AND scheduled_task_id=:sid
+                   WHERE user_id=:uid AND scheduled_task_id=:sid {where_extra}
                    ORDER BY timestamp DESC
-                   LIMIT 10000"""),
-            {"uid": user_id, "sid": scheduled_task_id},
+                   LIMIT 20000"""),
+            params,
         )
         rows = cur.fetchall()
 
@@ -701,7 +718,7 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int) -> li
             "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 2) if b["ttft_p50s"] else None,
             "avg_e2e_p50": round(sum(b["e2e_p50s"]) / len(b["e2e_p50s"]), 2) if b["e2e_p50s"] else None,
         })
-    return result[-500:]  # 最多500个点
+    return result[-2000:]  # 最多2000个点
 
 
 # ---- User Settings CRUD ----

@@ -330,7 +330,14 @@
                     <div v-if="historyLoading" style="text-align:center;color:var(--text-tertiary);padding:20px">加载中...</div>
                     <div v-else-if="scheduleHistory.length === 0" style="text-align:center;color:var(--text-tertiary);padding:20px">暂无执行记录</div>
                     <div v-else>
-                      <div style="font-size:13px;font-weight:600;margin-bottom:12px">执行趋势 (共 {{ scheduleHistoryTotal }} 次执行)</div>
+                      <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:12px">
+                        <span>执行趋势 (共 {{ scheduleHistoryTotal }} 次执行)</span>
+                        <div class="radio-group-inline" style="margin:0">
+                          <label v-for="opt in timeRangeOptions" :key="opt.label" class="radio-pill" :class="{ active: selectedTimeRange === opt.hours }" @click="changeTimeRange(opt.hours)" style="cursor:pointer">
+                            <span>{{ opt.label }}</span>
+                          </label>
+                        </div>
+                      </div>
                       <div v-if="trendSummary.length > 0" class="trend-summary-cards" style="margin-bottom:16px">
                         <div v-for="card in trendSummary" :key="card.label" class="trend-card">
                           <div class="trend-card-label">{{ card.label }}</div>
@@ -413,6 +420,7 @@ import { toast } from '../composables/useToast.js';
 import { useBenchSSE } from '../composables/useBenchSSE.js';
 import { renderResultDetail } from '../utils/resultDetail.js';
 import { escHtml, fmtTime, fmtTimestamp, fmtPct, fmtNum, qualityColorStyle, latencyColorStyle } from '../utils/formatters.js';
+import { aggregateToFixedPoints } from '../utils/trendAggregator.js';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
@@ -541,6 +549,12 @@ const scheduleTrend = ref([]);
 const trendSummary = ref([]);
 const historyLoading = ref(false);
 const historyLoadingMore = ref(false);
+const selectedTimeRange = ref(6);
+const timeRangeOptions = [
+  { label: '6h', hours: 6 },
+  { label: '24h', hours: 24 },
+  { label: '7d', hours: 168 },
+];
 const showEditForm = ref(false);
 const editLoading = ref(false);
 const editForm = ref({ id: null, ...defaultForm() });
@@ -748,10 +762,26 @@ function onRowClick(event, id) { if (event.target.closest('button')) return; tog
 async function toggleHistory(id) { if (expandedScheduleId.value === id) { expandedScheduleId.value = null; destroyCharts(); return; } expandedScheduleId.value = id; await loadHistory(id); }
 
 async function loadHistory(id) {
-  historyLoading.value = true; trendSummary.value = []; scheduleHistory.value = []; scheduleHistoryTotal.value = 0;
-  try { const [listData, trendData] = await Promise.all([getScheduleResults(id, { limit: 100, offset: 0 }), getScheduleTrend(id)]); scheduleHistory.value = listData.results || []; scheduleHistoryTotal.value = listData.total || 0; scheduleTrend.value = trendData.trend || []; }
+  historyLoading.value = true; trendSummary.value = []; scheduleHistory.value = []; scheduleHistoryTotal.value = 0; selectedTimeRange.value = 6;
+  const hours = selectedTimeRange.value;
+  try { const [listData, trendData] = await Promise.all([getScheduleResults(id, { limit: 100, offset: 0, hours }), getScheduleTrend(id, { hours })]); scheduleHistory.value = listData.results || []; scheduleHistoryTotal.value = listData.total || 0; scheduleTrend.value = trendData.trend || []; }
   catch (e) { toast('加载执行记录失败: ' + e.message, 'error'); scheduleHistory.value = []; scheduleTrend.value = []; }
   historyLoading.value = false; destroyCharts(); await nextTick(); renderTrendSummary(); renderLatencyChart(); renderQualityChart();
+}
+
+async function changeTimeRange(hours) {
+  selectedTimeRange.value = hours;
+  if (expandedScheduleId.value == null) return;
+  try {
+    const [listData, trendData] = await Promise.all([
+      getScheduleResults(expandedScheduleId.value, { limit: 100, offset: 0, hours }),
+      getScheduleTrend(expandedScheduleId.value, { hours }),
+    ]);
+    scheduleHistory.value = listData.results || [];
+    scheduleHistoryTotal.value = listData.total || 0;
+    scheduleTrend.value = trendData.trend || [];
+  } catch (e) { toast('加载失败: ' + e.message, 'error'); scheduleHistory.value = []; scheduleTrend.value = []; }
+  destroyCharts(); await nextTick(); renderTrendSummary(); renderLatencyChart(); renderQualityChart();
 }
 
 async function loadMoreHistory() { if (expandedScheduleId.value == null) return; historyLoadingMore.value = true; try { const data = await getScheduleResults(expandedScheduleId.value, { limit: 100, offset: scheduleHistory.value.length }); scheduleHistory.value = [...scheduleHistory.value, ...(data.results || [])]; } catch (e) { toast('加载更多失败: ' + e.message, 'error'); } historyLoadingMore.value = false; }
@@ -774,16 +804,16 @@ function renderTrendSummary() {
 
 function renderLatencyChart() {
   const trend = scheduleTrend.value; if (!trend || trend.length < 1) return; const canvas = trendLatencyCanvas.value; if (!canvas) return;
-  const labels = trend.map(r => { const m = r.minute; return `${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`; });
-  trendLatencyChart = new Chart(canvas, { type: 'line', data: { labels, datasets: [{ label: 'TTFT P50', data: trend.map(r => r.avg_ttft_p50 ?? null), borderColor: '#3B7DD6', backgroundColor: '#3B7DD618', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, spanGaps: true }, { label: 'E2E P50', data: trend.map(r => r.avg_e2e_p50 ?? null), borderColor: '#E85D26', backgroundColor: '#E85D2618', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, spanGaps: true }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 } }, tooltip: { callbacks: { label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}s` : '' } } }, scales: { y: { title: { display: true, text: 'Latency (s)', font: { size: 11 } }, grid: { color: '#F0EEE9' }, ticks: { font: { family: "'JetBrains Mono'", size: 10 }, callback: v => v.toFixed(1) + 's' }, beginAtZero: true }, x: { grid: { display: false }, ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 20 } } } } });
+  const { labels, items } = aggregateToFixedPoints(trend, 144);
+  trendLatencyChart = new Chart(canvas, { type: 'line', data: { labels, datasets: [{ label: 'TTFT P50', data: items.map(r => r?.avg_ttft_p50 ?? null), borderColor: '#3B7DD6', backgroundColor: '#3B7DD618', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, spanGaps: false }, { label: 'E2E P50', data: items.map(r => r?.avg_e2e_p50 ?? null), borderColor: '#E85D26', backgroundColor: '#E85D2618', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, spanGaps: false }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 } }, tooltip: { callbacks: { label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}s` : '' } } }, scales: { y: { title: { display: true, text: 'Latency (s)', font: { size: 11 } }, grid: { color: '#F0EEE9' }, ticks: { font: { family: "'JetBrains Mono'", size: 10 }, callback: v => v.toFixed(1) + 's' }, beginAtZero: true }, x: { grid: { display: false }, ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 20 } } } } });
 }
 
 function renderQualityChart() {
   const trend = scheduleTrend.value; if (!trend || trend.length < 1) return; const canvas = trendQualityCanvas.value; if (!canvas) return;
-  const labels = trend.map(r => { const m = r.minute; return `${m.slice(4,6)}-${m.slice(6,8)} ${m.slice(9,11)}:${m.slice(11,13) || '00'}`; });
+  const { labels, items } = aggregateToFixedPoints(trend, 144);
   // 用失败率展示：失败率越高值越大，fill 自然越红，100% 成功时线在底部无填充
-  const failureData = trend.map(r => r.avg_success_rate != null ? (100 - r.avg_success_rate) : null);
-  trendQualityChart = new Chart(canvas, { type: 'line', data: { labels, datasets: [{ label: '吞吐量 (req/s)', data: trend.map(r => r.avg_throughput ?? null), borderColor: '#2D8B55', backgroundColor: '#2D8B5518', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, yAxisID: 'y', spanGaps: true }, { label: '失败率 (%)', data: failureData, borderColor: '#E85D26', backgroundColor: '#E85D2618', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, yAxisID: 'y1', borderDash: [5, 3], spanGaps: true }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 } }, tooltip: { callbacks: { label: ctx => { if (ctx.parsed.y == null) return ''; if (ctx.dataset.yAxisID === 'y1') return `失败率: ${ctx.parsed.y.toFixed(1)}%`; return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} /s`; } } } }, scales: { y: { position: 'left', title: { display: true, text: 'Throughput (req/s)', font: { size: 11 } }, grid: { color: '#F0EEE9' }, ticks: { font: { family: "'JetBrains Mono'", size: 10 } }, beginAtZero: true }, y1: { position: 'right', title: { display: true, text: '失败率 (%)', font: { size: 11 } }, grid: { drawOnChartArea: false }, ticks: { font: { family: "'JetBrains Mono'", size: 10 } }, min: 0, max: 100 }, x: { grid: { display: false }, ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 20 } } } } });
+  const failureData = items.map(r => r?.avg_success_rate != null ? (100 - r.avg_success_rate) : null);
+  trendQualityChart = new Chart(canvas, { type: 'line', data: { labels, datasets: [{ label: '吞吐量 (req/s)', data: items.map(r => r?.avg_throughput ?? null), borderColor: '#2D8B55', backgroundColor: '#2D8B5518', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, yAxisID: 'y', spanGaps: false }, { label: '失败率 (%)', data: failureData, borderColor: '#E85D26', backgroundColor: '#E85D2618', borderWidth: 2, pointRadius: trend.length <= 50 ? 3 : 0, tension: 0.3, fill: true, yAxisID: 'y1', borderDash: [5, 3], spanGaps: false }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 } }, tooltip: { callbacks: { label: ctx => { if (ctx.parsed.y == null) return ''; if (ctx.dataset.yAxisID === 'y1') return `失败率: ${ctx.parsed.y.toFixed(1)}%`; return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} /s`; } } } }, scales: { y: { position: 'left', title: { display: true, text: 'Throughput (req/s)', font: { size: 11 } }, grid: { color: '#F0EEE9' }, ticks: { font: { family: "'JetBrains Mono'", size: 10 } }, beginAtZero: true }, y1: { position: 'right', title: { display: true, text: '失败率 (%)', font: { size: 11 } }, grid: { drawOnChartArea: false }, ticks: { font: { family: "'JetBrains Mono'", size: 10 } }, min: 0, max: 100 }, x: { grid: { display: false }, ticks: { font: { family: "'JetBrains Mono'", size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 20 } } } } });
 }
 
 function viewResultInHistory(r) { window.showDetailOverlay(renderResultDetail(r)); }

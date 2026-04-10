@@ -1308,14 +1308,14 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
 
 
 @app.get("/api/schedules/{task_id}/results")
-async def get_schedule_results(task_id: int, limit: int = 100, offset: int = 0,
+async def get_schedule_results(task_id: int, limit: int = 100, offset: int = 0, hours: int | None = None,
                                user: dict = Depends(get_current_user)):
     from app.db import get_results_by_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    data = await get_results_by_scheduled_task(user_id, task_id, limit=limit, offset=offset)
+    data = await get_results_by_scheduled_task(user_id, task_id, limit=limit, offset=offset, hours=hours)
     clean = []
     for r in data["results"]:
         clean.append({
@@ -1334,13 +1334,13 @@ async def get_schedule_results(task_id: int, limit: int = 100, offset: int = 0,
 
 
 @app.get("/api/schedules/{task_id}/trend")
-async def get_schedule_trend(task_id: int, user: dict = Depends(get_current_user)):
+async def get_schedule_trend(task_id: int, hours: int | None = None, user: dict = Depends(get_current_user)):
     from app.db import get_schedule_results_trend, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    trend = await get_schedule_results_trend(user_id, task_id)
+    trend = await get_schedule_results_trend(user_id, task_id, hours=hours)
     return {"trend": trend}
 
 
