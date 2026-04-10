@@ -40,13 +40,9 @@
         <SiteConfigTab :profile="profile" @deleted="onSiteDeleted" />
       </div>
 
-      <!-- Placeholder Tabs -->
+      <!-- Test Tab -->
       <div v-if="activeTab === 'test'" class="site-detail-panel">
-        <div class="site-detail-placeholder">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-          <div class="placeholder-text">测试功能开发中</div>
-          <div class="placeholder-hint">即将支持在此页面发起性能测试</div>
-        </div>
+        <SiteTestTab :profile="profile" />
       </div>
 
       <div v-if="activeTab === 'schedule'" class="site-detail-panel">
@@ -74,6 +70,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { getProfiles, getSitesSummary } from '../api';
 import { toast } from '../composables/useToast';
 import SiteConfigTab from '../components/SiteConfigTab.vue';
+import SiteTestTab from '../components/SiteTestTab.vue';
 
 const route = useRoute();
 const router = useRouter();
