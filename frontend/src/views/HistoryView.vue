@@ -12,10 +12,8 @@
         <FilterDropdown v-model="concurrencyFilter" :options="uniqueConcurrenciesStr" all-label="全部并发" />
         <FilterDropdown v-model="modeFilter" :options="['burst','sustained']" all-label="全部模式" />
         <FilterDropdown v-model="sourceFilter" :options="sourceOptions" all-label="全部来源" />
-        <div class="radio-group-inline" style="margin:0">
-          <label v-for="opt in timeRangeOptions" :key="opt.label" class="radio-pill" :class="{ active: timeRange === opt.value }" @click="setTimeRange(opt.value)" style="cursor:pointer">
-            <span>{{ opt.label }}</span>
-          </label>
+        <div class="time-range-pills">
+          <button v-for="opt in timeRangeOptions" :key="opt.label" class="time-range-pill" :class="{ active: timeRange === opt.value }" @click="setTimeRange(opt.value)">{{ opt.label }}</button>
         </div>
       </div>
       <div class="compare-btn-wrap" :class="{ visible: compareSet.size >= 2 }">

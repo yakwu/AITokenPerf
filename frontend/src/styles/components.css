@@ -921,6 +921,34 @@ tbody tr:last-child td { border-bottom: none; }
   flex: 1;
 }
 
+.time-range-pills {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.time-range-pill {
+  padding: 8px 12px;
+  border: none;
+  background: var(--surface);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  border-right: 1px solid var(--border);
+}
+.time-range-pill:last-child { border-right: none; }
+.time-range-pill:hover { background: var(--bg); }
+.time-range-pill.active {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .filter-dropdown {
   position: relative;
 }
