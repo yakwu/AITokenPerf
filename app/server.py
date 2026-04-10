@@ -590,6 +590,7 @@ async def get_config(user: dict = Depends(get_current_user)):
             if active.get(k):
                 resolved[k] = active[k]
         resolved["profile_name"] = active["name"]
+        resolved["models"] = active.get("models", [])
         if "api_key" in resolved:
             resolved["api_key_display"] = _mask_api_key(resolved["api_key"])
             del resolved["api_key"]
@@ -661,12 +662,15 @@ async def save_profile(request: Request, user: dict = Depends(get_current_user))
         active = await get_active_profile(user_id)
         api_key = active.get("api_key", "") if active else ""
 
+    models = data.get("models")
+    model = data.get("model", "")
     await upsert_profile(
         user_id, name,
         base_url=data.get("base_url", ""),
         api_key=api_key,
         api_version=data.get("api_version", "2023-06-01"),
-        model=data.get("model", ""),
+        models=models,
+        model=model,
         provider=data.get("provider", ""),
         protocol=data.get("protocol", ""),
         set_active=True,
@@ -694,6 +698,7 @@ async def switch_profile(request: Request, user: dict = Depends(get_current_user
             if active.get(k):
                 resolved[k] = active[k]
         resolved["profile_name"] = active["name"]
+        resolved["models"] = active.get("models", [])
         if "api_key" in resolved:
             resolved["api_key_display"] = _mask_api_key(resolved["api_key"])
             del resolved["api_key"]
@@ -711,12 +716,15 @@ async def update_profile(name: str, request: Request, user: dict = Depends(get_c
         active = await get_active_profile(user_id)
         api_key = active.get("api_key", "") if active else ""
 
+    models = data.get("models")
+    model = data.get("model", "")
     await upsert_profile(
         user_id, name,
         base_url=data.get("base_url", ""),
         api_key=api_key,
         api_version=data.get("api_version", "2023-06-01"),
-        model=data.get("model", ""),
+        models=models,
+        model=model,
         provider=data.get("provider", ""),
         protocol=data.get("protocol", ""),
         set_active=data.get("set_active", False),
@@ -818,15 +826,55 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
                 continue
             config[key] = body[key]
 
-    task_id = uuid.uuid4().hex[:12]
-    profile_name = active["name"] if active else ""
-    task = manager.create_task(task_id, user_id, profile_name=profile_name)
-    task.status = "running"
-    task.stop_event = asyncio.Event()
-    task.start_time = time.monotonic()
-    task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
+    # 获取模型列表
+    models = []
+    if active and active.get("models"):
+        models = active["models"]
+    elif config.get("model"):
+        models = [config["model"]]
+    else:
+        return JSONResponse({"error": "No model configured"}, status_code=400)
 
-    return {"status": "started", "task_id": task_id}
+    profile_name = active["name"] if active else ""
+
+    if len(models) == 1:
+        # 单模型：保持原有行为，返回单个 task_id
+        config["model"] = models[0]
+        task_id = uuid.uuid4().hex[:12]
+        task = manager.create_task(task_id, user_id, profile_name=profile_name)
+        task.status = "running"
+        task.stop_event = asyncio.Event()
+        task.start_time = time.monotonic()
+        task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
+        return {"status": "started", "task_id": task_id}
+    else:
+        # 多模型：为每个模型创建独立 task
+        # 并发限制检查
+        current_running = manager.get_running_count()
+        if current_running + len(models) > BenchTaskManager.MAX_GLOBAL:
+            return JSONResponse({"error": f"全局并发任务数已达上限 ({BenchTaskManager.MAX_GLOBAL})"}, status_code=429)
+        user_running = manager.get_user_task_count(user_id)
+        if user_running + len(models) > BenchTaskManager.MAX_PER_USER:
+            return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
+
+        group_id = f"multi_{uuid.uuid4().hex[:12]}"
+        task_ids = []
+        from app.protocols import detect_protocol
+        for model_name in models:
+            model_config = dict(config)
+            model_config["model"] = model_name
+            model_config["protocol"] = detect_protocol(model_name, config.get("provider", ""))
+
+            task_id = uuid.uuid4().hex[:12]
+            task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
+            task.model_name = model_name
+            task.status = "running"
+            task.stop_event = asyncio.Event()
+            task.start_time = time.monotonic()
+            task.asyncio_task = asyncio.create_task(_run_benchmark_task(model_config, user_id, task))
+            task_ids.append(task_id)
+
+        return {"status": "started", "group_id": group_id, "task_ids": task_ids}
 
 
 @app.post("/api/bench/stop")
@@ -836,16 +884,24 @@ async def stop_bench(
 ):
     if task_id:
         task = manager.get_task(task_id)
+        if not task or task.status != "running":
+            return JSONResponse({"error": "No benchmark running"}, status_code=400)
+        if task.owner_id != user["user_id"]:
+            return JSONResponse({"error": "Not your benchmark"}, status_code=403)
+        task.status = "stopping"
+        task.stop_event.set()
+        return {"status": "stopping"}
     else:
-        task = manager.get_user_running_task(user["user_id"])
-
-    if not task or task.status != "running":
-        return JSONResponse({"error": "No benchmark running"}, status_code=400)
-    if task.owner_id != user["user_id"]:
-        return JSONResponse({"error": "Not your benchmark"}, status_code=403)
-    task.status = "stopping"
-    task.stop_event.set()
-    return {"status": "stopping"}
+        # 不指定 task_id：停止用户所有运行中的任务
+        stopped = []
+        for t in manager._tasks.values():
+            if t.owner_id == user["user_id"] and t.status == "running":
+                t.status = "stopping"
+                t.stop_event.set()
+                stopped.append(t.task_id)
+        if not stopped:
+            return JSONResponse({"error": "No benchmark running"}, status_code=400)
+        return {"status": "stopping", "task_ids": stopped}
 
 
 @app.get("/api/bench/status")
@@ -862,6 +918,7 @@ async def bench_status(
     if not task:
         return {
             "task_id": "", "status": "idle",
+            "scheduled_task_id": 0,
             "concurrency": 0, "level": 0, "total_levels": 0,
             "done": 0, "total": 0, "success": 0, "failed": 0,
             "elapsed": 0, "events": [],
@@ -873,6 +930,7 @@ async def bench_status(
     return {
         "task_id": task.task_id,
         "status": task.status,
+        "scheduled_task_id": task.scheduled_task_id or 0,
         "concurrency": task.current_concurrency,
         "level": task.current_level,
         "total_levels": task.total_levels,
@@ -946,13 +1004,20 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
     body = await request.json()
 
     models = body.get("models", [])
-    if not models or len(models) > 10:
-        return JSONResponse({"error": "models 数量需在 1-10 之间"}, status_code=400)
 
     # 获取 active profile 作为基础配置
     active = await get_active_profile(user_id)
     if not active:
         return JSONResponse({"error": "没有活跃的配置，请先创建一个 profile"}, status_code=400)
+
+    # 前端未传 models 时回退到 Profile 的 models
+    if not models:
+        models = active.get("models", [])
+
+    if not models:
+        return JSONResponse({"error": "未指定测试模型，请在请求中传入 models 或在 Profile 中配置 models"}, status_code=400)
+    if len(models) > 10:
+        return JSONResponse({"error": "models 数量不能超过 10 个"}, status_code=400)
 
     benchmark = await get_settings(user_id)
     provider = body.get("provider", active.get("provider", ""))
@@ -1243,14 +1308,14 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
 
 
 @app.get("/api/schedules/{task_id}/results")
-async def get_schedule_results(task_id: int, limit: int = 100, offset: int = 0,
+async def get_schedule_results(task_id: int, limit: int = 100, offset: int = 0, hours: int | None = None,
                                user: dict = Depends(get_current_user)):
     from app.db import get_results_by_scheduled_task, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    data = await get_results_by_scheduled_task(user_id, task_id, limit=limit, offset=offset)
+    data = await get_results_by_scheduled_task(user_id, task_id, limit=limit, offset=offset, hours=hours)
     clean = []
     for r in data["results"]:
         clean.append({
@@ -1269,13 +1334,13 @@ async def get_schedule_results(task_id: int, limit: int = 100, offset: int = 0,
 
 
 @app.get("/api/schedules/{task_id}/trend")
-async def get_schedule_trend(task_id: int, user: dict = Depends(get_current_user)):
+async def get_schedule_trend(task_id: int, hours: int | None = None, user: dict = Depends(get_current_user)):
     from app.db import get_schedule_results_trend, get_scheduled_task
     user_id = user["user_id"]
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row["user_id"] != user_id:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    trend = await get_schedule_results_trend(user_id, task_id)
+    trend = await get_schedule_results_trend(user_id, task_id, hours=hours)
     return {"trend": trend}
 
 

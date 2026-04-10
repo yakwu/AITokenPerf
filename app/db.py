@@ -332,12 +332,31 @@ async def delete_user(user_id: int):
 
 # ---- Profiles CRUD ----
 
+def _normalize_profile_models(p: dict):
+    """将旧格式 model 字符串转为 models 列表，同时保留 model 字段向后兼容"""
+    raw = p.get("model", "")
+    if isinstance(raw, str) and raw.startswith("["):
+        try:
+            p["models"] = json.loads(raw)
+        except json.JSONDecodeError:
+            p["models"] = [raw] if raw else []
+    elif raw:
+        p["models"] = [raw]
+    else:
+        p["models"] = []
+    # 保留 model 字段为第一个模型（向后兼容）
+    p["model"] = p["models"][0] if p["models"] else ""
+
+
 async def get_profiles(user_id: int) -> list[dict]:
     async with engine.connect() as conn:
         cur = await conn.execute(
             text("SELECT * FROM profiles WHERE user_id=:uid ORDER BY created_at DESC"), {"uid": user_id}
         )
-        return _rows_to_dicts(cur.fetchall())
+        rows = _rows_to_dicts(cur.fetchall())
+    for row in rows:
+        _normalize_profile_models(row)
+    return rows
 
 
 async def get_active_profile(user_id: int) -> Optional[dict]:
@@ -351,13 +370,24 @@ async def get_active_profile(user_id: int) -> Optional[dict]:
                 text("SELECT * FROM profiles WHERE user_id=:uid AND is_active=TRUE"), {"uid": user_id}
             )
         row = cur.fetchone()
-        return _row_to_dict(row)
+        d = _row_to_dict(row)
+    if d:
+        _normalize_profile_models(d)
+    return d
 
 
 async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: str = "",
-                          api_version: str = "2023-06-01", model: str = "",
+                          api_version: str = "2023-06-01", models: list = None,
+                          model: str = "",  # 向后兼容
                           provider: str = "", protocol: str = "",
                           set_active: bool = True):
+    # 向后兼容：如果传了 model 字符串，包装为列表
+    if models is None and model:
+        models = [model]
+    elif models is None:
+        models = []
+    # 存储为 JSON 字符串
+    model_json = json.dumps(models)
     async with engine.begin() as conn:
         if set_active:
             if _is_sqlite:
@@ -379,7 +409,7 @@ async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: s
                        provider=excluded.provider, protocol=excluded.protocol,
                        is_active=excluded.is_active, updated_at={_now_sql()}"""),
             {"uid": user_id, "name": name, "base_url": base_url, "api_key": api_key,
-             "api_version": api_version, "model": model, "provider": provider,
+             "api_version": api_version, "model": model_json, "provider": provider,
              "protocol": protocol, "active": active_val},
         )
 
@@ -585,23 +615,31 @@ async def delete_result(user_id: int, filename: str):
         )
 
 
-async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, limit: int = 100, offset: int = 0) -> dict:
-    """返回定时任务的结果列表（分页）和总数"""
+async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, limit: int = 100, offset: int = 0, hours: int | None = None) -> dict:
+    """返回定时任务的结果列表（分页）和总数。hours 可选，仅返回最近 N 小时的数据。"""
+    params: dict = {"uid": user_id, "sid": scheduled_task_id, "limit": limit, "offset": offset}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND r.timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
     async with engine.connect() as conn:
         count_cur = await conn.execute(
-            text("SELECT COUNT(*) FROM results WHERE user_id=:uid AND scheduled_task_id=:sid"),
-            {"uid": user_id, "sid": scheduled_task_id},
+            text(f"SELECT COUNT(*) FROM results r WHERE r.user_id=:uid AND r.scheduled_task_id=:sid {time_filter}"),
+            params,
         )
         total = count_cur.scalar()
 
         cur = await conn.execute(
-            text("""SELECT r.*, st.name AS schedule_name
+            text(f"""SELECT r.*, st.name AS schedule_name
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-                   WHERE r.user_id=:uid AND r.scheduled_task_id=:sid
+                   WHERE r.user_id=:uid AND r.scheduled_task_id=:sid {time_filter}
                    ORDER BY r.created_at DESC
                    LIMIT :limit OFFSET :offset"""),
-            {"uid": user_id, "sid": scheduled_task_id, "limit": limit, "offset": offset},
+            params,
         )
         rows = cur.fetchall()
         results = []
@@ -618,18 +656,27 @@ async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, li
         return {"results": results, "total": total}
 
 
-async def get_schedule_results_trend(user_id: int, scheduled_task_id: int) -> list[dict]:
-    """按分钟聚合定时任务结果，用于趋势图展示（最多返回最近500个点）。
+async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours: int | None = None) -> list[dict]:
+    """按分钟聚合定时任务结果，用于趋势图展示（最多返回最近2000个点）。
     只查询需要的字段，在 Python 层聚合，兼容 SQLite 和 PostgreSQL。
+    hours: 可选，仅返回最近 N 小时的数据。
     """
+    params: dict = {"uid": user_id, "sid": scheduled_task_id}
+    where_extra = ""
+    if hours is not None:
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        where_extra = "AND timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
     async with engine.connect() as conn:
         cur = await conn.execute(
-            text("""SELECT timestamp, summary_json, percentiles_json
+            text(f"""SELECT timestamp, summary_json, percentiles_json
                    FROM results
-                   WHERE user_id=:uid AND scheduled_task_id=:sid
+                   WHERE user_id=:uid AND scheduled_task_id=:sid {where_extra}
                    ORDER BY timestamp DESC
-                   LIMIT 10000"""),
-            {"uid": user_id, "sid": scheduled_task_id},
+                   LIMIT 20000"""),
+            params,
         )
         rows = cur.fetchall()
 
@@ -671,7 +718,7 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int) -> li
             "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 2) if b["ttft_p50s"] else None,
             "avg_e2e_p50": round(sum(b["e2e_p50s"]) / len(b["e2e_p50s"]), 2) if b["e2e_p50s"] else None,
         })
-    return result[-500:]  # 最多500个点
+    return result[-2000:]  # 最多2000个点
 
 
 # ---- User Settings CRUD ----

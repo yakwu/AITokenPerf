@@ -43,9 +43,9 @@
   <!-- Tabs -->
   <nav class="tab-bar" v-if="store.user">
     <router-link to="/" class="tab-btn" :class="{ active: $route.path === '/' }" @click="userMenuOpen = false">总览</router-link>
-    <router-link to="/benchmark" class="tab-btn" :class="{ active: $route.path === '/benchmark' }" @click="userMenuOpen = false">新建测试</router-link>
+    <router-link to="/bench" class="tab-btn" :class="{ active: $route.path.startsWith('/bench') }" @click="userMenuOpen = false">测试</router-link>
     <router-link to="/history" class="tab-btn" :class="{ active: $route.path === '/history' }" @click="userMenuOpen = false">历史记录</router-link>
-    <router-link to="/schedules" class="tab-btn" :class="{ active: $route.path === '/schedules' }" @click="userMenuOpen = false">定时任务</router-link>
+    <router-link to="/config" class="tab-btn" :class="{ active: $route.path === '/config' }" @click="userMenuOpen = false">配置</router-link>
   </nav>
 
   <!-- Router View -->

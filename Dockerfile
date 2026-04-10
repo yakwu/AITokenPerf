@@ -1,15 +1,15 @@
-FROM python:3.12-slim AS builder
+# ---- 前端构建阶段 ----
+FROM oven/bun:1 AS builder
 
-# 安装 bun 用于构建前端
-RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
-    && curl -fsSL https://bun.sh/install | bash \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /app/frontend
 
-ENV PATH="/root/.bun/bin:${PATH}"
+# 先复制依赖声明，利用 Docker 层缓存
+COPY frontend/package.json frontend/bun.lockb ./
+RUN bun install --frozen-lockfile
 
-WORKDIR /app
-COPY frontend/ frontend/
-RUN cd frontend && bun install && bun run build
+# 再复制源码（源码变更不会使 install 层失效）
+COPY frontend/ ./
+RUN bun run build
 
 # ---- 运行阶段 ----
 FROM python:3.12-slim
@@ -21,9 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
 
 WORKDIR /app
 
-# 安装 Python 依赖
+# 安装 Python 依赖（使用 BuildKit 缓存挂载加速）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # 复制后端代码
 COPY app/ app/

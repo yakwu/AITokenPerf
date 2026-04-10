@@ -686,6 +686,76 @@ tbody tr:last-child td { border-bottom: none; }
   text-align: center;
 }
 
+/* ---- Model Tags Input ---- */
+.model-tags-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 38px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: text;
+  transition: var(--transition);
+}
+
+.model-tags-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent-light);
+  color: var(--accent);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.model-tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.6;
+  transition: var(--transition);
+}
+
+.model-tag-remove:hover {
+  opacity: 1;
+}
+
+.model-tag-search {
+  flex: 1;
+  min-width: 80px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  padding: 2px 0;
+}
+
+.model-tag-search::placeholder {
+  color: var(--text-tertiary);
+}
+
 /* ---- Buttons ---- */
 .btn {
   display: inline-flex;

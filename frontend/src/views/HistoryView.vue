@@ -384,7 +384,7 @@ function rerunResult(r) {
     system_prompt: c.system_prompt || '',
     user_prompt: c.user_prompt || '',
   };
-  store.switchTab('benchmark');
+  store.switchTab('bench');
 }
 
 function deleteResult(filename) {

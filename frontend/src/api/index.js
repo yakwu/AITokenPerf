@@ -9,7 +9,7 @@ export async function api(path, opts = {}) {
   if (res.status === 401) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    window.location.href = '/auth';
+    import('../router').then(m => m.default.push('/auth'));
     throw new Error('Unauthorized');
   }
   return res.json();
@@ -53,8 +53,12 @@ export const deleteScheduleApi = (id) => api(`/api/schedules/${id}`, { method: '
 export const pauseScheduleApi = (id) => api(`/api/schedules/${id}/pause`, { method: 'POST' });
 export const resumeScheduleApi = (id) => api(`/api/schedules/${id}/resume`, { method: 'POST' });
 export const runNowApi = (id) => api(`/api/schedules/${id}/run-now`, { method: 'POST' });
-export const getScheduleResults = (id, { limit = 100, offset = 0 } = {}) => api(`/api/schedules/${id}/results?limit=${limit}&offset=${offset}`);
-export const getScheduleTrend = (id) => api(`/api/schedules/${id}/trend`);
+export const getScheduleResults = (id, { limit = 100, offset = 0, hours } = {}) => {
+  const params = new URLSearchParams({ limit, offset });
+  if (hours) params.set('hours', hours);
+  return api(`/api/schedules/${id}/results?${params}`);
+};
+export const getScheduleTrend = (id, { hours } = {}) => api(`/api/schedules/${id}/trend` + (hours ? `?hours=${hours}` : ''));
 
 // Settings
 export const updateProfileApi = (data) => api('/api/user/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
