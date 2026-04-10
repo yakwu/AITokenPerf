@@ -16,8 +16,14 @@ import time
 import aiohttp
 
 from app.client import send_streaming_request
+from app.logger import current_run_id, RunIdFormatter
 
 log = logging.getLogger("bench")
+log.setLevel(logging.INFO)
+if not log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(RunIdFormatter("%(asctime)s [%(run_id)s] [bench] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    log.addHandler(_handler)
 
 
 async def run_burst(session: aiohttp.ClientSession, config: dict, concurrency: int, on_complete=None) -> list:

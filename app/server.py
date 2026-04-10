@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.client import send_streaming_request
 from app.stats import aggregate_metrics, build_report_dict
-from app.logger import log_access, log_security
+from app.logger import log_access, log_security, current_run_id
 
 log = logging.getLogger("server")
 from app.db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
@@ -860,7 +860,8 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
         if user_running + len(models) > BenchTaskManager.MAX_PER_USER:
             return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
 
-        group_id = f"multi_{uuid.uuid4().hex[:12]}"
+        group_id = f"multi_{uuid.uuid4().hex[:8]}"
+        current_run_id.set(group_id)
         task_ids = []
         from app.protocols import detect_protocol
         for model_name in models:
@@ -967,7 +968,8 @@ async def start_multi_bench(request: Request, user: dict = Depends(get_current_u
     profile_map = {p["name"]: p for p in profiles}
     benchmark = await get_settings(user_id)
 
-    group_id = f"grp_{uuid.uuid4().hex[:12]}"
+    group_id = f"grp_{uuid.uuid4().hex[:8]}"
+    current_run_id.set(group_id)
     task_ids = []
 
     for spec in tasks_spec:
@@ -1032,7 +1034,8 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
     if user_running + len(models) > BenchTaskManager.MAX_PER_USER:
         return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
 
-    group_id = f"multi_{uuid.uuid4().hex[:12]}"
+    group_id = f"multi_{uuid.uuid4().hex[:8]}"
+    current_run_id.set(group_id)
     task_ids = []
 
     for model_name in models:
