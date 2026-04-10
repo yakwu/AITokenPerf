@@ -69,6 +69,9 @@ export const getUsers = () => api('/api/admin/users');
 export const updateUserRoleApi = (id, role) => api(`/api/admin/users/${id}/role`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
 export const deleteUserApi = (id) => api(`/api/admin/users/${id}`, { method: 'DELETE' });
 
+// Sites
+export const getSitesSummary = () => api('/api/sites/summary');
+
 // Models
 export const getModels = (baseUrl, apiKey) =>
   api('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base_url: baseUrl, api_key: apiKey }) });
