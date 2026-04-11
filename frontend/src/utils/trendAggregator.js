@@ -85,7 +85,9 @@ export function aggregateToFixedPoints(trend, targetPoints = 144) {
     items.push({
       avg_success_rate: weightedAvg('avg_success_rate'),
       avg_throughput: weightedAvg('avg_throughput'),
+      avg_tps: weightedAvg('avg_tps'),
       avg_ttft_p50: weightedAvg('avg_ttft_p50'),
+      avg_tpot_p50: weightedAvg('avg_tpot_p50'),
       avg_e2e_p50: weightedAvg('avg_e2e_p50'),
       run_count: totalWeight,
     });

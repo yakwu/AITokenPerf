@@ -693,7 +693,8 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
         minute = row.timestamp[:13]  # e.g. "20260408_1820" (YYYYMMDD_HHMM)
         if minute not in buckets:
             buckets[minute] = {"minute": minute, "count": 0, "success_rates": [],
-                               "throughputs": [], "ttft_p50s": [], "e2e_p50s": []}
+                               "throughputs": [], "tpses": [],
+                               "ttft_p50s": [], "tpot_p50s": [], "e2e_p50s": []}
         b = buckets[minute]
         b["count"] += 1
         try:
@@ -702,6 +703,8 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
                 b["success_rates"].append(float(s["success_rate"]))
             if s.get("throughput_rps") is not None:
                 b["throughputs"].append(float(s["throughput_rps"]))
+            if s.get("token_throughput_tps") is not None:
+                b["tpses"].append(float(s["token_throughput_tps"]))
         except (json.JSONDecodeError, TypeError):
             pass
         try:
@@ -709,6 +712,9 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
             ttft = p.get("TTFT", {})
             if ttft.get("P50") is not None:
                 b["ttft_p50s"].append(float(ttft["P50"]))
+            tpot = p.get("TPOT", {})
+            if tpot.get("P50") is not None:
+                b["tpot_p50s"].append(float(tpot["P50"]))
             e2e = p.get("E2E", {})
             if e2e.get("P50") is not None:
                 b["e2e_p50s"].append(float(e2e["P50"]))
@@ -723,10 +729,83 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
             "run_count": b["count"],
             "avg_success_rate": round(sum(b["success_rates"]) / len(b["success_rates"]), 4) if b["success_rates"] else None,
             "avg_throughput": round(sum(b["throughputs"]) / len(b["throughputs"]), 2) if b["throughputs"] else None,
-            "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 2) if b["ttft_p50s"] else None,
-            "avg_e2e_p50": round(sum(b["e2e_p50s"]) / len(b["e2e_p50s"]), 2) if b["e2e_p50s"] else None,
+            "avg_tps": round(sum(b["tpses"]) / len(b["tpses"]), 2) if b["tpses"] else None,
+            "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 6) if b["ttft_p50s"] else None,
+            "avg_tpot_p50": round(sum(b["tpot_p50s"]) / len(b["tpot_p50s"]), 6) if b["tpot_p50s"] else None,
+            "avg_e2e_p50": round(sum(b["e2e_p50s"]) / len(b["e2e_p50s"]), 6) if b["e2e_p50s"] else None,
         })
     return result[-2000:]  # 最多2000个点
+
+
+async def get_site_trend(user_id: int, base_url: str, hours: int | None = None) -> list[dict]:
+    """按站点 base_url 聚合结果趋势（同时覆盖定时任务和手动测试结果）。
+    只查询需要的字段，按分钟聚合，最多返回 2000 个点。
+    """
+    params: dict = {"uid": user_id, "base_url": base_url}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
+    # 匹配 base_url（去尾斜杠兼容）
+    base_clean = base_url.rstrip("/")
+    base_with_slash = base_clean + "/"
+
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text(f"""SELECT timestamp, summary_json, percentiles_json
+                   FROM results
+                   WHERE user_id=:uid
+                     AND (json_extract(config_json, '$.base_url')=:base_url
+                          OR json_extract(config_json, '$.base_url')=:base_with_slash)
+                     {time_filter}
+                   ORDER BY timestamp DESC
+                   LIMIT 20000"""),
+            {**params, "base_with_slash": base_with_slash},
+        )
+        rows = cur.fetchall()
+
+    buckets = {}
+    for row in rows:
+        minute = row[0][:13]  # timestamp
+        if minute not in buckets:
+            buckets[minute] = {"minute": minute, "count": 0, "success_rates": [],
+                               "tpses": [], "ttft_p50s": [], "tpot_p50s": []}
+        b = buckets[minute]
+        b["count"] += 1
+        try:
+            s = json.loads(row[1])  # summary_json
+            if s.get("success_rate") is not None:
+                b["success_rates"].append(float(s["success_rate"]))
+            if s.get("token_throughput_tps") is not None:
+                b["tpses"].append(float(s["token_throughput_tps"]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+        try:
+            p = json.loads(row[2])  # percentiles_json
+            ttft = p.get("TTFT", {})
+            if ttft.get("P50") is not None:
+                b["ttft_p50s"].append(float(ttft["P50"]))
+            tpot = p.get("TPOT", {})
+            if tpot.get("P50") is not None:
+                b["tpot_p50s"].append(float(tpot["P50"]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    result = []
+    for minute in sorted(buckets.keys()):
+        b = buckets[minute]
+        result.append({
+            "minute": minute,
+            "run_count": b["count"],
+            "avg_success_rate": round(sum(b["success_rates"]) / len(b["success_rates"]), 4) if b["success_rates"] else None,
+            "avg_tps": round(sum(b["tpses"]) / len(b["tpses"]), 2) if b["tpses"] else None,
+            "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 6) if b["ttft_p50s"] else None,
+            "avg_tpot_p50": round(sum(b["tpot_p50s"]) / len(b["tpot_p50s"]), 6) if b["tpot_p50s"] else None,
+        })
+    return result[-2000:]
 
 
 # ---- User Settings CRUD ----
@@ -1031,11 +1110,43 @@ async def get_sites_summary(user_id: int) -> list[dict]:
             "last_test_at": None,
         }
 
+    # 构建 base_url → [profile names] 查找表（一个 URL 可能对应多个 profile）
+    url_to_profiles = {}
+    for p in profiles:
+        base_url = (p.get("base_url") or "").rstrip("/")
+        if base_url:
+            url_to_profiles.setdefault(base_url, []).append(p["name"])
+
+    # 构建 scheduled_task_id → profile name 查找表
+    scheduled_tasks = await get_scheduled_tasks(user_id)
+    task_to_profile = {}
+    for st in scheduled_tasks:
+        pids = st.get("profile_ids") or []
+        if pids:
+            task_to_profile[st["id"]] = pids[0]
+
     for r in results:
         config = r.get("config", {})
         profile_name = config.get("profile_name", "")
-        if profile_name in summary:
+
+        # 优先通过 profile_name 匹配
+        if profile_name and profile_name in summary:
             summary[profile_name]["latest_results"].append(r)
+            continue
+
+        # 回退 1：通过 scheduled_task_id 匹配（定时任务结果通常有此字段）
+        stid = r.get("scheduled_task_id") or 0
+        if stid and stid in task_to_profile:
+            matched = task_to_profile[stid]
+            if matched in summary:
+                summary[matched]["latest_results"].append(r)
+                continue
+
+        # 回退 2：通过 base_url 匹配（关联所有同 URL 的 profile）
+        base_url = (config.get("base_url") or "").rstrip("/")
+        if base_url and base_url in url_to_profiles:
+            for matched_name in url_to_profiles[base_url]:
+                summary[matched_name]["latest_results"].append(r)
 
     # 计算健康状态
     for key, val in summary.items():

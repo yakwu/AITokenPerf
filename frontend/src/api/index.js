@@ -60,6 +60,13 @@ export const getScheduleResults = (id, { limit = 100, offset = 0, hours } = {}) 
 };
 export const getScheduleTrend = (id, { hours } = {}) => api(`/api/schedules/${id}/trend` + (hours ? `?hours=${hours}` : ''));
 
+// Sites
+export const getSiteTrend = (baseUrl, { hours } = {}) => {
+  const params = new URLSearchParams({ base_url: baseUrl });
+  if (hours) params.set('hours', hours);
+  return api(`/api/sites/trend?${params}`);
+};
+
 // Settings
 export const updateProfileApi = (data) => api('/api/user/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const changePasswordApi = (data) => api('/api/user/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
