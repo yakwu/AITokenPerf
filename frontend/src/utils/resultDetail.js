@@ -78,7 +78,7 @@ export function renderResultDetail(r) {
     html += `
       <div class="metric-card">
         <div class="metric-label">预估费用</div>
-        <div class="metric-value">${fmtCost(s.cost_total_usd)}</div>
+        <div class="metric-value metric-value--compact">${fmtCost(s.cost_total_usd)}</div>
         <div class="metric-sub">输入: ${fmtCost(s.cost_input_usd)}<br>输出: ${fmtCost(s.cost_output_usd)}</div>
       </div>`;
   }

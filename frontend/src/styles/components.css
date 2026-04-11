@@ -161,6 +161,7 @@
   transition: var(--transition);
   min-width: 0;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .metric-card:hover {
@@ -183,6 +184,12 @@
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;
+}
+
+.metric-value--compact {
+  font-size: clamp(16px, 3.5cqw + 10px, 28px);
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .metric-value.success { color: var(--success); }

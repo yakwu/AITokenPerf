@@ -64,16 +64,25 @@
             >
               <span class="site-health-dot" :class="site.health"></span>
               <div class="dash-site-info">
-                <span class="dash-site-name">{{ site.profile.name }}</span>
+                <div class="dash-site-name-row">
+                  <span class="dash-site-name">{{ site.profile.name }}</span>
+                  <span v-if="getSiteModelCount(site) > 0" class="dash-site-model-count">{{ getSiteModelCount(site) }} 模型</span>
+                </div>
                 <span class="dash-site-url">{{ hostName(site.profile.base_url) }}</span>
+                <div v-if="getSiteTopErrors(site).length" class="dash-site-errors">
+                  <span v-for="tag in getSiteTopErrors(site)" :key="tag" class="dash-site-error-tag">{{ tag }}</span>
+                </div>
               </div>
               <div class="dash-site-metrics">
                 <template v-if="site.health !== 'untested' && getSiteLatestMetrics(site)">
-                  <span class="dash-metric" title="TTFT P50">{{ fmtTime(getSiteLatestMetrics(site).ttft) }}</span>
-                  <span class="dash-metric" title="Token/s">{{ getSiteLatestMetrics(site).tps != null ? fmtNum(getSiteLatestMetrics(site).tps, 0) + ' t/s' : '-' }}</span>
-                  <span class="rate-badge" :class="rateColorClass(getSiteLatestMetrics(site).successRate)" style="font-size:11px">
-                    {{ fmtPct(getSiteLatestMetrics(site).successRate) }}
-                  </span>
+                  <div class="dash-site-metrics-inner">
+                    <span class="dash-metric" title="TTFT P50">{{ fmtTime(getSiteLatestMetrics(site).ttft) }}</span>
+                    <span class="dash-metric" title="Token/s">{{ getSiteLatestMetrics(site).tps != null ? fmtNum(getSiteLatestMetrics(site).tps, 0) + ' t/s' : '-' }}</span>
+                    <span class="rate-badge" :class="rateColorClass(getSiteLatestMetrics(site).successRate)" style="font-size:11px">
+                      {{ fmtPct(getSiteLatestMetrics(site).successRate) }}
+                    </span>
+                  </div>
+                  <span v-if="site.last_test_at" class="dash-site-time">{{ relativeTime(site.last_test_at) }}</span>
                 </template>
                 <template v-else>
                   <span class="dash-metric dash-metric--muted">未测试</span>
@@ -171,13 +180,19 @@ const healthyCount = computed(() => sites.value.filter(s => s.health === 'health
 const errorCount = computed(() => sites.value.filter(s => s.health === 'error').length);
 const untestedCount = computed(() => sites.value.filter(s => s.health === 'untested' || s.health === 'unknown').length);
 
-// Sorted sites: error > healthy > untested, within group by last_test_at desc
+// Sorted sites: error (worst rate first) > healthy (worst rate first) > untested (by name)
 const healthOrder = { error: 0, healthy: 1, untested: 2, unknown: 2 };
 const sortedSites = computed(() =>
   [...sites.value].sort((a, b) => {
     const ha = healthOrder[a.health] ?? 2;
     const hb = healthOrder[b.health] ?? 2;
     if (ha !== hb) return ha - hb;
+    // untested: sort by name
+    if (ha === 2) return (a.profile?.name || '').localeCompare(b.profile?.name || '');
+    // error/healthy: sort by success rate ascending (worst first)
+    const rateA = getSiteSuccessRate(a);
+    const rateB = getSiteSuccessRate(b);
+    if (rateA !== rateB) return (rateA ?? 999) - (rateB ?? 999);
     return (b.last_test_at || '').localeCompare(a.last_test_at || '');
   })
 );
@@ -364,6 +379,36 @@ function getSiteLatestMetrics(site) {
   const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
 
   return { ttft, tps, successRate };
+}
+
+function getSiteSuccessRate(site) {
+  const m = getSiteLatestMetrics(site);
+  return m?.successRate ?? null;
+}
+
+function getSiteModelCount(site) {
+  const results = site.latest_results || [];
+  const models = new Set();
+  for (const r of results) {
+    const m = r.config?.model;
+    if (m) models.add(m);
+  }
+  return models.size;
+}
+
+function getSiteTopErrors(site) {
+  const results = site.latest_results || [];
+  const errorCounts = {};
+  for (const r of results) {
+    const errs = r.errors || {};
+    for (const [type, count] of Object.entries(errs)) {
+      errorCounts[type] = (errorCounts[type] || 0) + count;
+    }
+  }
+  return Object.entries(errorCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([type, count]) => `${type}×${count}`);
 }
 
 function goSiteDetail(site) {
@@ -583,9 +628,57 @@ onUnmounted(() => { store.refreshFn = null; });
 
 .dash-site-metrics {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.dash-site-metrics-inner {
+  display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.dash-site-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.dash-site-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dash-site-model-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--border-subtle);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
   flex-shrink: 0;
+}
+
+.dash-site-errors {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dash-site-error-tag {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--danger);
+  background: var(--danger-light);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 .dash-metric {
