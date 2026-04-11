@@ -403,7 +403,7 @@ async function loadDashboard() {
     ]);
 
     sites.value = sitesData.summary || [];
-    schedules.value = Array.isArray(schedulesData) ? schedulesData : [];
+    schedules.value = schedulesData?.schedules || [];
     results.value = resultsData.items || [];
   } catch (e) {
     toast('加载概览数据失败: ' + e.message, 'error');
