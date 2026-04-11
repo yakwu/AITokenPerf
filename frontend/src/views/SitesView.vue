@@ -71,7 +71,7 @@
                 <tr>
                   <th>模型</th>
                   <th>TTFT P50</th>
-                  <th style="width:70px">趋势</th>
+                  <th style="width:70px" title="TTFT (首 Token 延迟) 变化趋势">趋势</th>
                   <th>TPOT P50</th>
                   <th>Token/s</th>
                   <th>成功率</th>
@@ -81,7 +81,7 @@
                 <tr v-for="m in getModelMetrics(site)" :key="m.model">
                   <td class="matrix-model">{{ m.model }}</td>
                   <td :style="latencyColorStyle(m.ttft, 0.5, 2)">{{ fmtTime(m.ttft) }}</td>
-                  <td class="sparkline-cell">
+                  <td class="sparkline-cell" :title="sparklineTooltip(m.ttftTrend)">
                     <svg v-if="m.ttftTrend && m.ttftTrend.length >= 2" width="60" height="20" class="sparkline">
                       <polyline :points="sparklinePoints(m.ttftTrend)" fill="none"
                         :stroke="m.ttftTrend.length >= 2 && m.ttftTrend[m.ttftTrend.length-1] > m.ttftTrend[0] ? 'var(--danger)' : 'var(--success)'"
@@ -275,6 +275,15 @@ function sparklinePoints(values) {
     const y = 20 - ((v - min) / range) * 18;
     return `${x},${y}`;
   }).join(' ');
+}
+
+function sparklineTooltip(values) {
+  if (!values || values.length < 2) return '';
+  const first = values[0];
+  const last = values[values.length - 1];
+  const diff = last - first;
+  const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+  return `TTFT 趋势: ${fmtTime(first)} → ${fmtTime(last)} (${arrow}${Math.abs(diff).toFixed(3)}s)`;
 }
 
 function getErrorTypes(site) {
