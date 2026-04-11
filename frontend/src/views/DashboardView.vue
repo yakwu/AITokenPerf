@@ -10,8 +10,8 @@
       <div class="dash-summary-row">
         <div class="dash-summary-card">
           <div class="dash-summary-value">{{ sites.length }}</div>
-          <div class="dash-summary-label">
-            目标站点数
+          <div class="dash-summary-label">目标站点数</div>
+          <div v-if="errorCount || healthyCount || untestedCount" class="dash-summary-tags">
             <span v-if="errorCount > 0" class="dash-summary-sub danger">{{ errorCount }} 异常</span>
             <span v-if="healthyCount > 0" class="dash-summary-sub success">{{ healthyCount }} 健康</span>
             <span v-if="untestedCount > 0" class="dash-summary-sub muted">{{ untestedCount }} 未测试</span>
@@ -299,9 +299,8 @@ const recentActivity = computed(() => {
     };
   });
 
-  // Sort: failures first, then by timestamp descending
+  // Sort by timestamp descending (most recent first)
   activities.sort((a, b) => {
-    if (a.success !== b.success) return a.success ? 1 : -1;
     return (b.timestamp || '').localeCompare(a.timestamp || '');
   });
 
@@ -460,11 +459,18 @@ onUnmounted(() => { store.refreshFn = null; });
   margin-top: 6px;
 }
 
+.dash-summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
 .dash-summary-sub {
   display: inline-block;
   font-size: 11px;
   font-weight: 600;
-  margin-left: 4px;
   padding: 1px 6px;
   border-radius: 4px;
 }
