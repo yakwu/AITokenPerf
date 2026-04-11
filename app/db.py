@@ -467,34 +467,49 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
         )
 
 
-def _row_to_result_dict(row) -> dict:
+def _row_to_result_dict(row, lightweight: bool = False) -> dict:
     d = dict(row._mapping)
     d["config"] = json.loads(d["config_json"])
     d["summary"] = json.loads(d["summary_json"])
-    d["percentiles"] = json.loads(d["percentiles_json"])
-    d["errors"] = json.loads(d["errors_json"])
-    d["error_details"] = json.loads(d["error_details_json"])
+    if lightweight:
+        # 轻量模式：不解析大字段，直接移除原始 JSON 列
+        for key in ("percentiles_json", "errors_json", "error_details_json",
+                     "config_json", "summary_json"):
+            d.pop(key, None)
+    else:
+        d["percentiles"] = json.loads(d["percentiles_json"])
+        d["errors"] = json.loads(d["errors_json"])
+        d["error_details"] = json.loads(d["error_details_json"])
     if not d.get("schedule_name"):
         d["schedule_name"] = ""
     return d
 
 
-async def get_results(user_id: int) -> list[dict]:
+async def get_results(user_id: int, hours: int | None = None) -> list[dict]:
+    """返回用户所有测试结果。hours 可选，仅返回最近 N 小时内的数据。"""
+    params: dict = {"uid": user_id}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND r.timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
     async with engine.connect() as conn:
         cur = await conn.execute(
-            text("""SELECT r.*, st.name AS schedule_name
+            text(f"""SELECT r.*, st.name AS schedule_name
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-                   WHERE r.user_id=:uid
+                   WHERE r.user_id=:uid {time_filter}
                    ORDER BY r.created_at DESC"""),
-            {"uid": user_id},
+            params,
         )
         rows = cur.fetchall()
         return [_row_to_result_dict(row) for row in rows]
 
 
-async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None) -> dict:
-    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。hours 可选，仅返回最近 N 小时的数据。"""
+async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None, lightweight: bool = False) -> dict:
+    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。hours 可选，仅返回最近 N 小时的数据。lightweight=True 时不返回大字段。"""
     params: dict = {"uid": user_id}
     time_filter = ""
     if hours is not None:
@@ -518,7 +533,7 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
     manual_items = []
     scheduled_groups = {}
     for row in rows:
-        d = _row_to_result_dict(row)
+        d = _row_to_result_dict(row, lightweight=lightweight)
         sid = d.get("scheduled_task_id") or 0
         if sid == 0:
             manual_items.append(d)
@@ -584,9 +599,10 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
 
         representative = dict(group[0])
         representative["summary"] = avg_summary
-        representative["percentiles"] = avg_percentiles
+        if not lightweight:
+            representative["percentiles"] = avg_percentiles
+            representative["children"] = group
         representative["children_count"] = count
-        representative["children"] = group
         merged.append(representative)
 
     merged.sort(key=lambda r: r.get("created_at") or r.get("timestamp") or "", reverse=True)
@@ -1094,10 +1110,10 @@ async def count_user_scheduled_tasks(user_id: int) -> int:
 
 # ---- Sites Summary ----
 
-async def get_sites_summary(user_id: int) -> list[dict]:
-    """获取用户所有站点的最新测试摘要"""
+async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict]:
+    """获取用户所有站点的最新测试摘要。hours 可选，仅使用最近 N 小时内的数据。"""
     profiles = await get_profiles(user_id)
-    results = await get_results(user_id)
+    results = await get_results(user_id, hours=hours)
 
     # 按 profile name 分组，聚合最新结果
     summary = {}
@@ -1148,10 +1164,38 @@ async def get_sites_summary(user_id: int) -> list[dict]:
             for matched_name in url_to_profiles[base_url]:
                 summary[matched_name]["latest_results"].append(r)
 
-    # 计算健康状态
+    # 计算 sparkline_data 和健康状态
     for key, val in summary.items():
+        all_results = val["latest_results"]  # 全部匹配结果（时间窗口内）
+
+        # ---- sparkline_data：按 model 分组提取 TTFT P50 ----
+        model_ttfts: dict[str, list[tuple[str, float]]] = {}  # model → [(timestamp, ttft)]
+        for r in all_results:
+            model = r.get("config", {}).get("model", "-")
+            ttft = None
+            p = r.get("percentiles", {})
+            if p and isinstance(p, dict):
+                ttft_obj = p.get("TTFT")
+                if ttft_obj and isinstance(ttft_obj, dict):
+                    ttft = ttft_obj.get("P50")
+            if ttft is not None:
+                ts = r.get("timestamp", "")
+                model_ttfts.setdefault(model, []).append((ts, float(ttft)))
+
+        sparkline_data: dict[str, list[float]] = {}
+        for model, pairs in model_ttfts.items():
+            # 按 timestamp 正序排列（旧→新）
+            pairs.sort(key=lambda x: x[0])
+            values = [v for _, v in pairs]
+            # 采样到最多 50 个点
+            if len(values) > 50:
+                step = len(values) / 50
+                values = [values[int(i * step)] for i in range(50)]
+            sparkline_data[model] = values
+        val["sparkline_data"] = sparkline_data
+
         # 截断 latest_results 到最近 10 条，防止内存膨胀
-        val["latest_results"] = val["latest_results"][:10]
+        val["latest_results"] = all_results[:10]
 
         latest = val["latest_results"][:5]  # 最近 5 次用于健康计算
         if not latest:

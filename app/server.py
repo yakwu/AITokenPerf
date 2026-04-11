@@ -635,8 +635,8 @@ async def update_config(request: Request, user: dict = Depends(get_current_user)
 # ---- Sites Routes ----
 
 @app.get("/api/sites/summary")
-async def sites_summary(user: dict = Depends(get_current_user)):
-    summary = await db_get_sites_summary(user["user_id"])
+async def sites_summary(hours: int | None = None, user: dict = Depends(get_current_user)):
+    summary = await db_get_sites_summary(user["user_id"], hours=hours)
     for entry in summary:
         p = entry.get("profile")
         if p and "api_key" in p:
@@ -771,9 +771,11 @@ async def list_results(
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     hours: int | None = Query(None),
+    fields: str | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
-    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours)
+    lightweight = fields == "summary"
+    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight)
     return {"total": result["total"], "items": result["items"]}
 
 

@@ -146,7 +146,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
-import { getSitesSummary, getSchedules, getResults } from '../api';
+import { getSitesSummary, getSchedules, getResults, getResult } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { renderResultDetail } from '../utils/resultDetail';
 import { toast } from '../composables/useToast';
@@ -368,8 +368,13 @@ function showTagToast(tag) {
   toast('查看历史记录中的该错误类型: ' + tag, 'info');
 }
 
-function showDetail(result) {
-  window.showDetailOverlay(renderResultDetail(result));
+async function showDetail(result) {
+  try {
+    const full = await getResult(result.filename);
+    window.showDetailOverlay(renderResultDetail(full));
+  } catch {
+    window.showDetailOverlay(renderResultDetail(result));
+  }
 }
 
 // --- Data Loading ---
@@ -380,7 +385,7 @@ async function loadDashboard() {
     const [sitesData, schedulesData, resultsData] = await Promise.all([
       getSitesSummary({ hours: timeRangeStore.hours }).catch(() => ({ summary: [] })),
       getSchedules().catch(() => []),
-      getResults({ limit: 100 }).catch(() => ({ items: [] })),
+      getResults({ limit: 100, hours: timeRangeStore.hours, fields: 'summary' }).catch(() => ({ items: [] })),
     ]);
 
     sites.value = sitesData.summary || [];
