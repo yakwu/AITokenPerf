@@ -3,12 +3,6 @@
     <!-- Controls Bar -->
     <div class="trends-controls">
       <span class="trends-label">历史趋势</span>
-      <div class="radio-group-inline">
-        <label v-for="opt in timeRangeOptions" :key="opt.label" class="radio-pill"
-          :class="{ active: selectedTimeRange === opt.hours }" @click="changeTimeRange(opt.hours)" style="cursor:pointer">
-          <span>{{ opt.label }}</span>
-        </label>
-      </div>
     </div>
 
     <!-- Loading -->
@@ -47,29 +41,50 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getSiteTrend } from '../api';
+import { useTimeRangeStore } from '../stores/timeRange';
 import { aggregateToFixedPoints } from '../utils/trendAggregator.js';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
+
+// ---- Crosshair sync plugin ----
+const crosshairPlugin = {
+  id: 'crosshairSync',
+  afterDraw(chart) {
+    const idx = chart._syncIndex;
+    if (idx == null || idx < 0) return;
+    const xScale = chart.scales.x;
+    if (!xScale) return;
+    const x = xScale.getPixelForValue(idx);
+    const { top, bottom } = chart.chartArea;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(232, 93, 38, 0.35)';
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
 
 const props = defineProps({
   profile: { type: Object, required: true },
 });
 
+const timeRangeStore = useTimeRangeStore();
+
 // ---- State ----
 const loading = ref(false);
 const trendData = ref([]);
 const trendSummary = ref([]);
-const selectedTimeRange = ref(6);
-const timeRangeOptions = [
-  { label: '6h', hours: 6 },
-  { label: '24h', hours: 24 },
-  { label: '7d', hours: 168 },
-];
 
 const latencyCanvas = ref(null);
 const qualityCanvas = ref(null);
 let latencyChart = null;
 let qualityChart = null;
+let syncAbort = null;
 
 // ---- Summary Cards ----
 function renderTrendSummary() {
@@ -127,7 +142,7 @@ async function fetchTrend() {
 
   loading.value = true;
   try {
-    const data = await getSiteTrend(baseUrl, { hours: selectedTimeRange.value });
+    const data = await getSiteTrend(baseUrl, { hours: timeRangeStore.hours });
     trendData.value = data.trend || [];
   } catch {
     trendData.value = [];
@@ -138,17 +153,73 @@ async function fetchTrend() {
   renderTrendSummary();
   renderLatencyChart();
   renderQualityChart();
-}
-
-async function changeTimeRange(hours) {
-  selectedTimeRange.value = hours;
-  await fetchTrend();
+  setupChartSync();
 }
 
 // ---- Chart Rendering ----
 function destroyCharts() {
+  if (syncAbort) { syncAbort.abort(); syncAbort = null; }
   if (latencyChart) { latencyChart.destroy(); latencyChart = null; }
   if (qualityChart) { qualityChart.destroy(); qualityChart = null; }
+}
+
+// Sync hover between two charts
+function setupChartSync() {
+  const latCanvas = latencyCanvas.value;
+  const qualCanvas = qualityCanvas.value;
+  if (!latCanvas || !qualCanvas || !latencyChart || !qualityChart) return;
+
+  if (syncAbort) syncAbort.abort();
+  syncAbort = new AbortController();
+  const signal = syncAbort.signal;
+
+  function getIndexFromEvent(chart, e) {
+    const rect = chart.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const xScale = chart.scales.x;
+    if (!xScale) return -1;
+    const val = xScale.getValueForPixel(x);
+    return Math.round(val);
+  }
+
+  function syncTo(targetChart, idx) {
+    if (idx < 0 || idx >= targetChart.data.labels.length) {
+      targetChart._syncIndex = null;
+      targetChart.update('none');
+      return;
+    }
+    targetChart._syncIndex = idx;
+    targetChart.tooltip.setActiveElements(
+      targetChart.data.datasets.map((_, di) => ({ datasetIndex: di, index: idx })),
+      { x: 0, y: 0 }
+    );
+    targetChart.setActiveElements(
+      targetChart.data.datasets.map((_, di) => ({ datasetIndex: di, index: idx }))
+    );
+    targetChart.update('none');
+  }
+
+  function clearSync(targetChart) {
+    targetChart._syncIndex = null;
+    targetChart.tooltip.setActiveElements([], { x: 0, y: 0 });
+    targetChart.setActiveElements([]);
+    targetChart.update('none');
+  }
+
+  latCanvas.addEventListener('mousemove', (e) => {
+    const idx = getIndexFromEvent(latencyChart, e);
+    syncTo(qualityChart, idx);
+  }, { signal });
+  latCanvas.addEventListener('mouseleave', () => {
+    clearSync(qualityChart);
+  }, { signal });
+  qualCanvas.addEventListener('mousemove', (e) => {
+    const idx = getIndexFromEvent(qualityChart, e);
+    syncTo(latencyChart, idx);
+  }, { signal });
+  qualCanvas.addEventListener('mouseleave', () => {
+    clearSync(latencyChart);
+  }, { signal });
 }
 
 function renderLatencyChart() {
@@ -161,6 +232,7 @@ function renderLatencyChart() {
 
   latencyChart = new Chart(canvas, {
     type: 'line',
+    plugins: [crosshairPlugin],
     data: {
       labels,
       datasets: [
@@ -231,6 +303,7 @@ function renderQualityChart() {
 
   qualityChart = new Chart(canvas, {
     type: 'line',
+    plugins: [crosshairPlugin],
     data: {
       labels,
       datasets: [
@@ -308,6 +381,10 @@ function renderQualityChart() {
 
 // ---- Lifecycle ----
 onMounted(() => {
+  fetchTrend();
+});
+
+watch(() => timeRangeStore.hours, () => {
   fetchTrend();
 });
 

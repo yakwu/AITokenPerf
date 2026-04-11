@@ -117,10 +117,13 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
+import { useTimeRangeStore } from '../stores/timeRange';
 import { api, getSitesSummary } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
+
+const timeRangeStore = useTimeRangeStore();
 
 const store = useAppStore();
 const router = useRouter();
@@ -195,6 +198,7 @@ function rateClass(rate) {
 
 function getModelMetrics(site) {
   const results = site.latest_results || [];
+  const sparklineData = site.sparkline_data || {};
   const modelMap = {};
   for (const r of results) {
     const model = r.config?.model || '-';
@@ -202,6 +206,12 @@ function getModelMetrics(site) {
       modelMap[model] = { results: [] };
     }
     modelMap[model].results.push(r);
+  }
+  // 确保 sparkline_data 中有但 latest_results 中没有的 model 也出现
+  for (const model of Object.keys(sparklineData)) {
+    if (!modelMap[model]) {
+      modelMap[model] = { results: [] };
+    }
   }
 
   return Object.entries(modelMap).map(([model, { results }]) => {
@@ -212,8 +222,10 @@ function getModelMetrics(site) {
     const ttfts = results.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
     const ttft = ttfts.length ? ttfts.reduce((a, b) => a + b, 0) / ttfts.length : null;
 
-    // Sparkline trend: last 10 TTFT P50 values (results are ordered newest-first, reverse for chart)
-    const ttftTrend = ttfts.slice(0, 10).reverse();
+    // Sparkline trend: 优先使用后端 sparkline_data（完整时间窗口），回退到 latest_results
+    const ttftTrend = (sparklineData[model] && sparklineData[model].length >= 2)
+      ? sparklineData[model]
+      : ttfts.slice(0, 10).reverse();
 
     const tpots = results.map(r => r.percentiles?.TPOT?.P50).filter(v => v != null);
     const tpot = tpots.length ? tpots.reduce((a, b) => a + b, 0) / tpots.length : null;
@@ -381,7 +393,7 @@ function createSite() {
 async function loadData() {
   loading.value = true;
   try {
-    const data = await getSitesSummary();
+    const data = await getSitesSummary({ hours: timeRangeStore.hours });
     sites.value = data.summary || [];
   } catch (e) {
     toast('加载站点数据失败: ' + e.message, 'error');
@@ -392,6 +404,10 @@ async function loadData() {
 watch(() => route.path, (val) => {
   if (val === '/sites') loadData();
 }, { immediate: true });
+
+watch(() => timeRangeStore.hours, () => {
+  if (route.path === '/sites' || route.path.startsWith('/sites/')) loadData();
+});
 
 store.refreshFn = loadData;
 onUnmounted(() => { store.refreshFn = null; });
@@ -447,19 +463,12 @@ onUnmounted(() => { store.refreshFn = null; });
   transform: translateY(-1px);
 }
 
-.site-card--healthy {
-  border-left: 3px solid var(--success);
-}
+.site-card--healthy {}
 
-.site-card--error {
-  border-left: 3px solid var(--danger);
-}
+.site-card--error {}
 
 .site-card--untested {
-  border-left: 3px solid var(--text-tertiary);
-  border-style: solid;
-  border-left-style: solid;
-  opacity: 0.85;
+  opacity: 0.7;
 }
 
 /* ---- Card Header ---- */

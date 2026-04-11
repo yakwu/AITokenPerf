@@ -145,6 +145,7 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
+import { useTimeRangeStore } from '../stores/timeRange';
 import { getSitesSummary, getSchedules, getResults } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { renderResultDetail } from '../utils/resultDetail';
@@ -152,6 +153,7 @@ import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
 
 const store = useAppStore();
+const timeRangeStore = useTimeRangeStore();
 const router = useRouter();
 const route = useRoute();
 
@@ -376,7 +378,7 @@ async function loadDashboard() {
   loading.value = true;
   try {
     const [sitesData, schedulesData, resultsData] = await Promise.all([
-      getSitesSummary().catch(() => ({ summary: [] })),
+      getSitesSummary({ hours: timeRangeStore.hours }).catch(() => ({ summary: [] })),
       getSchedules().catch(() => []),
       getResults({ limit: 100 }).catch(() => ({ items: [] })),
     ]);
@@ -393,6 +395,10 @@ async function loadDashboard() {
 watch(() => route.path, (val) => {
   if (val === '/') loadDashboard();
 }, { immediate: true });
+
+watch(() => timeRangeStore.hours, () => {
+  if (route.path === '/') loadDashboard();
+});
 
 store.refreshFn = loadDashboard;
 onUnmounted(() => { store.refreshFn = null; });
@@ -590,7 +596,7 @@ onUnmounted(() => { store.refreshFn = null; });
 /* ---- Right Top: Anomaly Alerts ---- */
 .dash-alerts-panel {
   background: var(--surface-raised);
-  border: 1px solid var(--danger);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px;
   box-shadow: var(--shadow-sm);
@@ -599,14 +605,17 @@ onUnmounted(() => { store.refreshFn = null; });
 .dash-alert-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 2px;
 }
 
 .dash-alert-item {
   padding: 10px 12px;
-  background: var(--danger-light);
   border-radius: 8px;
-  border-left: 3px solid var(--danger);
+  transition: background 0.15s;
+}
+
+.dash-alert-item:hover {
+  background: var(--border-subtle);
 }
 
 .dash-alert-header {
@@ -618,21 +627,20 @@ onUnmounted(() => { store.refreshFn = null; });
 
 .dash-alert-site {
   font-size: 14px;
-  font-weight: 700;
-  color: var(--danger);
+  font-weight: 600;
+  color: var(--text-primary);
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 2px;
 }
 
 .dash-alert-site:hover {
-  color: var(--accent-hover);
+  color: var(--accent);
 }
 
 .dash-alert-desc {
   font-size: 12px;
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  color: var(--danger);
+  font-weight: 500;
 }
 
 .dash-alert-tags {
@@ -643,21 +651,20 @@ onUnmounted(() => { store.refreshFn = null; });
 
 .dash-alert-tag {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--danger);
+  background: var(--bg);
+  color: var(--text-secondary);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   font-family: var(--font-mono);
   cursor: pointer;
-  border: 1px solid var(--border);
-  transition: background 0.15s;
+  transition: color 0.15s, background 0.15s;
 }
 
 .dash-alert-tag:hover {
-  background: var(--danger);
-  color: #fff;
+  background: var(--danger-light);
+  color: var(--danger);
 }
 
 /* ---- Right Bottom: Recent Activity ---- */
