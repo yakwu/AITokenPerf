@@ -73,7 +73,7 @@
                   <th>TTFT P50</th>
                   <th style="width:70px">趋势</th>
                   <th>TPOT P50</th>
-                  <th>Token·s⁻¹</th>
+                  <th>Token/s</th>
                   <th>成功率</th>
                 </tr>
               </thead>
