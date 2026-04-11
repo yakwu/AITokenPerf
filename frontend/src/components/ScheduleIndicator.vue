@@ -173,7 +173,7 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  z-index: 100;
+  z-index: 1000;
   overflow: hidden;
 }
 

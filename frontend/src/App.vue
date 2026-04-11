@@ -3,7 +3,7 @@
   <header class="header">
     <div class="header-left">
       <div class="logo">AIToken<span>Perf</span></div>
-      <div class="status-badge" :class="store.status" v-if="store.user">
+      <div class="status-badge" :class="store.status" v-if="store.user && store.status !== 'idle'">
         <div class="status-dot"></div>
         <span>{{ store.statusLabels[store.status] || store.status }}</span>
       </div>
