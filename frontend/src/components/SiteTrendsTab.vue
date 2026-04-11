@@ -34,15 +34,66 @@
         <canvas v-show="trendData.length >= 1" ref="qualityCanvas" class="trend-canvas"></canvas>
         <div v-show="trendData.length < 1" class="trend-empty-canvas">暂无趋势数据，至少需要 1 次执行</div>
       </div>
+
+      <!-- Execution Records Table -->
+      <div class="chart-card">
+        <div class="chart-card-title">执行记录</div>
+        <div v-if="recordsLoading" class="trend-empty-canvas">加载中...</div>
+        <div v-else-if="!records.length" class="trend-empty-canvas">暂无执行记录</div>
+        <template v-else>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>模型</th>
+                  <th>并发</th>
+                  <th>成功率</th>
+                  <th>TTFT P50</th>
+                  <th>Token/s</th>
+                  <th>来源</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="(r, idx) in records" :key="r.filename || idx">
+                  <tr class="history-row" :class="{ expanded: expandedRecord === idx, 'error-row': r.summary?.success_rate != null && r.summary.success_rate < 95 }" style="cursor:pointer" @click="toggleRecord(idx, r)">
+                    <td>{{ fmtTimestamp(r.timestamp) }}</td>
+                    <td style="font-family:var(--font-mono);font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.model">{{ r.config?.model || '-' }}</td>
+                    <td>{{ r.config?.concurrency || '-' }}</td>
+                    <td :style="rateStyle(r.summary?.success_rate) + ';font-weight:600'">{{ fmtPct(r.summary?.success_rate) }}</td>
+                    <td style="font-family:var(--font-mono)">{{ fmtTime(r.percentiles?.TTFT?.P50) }}</td>
+                    <td style="font-family:var(--font-mono)">{{ r.summary?.token_throughput_tps != null ? fmtNum(r.summary.token_throughput_tps, 0) : '-' }}</td>
+                    <td style="font-size:12px;color:var(--text-tertiary)">{{ r.schedule_name || '手动' }}</td>
+                  </tr>
+                  <tr class="detail-row" :class="{ open: expandedRecord === idx }">
+                    <td colspan="7"><div v-html="recordDetailHtml"></div></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <!-- Pagination -->
+          <div v-if="recordsTotal > recordsPageSize" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:12px;color:var(--text-secondary)">
+            <div>共 {{ recordsTotal }} 条</div>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-ghost btn-sm" :disabled="recordsPage <= 1" @click="loadRecords(recordsPage - 1)">上一页</button>
+              <span style="line-height:28px;padding:0 8px">{{ recordsPage }} / {{ Math.ceil(recordsTotal / recordsPageSize) }}</span>
+              <button class="btn btn-ghost btn-sm" :disabled="recordsPage >= Math.ceil(recordsTotal / recordsPageSize)" @click="loadRecords(recordsPage + 1)">下一页</button>
+            </div>
+          </div>
+        </template>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { getSiteTrend } from '../api';
+import { getSiteTrend, getResults } from '../api';
 import { useTimeRangeStore } from '../stores/timeRange';
 import { aggregateToFixedPoints } from '../utils/trendAggregator.js';
+import { fmtTime, fmtTimestamp, fmtPct, fmtNum } from '../utils/formatters.js';
+import { renderResultDetail } from '../utils/resultDetail.js';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 
@@ -85,6 +136,58 @@ const qualityCanvas = ref(null);
 let latencyChart = null;
 let qualityChart = null;
 let syncAbort = null;
+
+// ---- Execution Records ----
+const records = ref([]);
+const recordsTotal = ref(0);
+const recordsPage = ref(1);
+const recordsPageSize = 20;
+const recordsLoading = ref(false);
+const expandedRecord = ref(null);
+const recordDetailHtml = ref('');
+
+function fmtTimestampShort(ts) {
+  return fmtTimestamp(ts);
+}
+
+function rateStyle(rate) {
+  if (rate == null) return '';
+  return rate >= 95 ? 'color:var(--success)' : rate >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
+}
+
+function toggleRecord(idx, r) {
+  if (expandedRecord.value === idx) {
+    expandedRecord.value = null;
+    recordDetailHtml.value = '';
+  } else {
+    expandedRecord.value = idx;
+    recordDetailHtml.value = renderResultDetail(r);
+  }
+}
+
+async function loadRecords(page = 1) {
+  const baseUrl = props.profile?.base_url;
+  if (!baseUrl) return;
+  recordsLoading.value = true;
+  try {
+    const params = {
+      limit: recordsPageSize,
+      offset: (page - 1) * recordsPageSize,
+      raw: true,
+      base_url: baseUrl,
+    };
+    if (timeRangeStore.hours) params.hours = timeRangeStore.hours;
+    const data = await getResults(params);
+    records.value = data.items || [];
+    recordsTotal.value = data.total || 0;
+    recordsPage.value = page;
+  } catch {
+    records.value = [];
+  }
+  recordsLoading.value = false;
+  expandedRecord.value = null;
+  recordDetailHtml.value = '';
+}
 
 // ---- Summary Cards ----
 function renderTrendSummary() {
@@ -382,10 +485,12 @@ function renderQualityChart() {
 // ---- Lifecycle ----
 onMounted(() => {
   fetchTrend();
+  loadRecords();
 });
 
 watch(() => timeRangeStore.hours, () => {
   fetchTrend();
+  loadRecords();
 });
 
 onUnmounted(() => {

@@ -94,6 +94,11 @@ class BenchTaskManager:
                 return task
         return None
 
+    def get_user_running_tasks(self, user_id: int) -> list[BenchTask]:
+        """返回用户所有运行中的任务"""
+        return [t for t in self._tasks.values()
+                if t.owner_id == user_id and t.status == "running"]
+
     def get_user_task_count(self, user_id: int) -> int:
         return sum(1 for t in self._tasks.values() if t.owner_id == user_id and t.status == "running")
 
@@ -772,10 +777,12 @@ async def list_results(
     offset: int = Query(0, ge=0),
     hours: int | None = Query(None),
     fields: str | None = Query(None),
+    raw: bool = Query(False),
+    base_url: str | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
     lightweight = fields == "summary"
-    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight)
+    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight, raw=raw, base_url=base_url)
     return {"total": result["total"], "items": result["items"]}
 
 
@@ -932,6 +939,26 @@ async def stop_bench(
         if not stopped:
             return JSONResponse({"error": "No benchmark running"}, status_code=400)
         return {"status": "stopping", "task_ids": stopped}
+
+
+@app.get("/api/bench/running")
+async def bench_running(user: dict = Depends(get_current_user)):
+    """返回当前用户所有正在执行的 benchmark 任务"""
+    tasks = manager.get_user_running_tasks(user["user_id"])
+    return {"tasks": [
+        {
+            "task_id": t.task_id,
+            "model": t.model_name,
+            "profile_name": t.profile_name,
+            "scheduled_task_id": t.scheduled_task_id or 0,
+            "done": t.done_count,
+            "total": t.total_count,
+            "success": t.success_count,
+            "failed": t.failed_count,
+            "elapsed": round(time.monotonic() - t.start_time, 1) if t.start_time else 0,
+        }
+        for t in tasks
+    ]}
 
 
 @app.get("/api/bench/status")
