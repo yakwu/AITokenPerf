@@ -42,7 +42,7 @@
         <div class="site-card-header">
           <div class="site-card-title-row">
             <span class="site-health-dot" :class="site.health"></span>
-            <span class="site-name">{{ site.profile.name }}</span>
+            <router-link :to="`/sites/${encodeURIComponent(site.profile.name)}?tab=trends`" class="site-name-link">{{ site.profile.name }}</router-link>
             <span class="site-status-label" :class="site.health">{{ healthLabel(site.health) }}</span>
           </div>
           <div class="site-card-url">{{ site.profile.base_url }}</div>
@@ -111,6 +111,25 @@
         </div>
       </div>
     </div>
+
+    <!-- Test Confirm Modal -->
+    <Teleport to="body">
+      <div v-if="confirmTarget" class="modal-overlay" @click.self="confirmTarget = null">
+        <div class="modal-box">
+          <div class="modal-title">确认启动测试</div>
+          <div class="modal-body">
+            <div class="modal-row"><span class="modal-label">站点</span><span class="modal-value">{{ confirmTarget.profile.name }}</span></div>
+            <div class="modal-row"><span class="modal-label">地址</span><span class="modal-value mono">{{ confirmTarget.profile.base_url }}</span></div>
+            <div class="modal-row"><span class="modal-label">模型</span><span class="modal-value mono">{{ confirmTarget.profile.models?.[0] || '-' }}</span></div>
+            <div class="modal-row"><span class="modal-label">参数</span><span class="modal-value">并发 10 · burst · max_tokens 512</span></div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost btn-sm" @click="confirmTarget = null">取消</button>
+            <button class="btn btn-primary btn-sm" @click="confirmTest">确认测试</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -133,6 +152,7 @@ const loading = ref(false);
 const sites = ref([]);
 const search = ref('');
 const statusFilter = ref('all');
+const confirmTarget = ref(null);
 
 const statusFilters = [
   { label: '全部', value: 'all' },
@@ -332,7 +352,15 @@ async function testSite(site) {
     toast('该站点未配置模型', 'info');
     return;
   }
+  confirmTarget.value = site;
+}
 
+async function confirmTest() {
+  const site = confirmTarget.value;
+  confirmTarget.value = null;
+  if (!site) return;
+
+  const profile = site.profile;
   try {
     const res = await api('/api/bench/start', {
       method: 'POST',
@@ -359,8 +387,6 @@ async function testSite(site) {
     }
 
     toast('测试已启动', 'success');
-
-    // Poll until test completes, then refresh data
     pollTestCompletion(res.task_id);
   } catch (e) {
     toast('启动测试失败: ' + e.message, 'error');
@@ -389,7 +415,7 @@ async function pollTestCompletion(taskId) {
 function goDetail(site) {
   const name = site.profile?.name;
   if (name) {
-    router.push(`/sites/${encodeURIComponent(name)}`);
+    router.push(`/sites/${encodeURIComponent(name)}?tab=trends`);
   }
 }
 
@@ -512,6 +538,23 @@ onUnmounted(() => { store.refreshFn = null; });
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+.site-name-link {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.site-name-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .site-status-label {
@@ -674,5 +717,80 @@ onUnmounted(() => { store.refreshFn = null; });
   .sites-grid {
     grid-template-columns: 1fr;
   }
+}
+</style>
+
+<style>
+/* Modal styles (non-scoped for Teleport to body) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal-box {
+  background: var(--surface-raised, #fff);
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 12px;
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, #111);
+  margin-bottom: 16px;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.modal-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.modal-label {
+  color: var(--text-tertiary, #999);
+  flex-shrink: 0;
+  width: 40px;
+  text-align: right;
+}
+
+.modal-value {
+  color: var(--text-primary, #111);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.modal-value.mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>
