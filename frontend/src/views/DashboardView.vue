@@ -25,7 +25,7 @@
           </div>
         </div>
         <div class="dash-summary-card">
-          <div class="dash-summary-value">{{ results.length }}</div>
+          <div class="dash-summary-value">{{ resultsTotal }}</div>
           <div class="dash-summary-label" title="当前时间范围内的测试结果记录总数">测试数</div>
         </div>
         <div class="dash-summary-card">
@@ -163,6 +163,7 @@ const loading = ref(false);
 const sites = ref([]);
 const schedules = ref([]);
 const results = ref([]);
+const resultsTotal = ref(0);
 
 // --- Computed ---
 
@@ -399,12 +400,13 @@ async function loadDashboard() {
     const [sitesData, schedulesData, resultsData] = await Promise.all([
       getSitesSummary({ hours: timeRangeStore.hours }).catch(() => ({ summary: [] })),
       getSchedules().catch(() => []),
-      getResults({ limit: 100, hours: timeRangeStore.hours, fields: 'summary', raw: true }).catch(() => ({ items: [] })),
+      getResults({ limit: 1000, hours: timeRangeStore.hours, fields: 'summary', raw: true }).catch(() => ({ items: [], total: 0 })),
     ]);
 
     sites.value = sitesData.summary || [];
     schedules.value = schedulesData?.schedules || [];
     results.value = resultsData.items || [];
+    resultsTotal.value = resultsData.total || 0;
   } catch (e) {
     toast('加载概览数据失败: ' + e.message, 'error');
   }
