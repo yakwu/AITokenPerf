@@ -71,7 +71,7 @@
                 <tr>
                   <th>模型</th>
                   <th>TTFT P50</th>
-                  <th style="width:70px" title="TTFT (首 Token 延迟) 变化趋势">趋势</th>
+                  <th style="width:70px" title="失败率变化趋势">趋势</th>
                   <th>TPOT P50</th>
                   <th>Token/s</th>
                   <th>成功率</th>
@@ -81,10 +81,10 @@
                 <tr v-for="m in getModelMetrics(site)" :key="m.model">
                   <td class="matrix-model">{{ m.model }}</td>
                   <td :style="latencyColorStyle(m.ttft, 0.5, 2)">{{ fmtTime(m.ttft) }}</td>
-                  <td class="sparkline-cell" :title="sparklineTooltip(m.ttftTrend)">
-                    <svg v-if="m.ttftTrend && m.ttftTrend.length >= 2" width="60" height="20" class="sparkline">
-                      <polyline :points="sparklinePoints(m.ttftTrend)" fill="none"
-                        :stroke="m.ttftTrend.length >= 2 && m.ttftTrend[m.ttftTrend.length-1] > m.ttftTrend[0] ? 'var(--danger)' : 'var(--success)'"
+                  <td class="sparkline-cell" :title="sparklineTooltip(m.failRateTrend)">
+                    <svg v-if="m.failRateTrend && m.failRateTrend.length >= 2" width="60" height="20" class="sparkline">
+                      <polyline :points="sparklinePoints(m.failRateTrend)" fill="none"
+                        :stroke="m.failRateTrend[m.failRateTrend.length-1] > m.failRateTrend[0] ? 'var(--danger)' : 'var(--success)'"
                         stroke-width="1.5" stroke-linejoin="round" />
                     </svg>
                     <span v-else class="sparkline-na">-</span>
@@ -250,18 +250,20 @@ function getModelMetrics(site) {
     const ttfts = results.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
     const ttft = ttfts.length ? ttfts.reduce((a, b) => a + b, 0) / ttfts.length : null;
 
-    // Sparkline trend: 优先使用后端 sparkline_data（完整时间窗口），回退到 latest_results
-    const ttftTrend = (sparklineData[model] && sparklineData[model].length >= 2)
-      ? sparklineData[model]
-      : ttfts.slice(0, 10).reverse();
-
     const tpots = results.map(r => r.percentiles?.TPOT?.P50).filter(v => v != null);
     const tpot = tpots.length ? tpots.reduce((a, b) => a + b, 0) / tpots.length : null;
 
     const tpsList = results.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
     const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
 
-    return { model, ttft, ttftTrend, tpot, tps, successRate };
+    // Sparkline trend: 失败率（从 latest_results 计算每次测试的失败率）
+    const failRateTrend = results.slice().reverse().map(r => {
+      const total = r.summary?.total_requests || 0;
+      const success = r.summary?.success_count || r.summary?.successful_requests || 0;
+      return total > 0 ? (100 - success / total * 100) : null;
+    }).filter(v => v != null);
+
+    return { model, ttft, failRateTrend, tpot, tps, successRate };
   }).sort((a, b) => a.model.localeCompare(b.model));
 }
 
@@ -283,7 +285,7 @@ function sparklineTooltip(values) {
   const last = values[values.length - 1];
   const diff = last - first;
   const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
-  return `TTFT 趋势: ${fmtTime(first)} → ${fmtTime(last)} (${arrow}${Math.abs(diff).toFixed(3)}s)`;
+  return `失败率趋势: ${first.toFixed(1)}% → ${last.toFixed(1)}% (${arrow}${Math.abs(diff).toFixed(1)}%)`;
 }
 
 function getErrorTypes(site) {
