@@ -206,7 +206,7 @@ function getModelMetrics(site) {
 
   return Object.entries(modelMap).map(([model, { results }]) => {
     const totalReqs = results.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-    const totalSuccess = results.reduce((s, r) => s + (r.summary?.successful_requests || 0), 0);
+    const totalSuccess = results.reduce((s, r) => s + (r.summary?.success_count || r.summary?.successful_requests || 0), 0);
     const successRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
 
     const ttfts = results.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
@@ -275,7 +275,7 @@ function getDegradation(site) {
       .map(r => {
         const s = r.summary || {};
         const total = s.total_requests || 0;
-        return total > 0 ? (s.successful_requests || 0) / total * 100 : null;
+        return total > 0 ? (s.success_count || s.successful_requests || 0) / total * 100 : null;
       })
       .filter(v => v != null);
     return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;

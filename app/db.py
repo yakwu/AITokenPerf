@@ -1052,7 +1052,7 @@ async def get_sites_summary(user_id: int) -> list[dict]:
         for r in latest:
             s = r.get("summary", {})
             if s.get("total_requests", 0) > 0:
-                success_rates.append(s["successful_requests"] / s["total_requests"])
+                success_rates.append(s.get("success_count", s.get("successful_requests", 0)) / s["total_requests"])
 
         if not success_rates:
             val["health"] = "unknown"
