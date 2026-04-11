@@ -159,6 +159,8 @@
   padding: 20px;
   box-shadow: var(--shadow-sm);
   transition: var(--transition);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .metric-card:hover {
@@ -229,6 +231,7 @@
   color: var(--text-tertiary);
   margin-top: 4px;
   font-family: var(--font-mono);
+  word-break: break-word;
 }
 
 /* ---- Trend Summary Cards ---- */
