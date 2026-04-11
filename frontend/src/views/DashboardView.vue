@@ -273,7 +273,7 @@ const recentActivity = computed(() => {
     return {
       timestamp: r.timestamp,
       success,
-      siteName: c._profile_name || hostName(c.base_url),
+      siteName: c.profile_name || hostName(c.base_url),
       model: shortModel(c.model),
       successRate: rate,
       source: r.scheduled_task_id ? '定时' : '手动',

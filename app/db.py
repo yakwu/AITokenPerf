@@ -1033,7 +1033,7 @@ async def get_sites_summary(user_id: int) -> list[dict]:
 
     for r in results:
         config = r.get("config", {})
-        profile_name = config.get("_profile_name", "")
+        profile_name = config.get("profile_name", "")
         if profile_name in summary:
             summary[profile_name]["latest_results"].append(r)
 

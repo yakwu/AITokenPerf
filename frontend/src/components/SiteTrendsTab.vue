@@ -133,7 +133,7 @@ function parseTimestamp(ts) {
 const filteredResults = computed(() => {
   const profileName = props.profile?.name;
   if (!profileName) return [];
-  return rawResults.value.filter(r => r.config?._profile_name === profileName);
+  return rawResults.value.filter(r => r.config?.profile_name === profileName);
 });
 
 // Get unique model names sorted

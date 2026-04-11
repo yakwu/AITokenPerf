@@ -45,7 +45,7 @@
             <tr>
               <th style="position:sticky;left:0;background:var(--card);z-index:1;min-width:100px">指标</th>
               <th v-for="(rec, ri) in compareData.records" :key="ri">
-                {{ rec.config?._profile_name || rec.config?.model || '?' }}
+                {{ rec.config?.profile_name || rec.config?.model || '?' }}
                 <br><small style="font-weight:400">{{ rec.config?.concurrency || '?' }}c &middot; {{ fmtTimestamp(rec.timestamp).slice(5) }}</small>
               </th>
             </tr>
@@ -127,7 +127,7 @@
                 <td :style="latencyColorStyle(r.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600'">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
                 <td :style="qualityColorStyle(r.summary?.throughput_rps, 20, 5) + ';font-weight:600'">{{ fmtNum(r.summary?.throughput_rps) }} /s</td>
                 <td style="white-space:nowrap">
-                  <button v-if="!isGroup(r) && r.config?._profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(r)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
+                  <button v-if="!isGroup(r) && r.config?.profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(r)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
                   <button class="del-btn expand-btn" @click.stop="rerunResult(r)" title="重新运行" style="color:var(--accent)">&#8635;</button>
                   <button class="del-btn expand-btn" @click.stop="deleteResult(r.filename || '')" title="删除" style="color:var(--danger)">
                     <span v-if="pendingDelete === (r.filename || '')" class="delete-undo">确认删除</span>
@@ -159,7 +159,7 @@
                     <td :style="latencyColorStyle(child.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600;font-size:12px'">{{ fmtTime(child.percentiles?.E2E?.P50) }}</td>
                     <td :style="qualityColorStyle(child.summary?.throughput_rps, 20, 5) + ';font-weight:600;font-size:12px'">{{ fmtNum(child.summary?.throughput_rps) }} /s</td>
                     <td>
-                      <button v-if="child.config?._profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(child)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
+                      <button v-if="child.config?.profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(child)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
                       <button class="del-btn expand-btn" @click.stop="rerunResult(child)" title="重新运行" style="color:var(--accent);font-size:11px">&#8635;</button>
                     </td>
                   </tr>
@@ -278,7 +278,7 @@ const sourceOptions = computed(() =>
 );
 
 const uniqueProfiles = computed(() =>
-  [...new Set(results.value.map(r => r.config?._profile_name).filter(Boolean))].sort()
+  [...new Set(results.value.map(r => r.config?.profile_name).filter(Boolean))].sort()
 );
 
 // Comparison view state
@@ -295,7 +295,7 @@ const filtered = computed(() => {
       const src = r.schedule_name || '手动';
       if (src !== sourceFilter.value) return false;
     }
-    if (siteFilter.value && (r.config?._profile_name || '') !== siteFilter.value) return false;
+    if (siteFilter.value && (r.config?.profile_name || '') !== siteFilter.value) return false;
     if (search.value) {
       const hay = `${c.model} ${c.base_url} ${r.timestamp} ${r.test_id || ''} ${r.schedule_name || ''}`.toLowerCase();
       if (!hay.includes(search.value.toLowerCase())) return false;
@@ -483,7 +483,7 @@ function exitCompare() {
 }
 
 function rerunAtSite(r) {
-  const profileName = r.config?._profile_name;
+  const profileName = r.config?.profile_name;
   if (!profileName) { toast('该记录无站点信息', 'info'); return; }
   router.push('/sites/' + encodeURIComponent(profileName));
 }
@@ -535,7 +535,7 @@ function removeCompareItem(idx) {
 function compareTagLabel(r) {
   if (!r) return '?';
   const c = r.config || {};
-  return c._profile_name || c.model || r.test_id || '?';
+  return c.profile_name || c.model || r.test_id || '?';
 }
 
 function getCompareCellClassFor(metric, records, idx) {
@@ -571,7 +571,7 @@ function isPositiveDiff(metric, records, idx) {
 
 function rerunResult(r) {
   const c = r.config || {};
-  const profileName = c._profile_name || c.profile_name || '';
+  const profileName = c.profile_name || c.profile_name || '';
   if (profileName) {
     router.push(`/sites/${encodeURIComponent(profileName)}`);
   } else {
