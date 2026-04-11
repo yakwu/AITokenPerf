@@ -629,27 +629,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.site-test-tab .card {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: var(--shadow-sm);
-}
-
-.site-test-tab .card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.site-test-tab .card-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
 .site-test-tab .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -686,12 +665,6 @@ onUnmounted(() => {
 /* ---- Progress Panel Override ---- */
 .site-test-tab .progress-panel {
   margin-top: 24px;
-}
-
-.site-test-tab .progress-panel .card {
-  background: var(--bg);
-  border: 1px solid var(--border-subtle);
-  padding: 20px;
 }
 
 /* ---- Results Grid ---- */

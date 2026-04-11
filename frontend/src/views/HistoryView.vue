@@ -13,9 +13,6 @@
         <FilterDropdown v-model="modeFilter" :options="['burst','sustained']" all-label="全部模式" />
         <FilterDropdown v-model="sourceFilter" :options="sourceOptions" all-label="全部来源" />
         <FilterDropdown v-model="siteFilter" :options="uniqueProfiles" all-label="全部站点" wide />
-        <div class="time-range-pills">
-          <button v-for="opt in timeRangeOptions" :key="opt.label" class="time-range-pill" :class="{ active: timeRange === opt.value }" @click="setTimeRange(opt.value)">{{ opt.label }}</button>
-        </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <div class="compare-bar" :class="{ visible: compareSet.size >= 1 }">
@@ -100,7 +97,7 @@
               <!-- Main row -->
               <tr
                 class="history-row"
-                :class="{ expanded: !isGroup(r) && expandedRows.has(idx), 'error-row': !isGroup(r) && r.summary?.success_rate != null && r.summary.success_rate < 95 }"
+                :class="{ expanded: expandedRows.has(idx), 'error-row': r.summary?.success_rate != null && r.summary.success_rate < 95 }"
                 style="cursor:pointer"
                 @click="onRowClick(r, idx, $event)"
               >
@@ -113,11 +110,7 @@
                 <td>{{ r.config?.mode || '-' }}</td>
                 <td style="font-size:12px;color:var(--text-tertiary);max-width:120px;overflow:hidden;white-space:nowrap">
                   <template v-if="r.schedule_name">
-                    <template v-if="isGroup(r)">
-                      <span style="font-weight:600;display:inline-block;max-width:70px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" :title="r.schedule_name">{{ r.schedule_name }}</span>
-                      <span style="background:var(--accent);color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px;white-space:nowrap">{{ r.children_count }}次</span>
-                    </template>
-                    <template v-else><span style="display:inline-block;max-width:110px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" :title="r.schedule_name">{{ r.schedule_name }}</span></template>
+                    <span style="display:inline-block;max-width:110px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" :title="r.schedule_name">{{ r.schedule_name }}</span>
                   </template>
                   <template v-else><span style="color:var(--accent)">手动</span></template>
                 </td>
@@ -127,7 +120,7 @@
                 <td :style="latencyColorStyle(r.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600'">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
                 <td :style="qualityColorStyle(r.summary?.throughput_rps, 20, 5) + ';font-weight:600'">{{ fmtNum(r.summary?.throughput_rps) }} /s</td>
                 <td style="white-space:nowrap">
-                  <button v-if="!isGroup(r) && r.config?.profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(r)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
+                  <button v-if="r.config?.profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(r)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
                   <button class="del-btn expand-btn" @click.stop="rerunResult(r)" title="重新运行" style="color:var(--accent)">&#8635;</button>
                   <button class="del-btn expand-btn" @click.stop="deleteResult(r.filename || '')" title="删除" style="color:var(--danger)">
                     <span v-if="pendingDelete === (r.filename || '')" class="delete-undo">确认删除</span>
@@ -136,43 +129,8 @@
                 </td>
               </tr>
 
-              <!-- Group children -->
-              <template v-if="isGroup(r) && expandedGroups.has(idx)">
-                <template v-for="(child, ci) in (r.children || [])" :key="child.filename || ci">
-                  <tr
-                    class="history-row group-child"
-                    :class="{ 'error-row': child.summary?.success_rate != null && child.summary.success_rate < 95 }"
-                    style="cursor:pointer"
-                    @click="toggleGroupChildDetail(idx, ci)"
-                  >
-                    <td></td>
-                    <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ child.test_id || '-' }}</td>
-                    <td style="font-size:12px">{{ fmtTimestamp(child.timestamp) }}</td>
-                    <td style="font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="child.config?.model || ''">{{ child.config?.model || '-' }}</td>
-                    <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="child.config?.base_url || ''">{{ child.config?.base_url || '-' }}</td>
-                    <td style="font-size:12px">{{ child.config?.concurrency || '-' }}</td>
-                    <td style="font-size:12px">{{ child.config?.mode || '-' }}</td>
-                    <td style="font-size:11px;color:var(--text-tertiary)">{{ child.schedule_name || '' }}</td>
-                    <td :style="successRateStyle(child.summary?.success_rate) + ';font-weight:600;font-size:12px'">{{ fmtPct(child.summary?.success_rate) }}</td>
-                    <td :style="latencyColorStyle(child.percentiles?.TTFT?.P50, 0.5, 2) + ';font-weight:600;font-size:12px'">{{ fmtTime(child.percentiles?.TTFT?.P50) }}</td>
-                    <td style="font-weight:600;font-size:12px">{{ fmtCostShort(child.summary?.cost_total_usd) }}</td>
-                    <td :style="latencyColorStyle(child.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600;font-size:12px'">{{ fmtTime(child.percentiles?.E2E?.P50) }}</td>
-                    <td :style="qualityColorStyle(child.summary?.throughput_rps, 20, 5) + ';font-weight:600;font-size:12px'">{{ fmtNum(child.summary?.throughput_rps) }} /s</td>
-                    <td>
-                      <button v-if="child.config?.profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(child)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
-                      <button class="del-btn expand-btn" @click.stop="rerunResult(child)" title="重新运行" style="color:var(--accent);font-size:11px">&#8635;</button>
-                    </td>
-                  </tr>
-                  <tr class="detail-row" :class="{ open: groupChildDetailOpen(idx, ci) }">
-                    <td colspan="14">
-                      <div v-html="groupChildDetailHtml(idx, ci)"></div>
-                    </td>
-                  </tr>
-                </template>
-              </template>
-
-              <!-- Detail row (non-group) -->
-              <tr v-if="!isGroup(r)" class="detail-row" :class="{ open: expandedRows.has(idx) }">
+              <!-- Detail row -->
+              <tr class="detail-row" :class="{ open: expandedRows.has(idx) }">
                 <td colspan="14">
                   <div v-html="detailHtml[idx]"></div>
                 </td>
@@ -206,6 +164,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api/index.js';
 import { useAppStore } from '../stores/app.js';
+import { useTimeRangeStore } from '../stores/timeRange.js';
 import { toast } from '../composables/useToast.js';
 import {
   fmtTime, fmtTimestamp, fmtPct, fmtNum, fmtBigNum, fmtCostShort,
@@ -217,6 +176,7 @@ Chart.register(...registerables);
 import FilterDropdown from '../components/FilterDropdown.vue';
 
 const store = useAppStore();
+const timeRangeStore = useTimeRangeStore();
 
 // ---- State ----
 const results = ref([]);
@@ -230,24 +190,15 @@ const urlFilter = ref('');
 const concurrencyFilter = ref('');
 const sourceFilter = ref('');
 const siteFilter = ref('');
-const timeRange = ref(6);
-const timeRangeOptions = [
-  { label: '全部', value: null },
-  { label: '6h', value: 6 },
-  { label: '24h', value: 24 },
-  { label: '7d', value: 168 },
-];
 const sortKey = ref('timestamp');
 const sortDir = ref('desc');
 const compareSet = reactive(new Set());
 const expandedRows = reactive(new Set());
-const expandedGroups = reactive(new Set());
 const pendingDelete = ref(null);
 let deleteTimer = null;
 
 // Detail HTML caches
 const detailHtml = reactive({});
-const groupChildDetailHtmlMap = reactive({});
 
 // ---- Computed ----
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
@@ -357,31 +308,15 @@ const compareData = computed(() => {
 });
 
 // ---- Helpers ----
-function isGroup(r) {
-  return r.children_count && r.children_count > 1;
-}
-
 function successRateStyle(rate) {
   if (rate == null) return '';
   return rate >= 95 ? 'color:var(--success)' : rate >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
 }
 
-function groupChildDetailKey(idx, ci) {
-  return `${idx}-${ci}`;
-}
-
-function groupChildDetailOpen(idx, ci) {
-  return !!groupChildDetailHtmlMap[groupChildDetailKey(idx, ci)];
-}
-
-function groupChildDetailHtml(idx, ci) {
-  return groupChildDetailHtmlMap[groupChildDetailKey(idx, ci)] || '';
-}
-
 // ---- Actions ----
 async function refresh() {
-  const params = new URLSearchParams({ limit: pageSize, offset: (page.value - 1) * pageSize });
-  if (timeRange.value) params.set('hours', timeRange.value);
+  const params = new URLSearchParams({ limit: pageSize, offset: (page.value - 1) * pageSize, raw: true });
+  if (timeRangeStore.hours) params.set('hours', timeRangeStore.hours);
   const data = await api(`/api/results?${params}`);
   results.value = data.items || [];
   total.value = data.total || 0;
@@ -395,16 +330,7 @@ function goToPage(p) {
   page.value = p;
   // Clear expanded state
   for (const k of Object.keys(detailHtml)) delete detailHtml[k];
-  for (const k of Object.keys(groupChildDetailHtmlMap)) delete groupChildDetailHtmlMap[k];
   expandedRows.clear();
-  expandedGroups.clear();
-  refresh();
-}
-
-function setTimeRange(val) {
-  if (timeRange.value === val) return;
-  timeRange.value = val;
-  page.value = 1;
   refresh();
 }
 
@@ -414,18 +340,6 @@ function toggleSort(key) {
   } else {
     sortKey.value = key;
     sortDir.value = 'desc';
-  }
-}
-
-function toggleGroupExpand(idx) {
-  if (expandedGroups.has(idx)) {
-    expandedGroups.delete(idx);
-    // Clear child detail caches for this group
-    for (const k of Object.keys(groupChildDetailHtmlMap)) {
-      if (k.startsWith(idx + '-')) delete groupChildDetailHtmlMap[k];
-    }
-  } else {
-    expandedGroups.add(idx);
   }
 }
 
@@ -440,24 +354,9 @@ function toggleDetail(idx) {
   }
 }
 
-function toggleGroupChildDetail(idx, ci) {
-  const key = groupChildDetailKey(idx, ci);
-  if (groupChildDetailHtmlMap[key]) {
-    delete groupChildDetailHtmlMap[key];
-  } else {
-    const r = filtered.value[idx];
-    const child = r?.children?.[ci];
-    if (child) groupChildDetailHtmlMap[key] = renderResultDetail(child);
-  }
-}
-
 function onRowClick(r, idx, event) {
   if (event.target.tagName === 'INPUT' || event.target.closest('.del-btn')) return;
-  if (isGroup(r)) {
-    toggleGroupExpand(idx);
-  } else {
-    toggleDetail(idx);
-  }
+  toggleDetail(idx);
 }
 
 function toggleCompare(idx) {
@@ -784,6 +683,11 @@ const router = useRouter();
 // Watch for route change to refresh
 watch(() => route.path, (val) => {
   if (val === '/history') refresh();
+});
+
+watch(() => timeRangeStore.hours, () => {
+  page.value = 1;
+  refresh();
 });
 
 </script>

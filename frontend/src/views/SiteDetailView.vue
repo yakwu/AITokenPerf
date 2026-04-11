@@ -75,14 +75,17 @@ const siteName = computed(() => decodeURIComponent(props.id));
 const loading = ref(false);
 const profile = ref(null);
 const siteHealth = ref('');
-const activeTab = ref('config');
+const activeTab = ref('test');
 
 const internalTabs = [
-  { key: 'test', label: '测试' },
+  { key: 'test', label: '单次任务' },
   { key: 'schedule', label: '定时任务' },
   { key: 'history', label: '历史趋势' },
   { key: 'config', label: '配置' },
 ];
+
+// Map URL query ?tab= to internal tab keys
+const tabQueryMap = { test: 'test', schedule: 'schedule', trends: 'history', history: 'history', config: 'config' };
 
 async function loadSiteData() {
   loading.value = true;
@@ -111,7 +114,8 @@ function onSiteDeleted() {
 
 watch(() => route.params.id, () => {
   if (route.name === 'site-detail') {
-    activeTab.value = 'config';
+    const tabQuery = route.query.tab;
+    activeTab.value = tabQueryMap[tabQuery] || 'test';
     loadSiteData();
   }
 }, { immediate: true });

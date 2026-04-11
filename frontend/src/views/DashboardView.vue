@@ -12,19 +12,21 @@
           <div class="dash-summary-value">{{ sites.length }}</div>
           <div class="dash-summary-label">
             目标站点数
+            <span v-if="errorCount > 0" class="dash-summary-sub danger">{{ errorCount }} 异常</span>
             <span v-if="healthyCount > 0" class="dash-summary-sub success">{{ healthyCount }} 健康</span>
+            <span v-if="untestedCount > 0" class="dash-summary-sub muted">{{ untestedCount }} 未测试</span>
           </div>
         </div>
         <div class="dash-summary-card">
           <div class="dash-summary-value">{{ activeSchedules }}</div>
-          <div class="dash-summary-label">
+          <div class="dash-summary-label" title="状态为「运行中」的定时任务数量">
             活跃定时任务
             <span v-if="pausedSchedules > 0" class="dash-summary-sub muted">{{ pausedSchedules }} 已暂停</span>
           </div>
         </div>
         <div class="dash-summary-card">
-          <div class="dash-summary-value">{{ todayTestCount }}</div>
-          <div class="dash-summary-label">今日测试数</div>
+          <div class="dash-summary-value">{{ results.length }}</div>
+          <div class="dash-summary-label" title="当前时间范围内的测试结果记录总数">测试数</div>
         </div>
         <div class="dash-summary-card">
           <div class="dash-summary-value" :class="rateColorClass(overallSuccessRate)">
@@ -37,7 +39,7 @@
             </span>
           </div>
         </div>
-        <div class="dash-summary-card">
+        <div class="dash-summary-card" :title="modelVendorTooltip">
           <div class="dash-summary-value">{{ modelCount }}</div>
           <div class="dash-summary-label">
             覆盖模型数
@@ -54,7 +56,7 @@
           <div v-if="!sites.length" class="dash-empty">暂无站点</div>
           <div v-else class="dash-site-list">
             <div
-              v-for="site in sites"
+              v-for="site in sortedSites"
               :key="site.profile.name"
               class="dash-site-row"
               :class="siteRowClass(site)"
@@ -165,24 +167,28 @@ const results = ref([]);
 // --- Computed ---
 
 const healthyCount = computed(() => sites.value.filter(s => s.health === 'healthy').length);
+const errorCount = computed(() => sites.value.filter(s => s.health === 'error').length);
+const untestedCount = computed(() => sites.value.filter(s => s.health === 'untested' || s.health === 'unknown').length);
+
+// Sorted sites: error > healthy > untested, within group by last_test_at desc
+const healthOrder = { error: 0, healthy: 1, untested: 2, unknown: 2 };
+const sortedSites = computed(() =>
+  [...sites.value].sort((a, b) => {
+    const ha = healthOrder[a.health] ?? 2;
+    const hb = healthOrder[b.health] ?? 2;
+    if (ha !== hb) return ha - hb;
+    return (b.last_test_at || '').localeCompare(a.last_test_at || '');
+  })
+);
 
 const activeSchedules = computed(() => schedules.value.filter(s => s.status === 'active').length);
 const pausedSchedules = computed(() => schedules.value.filter(s => s.status === 'paused').length);
-
-// Today's test count
-const todayTestCount = computed(() => {
-  const today = new Date();
-  const prefix = String(today.getFullYear()) +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
-  return results.value.filter(r => r.timestamp && r.timestamp.startsWith(prefix)).length;
-});
 
 // Overall success rate
 const overallSuccessRate = computed(() => {
   const items = results.value;
   const totalReqs = items.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-  const totalSuccess = items.reduce((s, r) => s + (r.summary?.successful_requests || 0), 0);
+  const totalSuccess = items.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
   return totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
 });
 
@@ -195,7 +201,7 @@ const yesterdayRate = computed(() => {
     String(yesterday.getDate()).padStart(2, '0');
   const ydResults = results.value.filter(r => r.timestamp && r.timestamp.startsWith(prefix));
   const totalReqs = ydResults.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-  const totalSuccess = ydResults.reduce((s, r) => s + (r.summary?.successful_requests || 0), 0);
+  const totalSuccess = ydResults.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
   return totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
 });
 
@@ -212,19 +218,28 @@ const rateDiffClass = computed(() => {
   return '';
 });
 
-// Model / vendor counts
-const modelCount = computed(() => {
-  const models = new Set(results.value.map(r => r.config?.model).filter(Boolean));
-  return models.size;
-});
+// Model / vendor counts + lists for tooltip
+const modelList = computed(() =>
+  [...new Set(results.value.map(r => r.config?.model).filter(Boolean))].sort()
+);
+const modelCount = computed(() => modelList.value.length);
 
-const vendorCount = computed(() => {
+const vendorList = computed(() => {
   const vendors = new Set();
   for (const s of sites.value) {
     const provider = s.profile?.provider;
     if (provider) vendors.add(provider);
   }
-  return vendors.size;
+  return [...vendors].sort();
+});
+const vendorCount = computed(() => vendorList.value.length);
+
+const modelVendorTooltip = computed(() => {
+  const models = modelList.value.length > 10
+    ? modelList.value.slice(0, 10).join(', ') + ` ...等 ${modelList.value.length} 个`
+    : modelList.value.join(', ');
+  const vendors = vendorList.value.join(', ');
+  return `模型: ${models || '无'}\n厂商: ${vendors || '无'}`;
 });
 
 // Alerts: sites with error health
@@ -235,7 +250,7 @@ const alerts = computed(() => {
       const latestResults = site.latest_results || [];
       // Calculate avg success rate from latest results
       const totalReqs = latestResults.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-      const totalSuccess = latestResults.reduce((s, r) => s + (r.summary?.successful_requests || 0), 0);
+      const totalSuccess = latestResults.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
       const avgRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : 0;
 
       // Collect error types with counts
@@ -339,7 +354,7 @@ function getSiteLatestMetrics(site) {
   if (!results.length) return null;
 
   const totalReqs = results.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-  const totalSuccess = results.reduce((s, r) => s + (r.summary?.successful_requests || 0), 0);
+  const totalSuccess = results.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
   const successRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
 
   const ttfts = results.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
@@ -354,7 +369,7 @@ function getSiteLatestMetrics(site) {
 function goSiteDetail(site) {
   const name = site.profile?.name;
   if (name) {
-    router.push(`/sites/${encodeURIComponent(name)}`);
+    router.push(`/sites/${encodeURIComponent(name)}?tab=trends`);
   }
 }
 
@@ -385,7 +400,7 @@ async function loadDashboard() {
     const [sitesData, schedulesData, resultsData] = await Promise.all([
       getSitesSummary({ hours: timeRangeStore.hours }).catch(() => ({ summary: [] })),
       getSchedules().catch(() => []),
-      getResults({ limit: 100, hours: timeRangeStore.hours, fields: 'summary' }).catch(() => ({ items: [] })),
+      getResults({ limit: 100, hours: timeRangeStore.hours, fields: 'summary', raw: true }).catch(() => ({ items: [] })),
     ]);
 
     sites.value = sitesData.summary || [];

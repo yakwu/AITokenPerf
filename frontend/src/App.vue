@@ -45,6 +45,9 @@
   <!-- Tabs -->
   <nav class="tab-bar" v-if="store.user">
     <router-link v-for="tab in tabs" :key="tab.path" :to="tab.path" class="tab-btn" :class="{ active: tab.activeMatch ? tab.activeMatch($route.path) : $route.path === tab.path }" @click="userMenuOpen = false">{{ tab.name }}</router-link>
+    <div class="time-range-pills global-time-range">
+      <button v-for="opt in timeRangeStore.options" :key="opt.label" class="time-range-pill" :class="{ active: timeRangeStore.hours === opt.value }" @click="timeRangeStore.setHours(opt.value)">{{ opt.label }}</button>
+    </div>
   </nav>
 
   <!-- Router View -->
@@ -73,10 +76,12 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { useAppStore } from './stores/app';
+import { useTimeRangeStore } from './stores/timeRange';
 import { useRouter, useRoute } from 'vue-router';
 import ScheduleIndicator from './components/ScheduleIndicator.vue';
 
 const store = useAppStore();
+const timeRangeStore = useTimeRangeStore();
 
 const tabs = [
   { name: '概览', path: '/' },

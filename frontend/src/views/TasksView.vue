@@ -59,7 +59,7 @@
               <td>
                 <router-link
                   v-if="getSiteName(s)"
-                  :to="`/sites/${encodeURIComponent(getSiteName(s))}`"
+                  :to="`/sites/${encodeURIComponent(getSiteName(s))}?tab=trends`"
                   class="site-link"
                   :title="getSiteName(s)"
                 >{{ getSiteName(s) }}</router-link>

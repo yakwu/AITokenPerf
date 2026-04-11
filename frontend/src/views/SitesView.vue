@@ -153,6 +153,14 @@ const filteredSites = computed(() => {
       s.profile?.base_url?.toLowerCase().includes(q)
     );
   }
+  // Sort: error > healthy > untested, within group by last_test_at desc
+  const healthOrder = { error: 0, healthy: 1, untested: 2, unknown: 2 };
+  list = [...list].sort((a, b) => {
+    const ha = healthOrder[a.health] ?? 2;
+    const hb = healthOrder[b.health] ?? 2;
+    if (ha !== hb) return ha - hb;
+    return (b.last_test_at || '').localeCompare(a.last_test_at || '');
+  });
   return list;
 });
 
