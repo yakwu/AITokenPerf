@@ -205,7 +205,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
-import { api, getSitesSummary, getModels, getModelsConfig } from '../api';
+import { api, getSitesSummary, getModels, getPricingModels } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
@@ -600,6 +600,12 @@ function debouncedFetchModels() {
 // 监听 base_url 和 api_key 变化自动拉取模型
 watch(() => [createForm.value.base_url, createForm.value.api_key], debouncedFetchModels);
 
+// 选了厂商后重新拉取对应模型
+watch(() => createForm.value.provider, () => {
+  createForm.value.models = [];
+  loadManagedModels();
+});
+
 function createSite() {
   createForm.value = { name: '', base_url: '', api_key: '', provider: '', models: [] };
   createErrors.value = {};
@@ -613,18 +619,15 @@ function createSite() {
 }
 
 async function loadManagedModels() {
+  loadingModels.value = true;
   try {
-    const res = await getModelsConfig();
-    const enabled = res.enabled_models || [];
-    // enabled_models 为空表示全部启用，此时用实时 API 拉取
-    if (enabled.length > 0) {
-      managedModels.value = enabled;
-    } else {
-      managedModels.value = [];
-    }
+    const provider = createForm.value.provider || '';
+    const res = await getPricingModels(provider, true);
+    managedModels.value = (res.models || []).map(m => m.id || m.model || m);
   } catch {
     managedModels.value = [];
   }
+  loadingModels.value = false;
 }
 
 function validateCreate() {

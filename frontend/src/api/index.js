@@ -93,5 +93,5 @@ export const getModels = (baseUrl, apiKey) =>
 export const getModelsConfig = () => api('/api/pricing/models-config');
 export const putModelsConfig = (enabledModels) =>
   api('/api/pricing/models-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled_models: enabledModels }) });
-export const getPricingModels = (provider = '') =>
-  api(`/api/pricing/models?provider=${encodeURIComponent(provider)}`);
+export const getPricingModels = (provider = '', enabledOnly = false) =>
+  api(`/api/pricing/models?provider=${encodeURIComponent(provider)}${enabledOnly ? '&enabled_only=true' : ''}`);
