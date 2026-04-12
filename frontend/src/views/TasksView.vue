@@ -187,6 +187,30 @@
             </div>
           </div>
         </div>
+        <!-- Test Parameters -->
+        <div class="form-group">
+          <label class="form-label">并发数</label>
+          <input class="form-input" type="number" v-model.number="createForm.concurrency" min="1" max="100" placeholder="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">测试模式</label>
+          <select class="form-input" v-model="createForm.mode">
+            <option value="burst">Burst（突发）</option>
+            <option value="sustained">Sustained（持续）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">超时 (秒)</label>
+          <input class="form-input" type="number" v-model.number="createForm.timeout" min="10" placeholder="120">
+        </div>
+        <div class="form-group">
+          <label class="form-label">持续时长 (秒)</label>
+          <input class="form-input" type="number" v-model.number="createForm.duration" min="10" placeholder="120">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最大 Token</label>
+          <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
+        </div>
       </div>
       <div class="btn-group" style="margin-top:20px">
         <button class="btn btn-primary" @click="createSchedule" :disabled="createLoading">
@@ -253,14 +277,14 @@ function handleDocClick(e) {
 }
 
 function resetCreateForm() {
-  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [] };
+  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120 };
   frequencyPreset.value = '300';
   profileDropdownOpen.value = false;
   freqDropdownOpen.value = false;
   modelDropdownOpen.value = false;
 }
 
-const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [] });
+const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120 });
 
 const selectedProfileModels = computed(() => {
   const p = profiles.value.find(p => p.name === createForm.value.profile_name);
@@ -436,11 +460,11 @@ async function createSchedule() {
       name: f.name.trim(),
       profile_ids: [f.profile_name],
       configs_json: {
-        concurrency_levels: [10],
-        mode: 'burst',
-        max_tokens: 512,
-        timeout: 120,
-        duration: 120,
+        concurrency_levels: [parseInt(f.concurrency) || 1],
+        mode: f.mode || 'burst',
+        max_tokens: parseInt(f.max_tokens) || 512,
+        timeout: parseInt(f.timeout) || 120,
+        duration: parseInt(f.duration) || 120,
         models: f.models,
       },
       schedule_type: 'interval',
