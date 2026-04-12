@@ -38,10 +38,20 @@
           </div>
           <div class="form-group">
             <label class="form-label">选择模型</label>
-            <select class="form-input" v-model="createForm.model">
-              <option v-for="m in profileModels" :key="m" :value="m">{{ m }}</option>
-            </select>
-            <div class="form-hint" v-if="!profileModels.length">站点未配置模型，请先在配置 Tab 中添加</div>
+            <div class="combobox">
+              <div class="model-tags-input" @click.stop>
+                <span v-for="(m, i) in createForm.models" :key="m" class="model-tag">
+                  {{ m }}
+                  <button type="button" class="model-tag-remove" @click.stop="createForm.models.splice(i, 1)">&times;</button>
+                </span>
+                <input class="model-tag-search" v-model="createModelSearch" :placeholder="createForm.models.length ? '' : '选择或搜索模型'" @focus.stop @keydown.enter.prevent="addCreateModel()" @keydown.backspace="createForm.models.length && !createModelSearch && createForm.models.pop()" autocomplete="off">
+              </div>
+              <div class="combobox-dropdown" v-show="true" style="position:relative;display:block;border:none;box-shadow:none;max-height:160px">
+                <div v-for="m in filteredCreateModels" :key="m" class="combobox-option" :class="{ active: createForm.models.includes(m) }" @mousedown.prevent="toggleCreateModel(m)">{{ m }}</div>
+                <div class="combobox-empty" v-show="!filteredCreateModels.length && createModelSearch">无匹配，按回车添加「{{ createModelSearch }}」</div>
+              </div>
+              <div class="form-hint" v-if="!profileModels.length" style="margin-top:4px">站点未配置模型，请先在配置 Tab 中添加</div>
+            </div>
           </div>
         </div>
         <div class="create-form-notice">
@@ -166,9 +176,19 @@
         </div>
         <div class="form-group">
           <label class="form-label">选择模型</label>
-          <select class="form-input" v-model="editForm.model">
-            <option v-for="m in profileModels" :key="m" :value="m">{{ m }}</option>
-          </select>
+          <div class="combobox">
+            <div class="model-tags-input" @click.stop>
+              <span v-for="(m, i) in editForm.models" :key="m" class="model-tag">
+                {{ m }}
+                <button type="button" class="model-tag-remove" @click.stop="editForm.models.splice(i, 1)">&times;</button>
+              </span>
+              <input class="model-tag-search" v-model="editModelSearch" :placeholder="editForm.models.length ? '' : '选择或搜索模型'" @focus.stop @keydown.enter.prevent="addEditModel()" @keydown.backspace="editForm.models.length && !editModelSearch && editForm.models.pop()" autocomplete="off">
+            </div>
+            <div class="combobox-dropdown" v-show="true" style="position:relative;display:block;border:none;box-shadow:none;max-height:160px">
+              <div v-for="m in filteredEditModels" :key="m" class="combobox-option" :class="{ active: editForm.models.includes(m) }" @mousedown.prevent="toggleEditModel(m)">{{ m }}</div>
+              <div class="combobox-empty" v-show="!filteredEditModels.length && editModelSearch">无匹配，按回车添加「{{ editModelSearch }}」</div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="btn-group" style="margin-top:20px">
@@ -233,7 +253,7 @@ function defaultCreateForm() {
   return {
     name: '',
     schedule_value: 300,
-    model: profileModels.value[0] || '',
+    models: [],
   };
 }
 
@@ -262,8 +282,54 @@ const editForm = ref({
   id: null,
   name: '',
   schedule_value: 300,
-  model: '',
+  models: [],
 });
+
+// ---- Multi-model select ----
+const createModelSearch = ref('');
+const editModelSearch = ref('');
+
+const filteredCreateModels = computed(() => {
+  const q = (createModelSearch.value || '').toLowerCase();
+  const list = profileModels.value.filter(m => !createForm.value.models.includes(m));
+  if (!q) return list;
+  return list.filter(m => m.toLowerCase().includes(q));
+});
+
+const filteredEditModels = computed(() => {
+  const q = (editModelSearch.value || '').toLowerCase();
+  const list = profileModels.value.filter(m => !editForm.value.models.includes(m));
+  if (!q) return list;
+  return list.filter(m => m.toLowerCase().includes(q));
+});
+
+function toggleCreateModel(m) {
+  const idx = createForm.value.models.indexOf(m);
+  if (idx >= 0) createForm.value.models.splice(idx, 1);
+  else createForm.value.models.push(m);
+  createModelSearch.value = '';
+}
+
+function addCreateModel() {
+  if (!createModelSearch.value.trim()) return;
+  const n = createModelSearch.value.trim();
+  if (!createForm.value.models.includes(n)) createForm.value.models.push(n);
+  createModelSearch.value = '';
+}
+
+function toggleEditModel(m) {
+  const idx = editForm.value.models.indexOf(m);
+  if (idx >= 0) editForm.value.models.splice(idx, 1);
+  else editForm.value.models.push(m);
+  editModelSearch.value = '';
+}
+
+function addEditModel() {
+  if (!editModelSearch.value.trim()) return;
+  const n = editModelSearch.value.trim();
+  if (!editForm.value.models.includes(n)) editForm.value.models.push(n);
+  editModelSearch.value = '';
+}
 
 function onEditFrequencyPresetChange() {
   if (editFrequencyPreset.value !== 'custom') {
@@ -279,7 +345,7 @@ function startEdit(s) {
     id: s.id,
     name: s.name || '',
     schedule_value: parseInt(s.schedule_value) || 300,
-    model: configs.model || '',
+    models: configs.models || (configs.model ? [configs.model] : []),
   };
   // Detect preset or custom
   const sv = String(s.schedule_value);
@@ -322,7 +388,10 @@ function formatTime(iso) {
 
 function getModelFromSchedule(s) {
   const configs = s.configs_json || s.configs || {};
-  return configs.model || '-';
+  const models = configs.models || (configs.model ? [configs.model] : []);
+  if (!models.length) return '-';
+  if (models.length <= 2) return models.join(', ');
+  return models.slice(0, 2).join(', ') + ' +' + (models.length - 2);
 }
 
 function getConcurrencyFromSchedule(s) {
@@ -356,8 +425,8 @@ async function createSchedule() {
     toast('请输入任务名称', 'info');
     return;
   }
-  if (!f.model) {
-    toast('请选择模型', 'info');
+  if (!f.models.length) {
+    toast('请至少选择一个模型', 'info');
     return;
   }
 
@@ -372,7 +441,7 @@ async function createSchedule() {
         max_tokens: 512,
         timeout: 120,
         duration: 120,
-        model: f.model,
+        models: f.models,
       },
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
@@ -405,7 +474,8 @@ async function saveEdit() {
     // Fetch original schedule to preserve configs
     const original = schedules.value.find(s => s.id === f.id);
     const configs = { ...(original?.configs_json || original?.configs || {}) };
-    configs.model = f.model;
+    delete configs.model;
+    configs.models = f.models;
 
     const res = await updateScheduleApi(f.id, {
       name: f.name.trim(),

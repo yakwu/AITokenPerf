@@ -166,20 +166,24 @@
           </div>
           <div class="form-hint">每 {{ formatInterval(createForm.schedule_value) }} 执行一次</div>
         </div>
-        <!-- Model Combobox -->
+        <!-- Model Multi-select -->
         <div class="form-group">
           <label class="form-label">选择模型</label>
           <div class="combobox" ref="modelComboboxRef">
-            <input class="form-input" :value="createForm.model" :placeholder="createForm.profile_name ? '选择模型' : '请先选择站点'"
-                   :readonly="!createForm.profile_name"
-                   @focus="createForm.profile_name && (modelDropdownOpen = true)" @keydown.escape="modelDropdownOpen = false"
-                   autocomplete="off">
+            <div class="model-tags-input" @click="createForm.profile_name && (modelDropdownOpen = true)">
+              <span v-for="(m, i) in createForm.models" :key="m" class="model-tag">
+                {{ m }}
+                <button type="button" class="model-tag-remove" @click.stop="createForm.models.splice(i, 1)">&times;</button>
+              </span>
+              <input class="model-tag-search" v-model="modelSearch" :placeholder="!createForm.profile_name ? '请先选择站点' : createForm.models.length ? '' : '选择或搜索模型'" :disabled="!createForm.profile_name" @focus="createForm.profile_name && (modelDropdownOpen = true)" @keydown.enter.prevent="addTaskModel()" @keydown.backspace="createForm.models.length && !modelSearch && createForm.models.pop()" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
+            </div>
             <button class="combobox-toggle" type="button" @click.stop="createForm.profile_name && (modelDropdownOpen = !modelDropdownOpen)" @mousedown.prevent>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
             </button>
             <div class="combobox-dropdown" v-show="modelDropdownOpen">
-              <div v-for="m in selectedProfileModels" :key="m" class="combobox-option" :class="{ active: createForm.model === m }" @mousedown.prevent="selectCreateModel(m)">{{ m }}</div>
-              <div class="combobox-empty" v-if="!selectedProfileModels.length">该站点未配置模型</div>
+              <div v-for="m in filteredTaskModels" :key="m" class="combobox-option" :class="{ active: createForm.models.includes(m) }" @mousedown.prevent="toggleTaskModel(m)">{{ m }}</div>
+              <div class="combobox-empty" v-show="!filteredTaskModels.length && modelSearch">无匹配，按回车添加「{{ modelSearch }}」</div>
+              <div class="combobox-empty" v-show="!filteredTaskModels.length && !modelSearch">该站点未配置模型</div>
             </div>
           </div>
         </div>
@@ -249,14 +253,14 @@ function handleDocClick(e) {
 }
 
 function resetCreateForm() {
-  createForm.value = { name: '', profile_name: '', schedule_value: 300, model: '' };
+  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [] };
   frequencyPreset.value = '300';
   profileDropdownOpen.value = false;
   freqDropdownOpen.value = false;
   modelDropdownOpen.value = false;
 }
 
-const createForm = ref({ name: '', profile_name: '', schedule_value: 300, model: '' });
+const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [] });
 
 const selectedProfileModels = computed(() => {
   const p = profiles.value.find(p => p.name === createForm.value.profile_name);
@@ -272,7 +276,7 @@ const frequencyLabel = computed(() => {
 
 function selectCreateProfile(name) {
   createForm.value.profile_name = name;
-  createForm.value.model = '';
+  createForm.value.models = [];
   profileDropdownOpen.value = false;
 }
 
@@ -286,9 +290,27 @@ function selectFrequency(value) {
   freqDropdownOpen.value = false;
 }
 
-function selectCreateModel(m) {
-  createForm.value.model = m;
-  modelDropdownOpen.value = false;
+const modelSearch = ref('');
+
+const filteredTaskModels = computed(() => {
+  const q = (modelSearch.value || '').toLowerCase();
+  const list = selectedProfileModels.value.filter(m => !createForm.value.models.includes(m));
+  if (!q) return list;
+  return list.filter(m => m.toLowerCase().includes(q));
+});
+
+function toggleTaskModel(m) {
+  const idx = createForm.value.models.indexOf(m);
+  if (idx >= 0) createForm.value.models.splice(idx, 1);
+  else createForm.value.models.push(m);
+  modelSearch.value = '';
+}
+
+function addTaskModel() {
+  if (!modelSearch.value.trim()) return;
+  const n = modelSearch.value.trim();
+  if (!createForm.value.models.includes(n)) createForm.value.models.push(n);
+  modelSearch.value = '';
 }
 
 // ---- Profile lookup map ----
@@ -368,7 +390,10 @@ function formatTime(iso) {
 
 function getModelFromSchedule(s) {
   const configs = s.configs_json || s.configs || {};
-  return configs.model || '-';
+  const models = configs.models || (configs.model ? [configs.model] : []);
+  if (!models.length) return '-';
+  if (models.length <= 2) return models.join(', ');
+  return models.slice(0, 2).join(', ') + ' +' + (models.length - 2);
 }
 
 function getConcurrencyFromSchedule(s) {
@@ -400,8 +425,8 @@ async function createSchedule() {
     toast('请输入任务名称', 'info');
     return;
   }
-  if (!f.model) {
-    toast('请选择模型', 'info');
+  if (!f.models.length) {
+    toast('请至少选择一个模型', 'info');
     return;
   }
 
@@ -416,7 +441,7 @@ async function createSchedule() {
         max_tokens: 512,
         timeout: 120,
         duration: 120,
-        model: f.model,
+        models: f.models,
       },
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),

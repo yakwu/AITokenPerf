@@ -251,11 +251,13 @@ async def _run_scheduled_task(task_id: int):
                 config[k] = profile[k]
         _apply_env_overrides(config)
 
-        # 获取模型列表（支持多模型 Profile）
-        models = profile.get("models", [])
+        # 获取模型列表（优先用定时任务中选的模型子集）
+        models = configs_json.get("models") or []
         if not models:
-            raw_model = config.get("model", "")
+            raw_model = configs_json.get("model") or config.get("model", "")
             models = [raw_model] if raw_model else []
+        if not models:
+            models = profile.get("models", [])
 
         for key, val in configs_json.items():
             if val is not None:
