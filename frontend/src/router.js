@@ -17,4 +17,14 @@ const router = createRouter({
   ],
 });
 
+router.beforeEach((to) => {
+  if (to.path === '/auth') return;
+  const userStr = localStorage.getItem('user');
+  if (!userStr) return;
+  try {
+    const user = JSON.parse(userStr);
+    if (user.must_change_password) return '/auth';
+  } catch {}
+});
+
 export default router;

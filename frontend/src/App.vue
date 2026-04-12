@@ -1,6 +1,6 @@
 <template>
   <!-- Header -->
-  <header class="header">
+  <header class="header" v-if="!store.user?.must_change_password">
     <div class="header-left">
       <div class="logo">AIToken<span>Perf</span></div>
       <div class="status-badge" :class="store.status" v-if="store.user && store.status !== 'idle'">
@@ -43,7 +43,7 @@
   </header>
 
   <!-- Tabs -->
-  <nav class="tab-bar" v-if="store.user">
+  <nav class="tab-bar" v-if="store.user && !store.user.must_change_password">
     <router-link v-for="tab in tabs" :key="tab.path" :to="tab.path" class="tab-btn" :class="{ active: tab.activeMatch ? tab.activeMatch($route.path) : $route.path === tab.path }" @click="userMenuOpen = false">{{ tab.name }}</router-link>
     <div class="time-range-pills global-time-range">
       <button v-for="opt in timeRangeStore.options" :key="opt.label" class="time-range-pill" :class="{ active: timeRangeStore.hours === opt.value }" @click="timeRangeStore.setHours(opt.value)">{{ opt.label }}</button>
