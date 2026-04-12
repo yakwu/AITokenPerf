@@ -27,22 +27,33 @@ function roundTo(val, decimals) {
  * 将分钟级趋势数据聚合为固定数量的展示点
  * @param {Array} trend - 后端返回的分钟桶数据
  * @param {number} targetPoints - 目标展示点数（默认 144）
+ * @param {number|null} rangeHours - 时间范围（小时），指定后 X 轴固定为 [now-hours, now]
  * @returns {{ labels: string[], items: (object|null)[] }}
  */
-export function aggregateToFixedPoints(trend, targetPoints = 144) {
-  if (!trend || trend.length === 0) return { labels: [], items: [] };
-  if (trend.length === 1) {
+export function aggregateToFixedPoints(trend, targetPoints = 144, rangeHours = null) {
+  if (!trend || trend.length === 0) {
+    if (rangeHours) return emptyRange(rangeHours, targetPoints);
+    return { labels: [], items: [] };
+  }
+  if (trend.length === 1 && !rangeHours) {
     return { labels: [formatLabel(parseMinuteToTs(trend[0].minute))], items: [trend[0]] };
   }
 
-  // 数据点不多，不需要聚合，但仍需检测间隔断开
-  if (trend.length <= targetPoints) {
+  // 确定时间范围：优先使用 rangeHours 固定范围
+  let firstTs, lastTs;
+  if (rangeHours) {
+    lastTs = Date.now();
+    firstTs = lastTs - rangeHours * 3600_000;
+  } else {
+    firstTs = parseMinuteToTs(trend[0].minute);
+    lastTs = parseMinuteToTs(trend[trend.length - 1].minute);
+  }
+
+  // 数据点不多且无固定范围，走 fillGaps
+  if (!rangeHours && trend.length <= targetPoints) {
     return fillGaps(trend);
   }
 
-  // 数据量超过 targetPoints，执行桶聚合
-  const firstTs = parseMinuteToTs(trend[0].minute);
-  const lastTs = parseMinuteToTs(trend[trend.length - 1].minute);
   const totalRange = lastTs - firstTs;
   if (totalRange <= 0) return fillGaps(trend);
 
@@ -93,6 +104,22 @@ export function aggregateToFixedPoints(trend, targetPoints = 144) {
     });
   }
 
+  return { labels, items };
+}
+
+/**
+ * 指定范围内无数据时，仍生成空的时间轴标签
+ */
+function emptyRange(rangeHours, targetPoints) {
+  const now = Date.now();
+  const start = now - rangeHours * 3600_000;
+  const step = (now - start) / targetPoints;
+  const labels = [];
+  const items = [];
+  for (let i = 0; i < targetPoints; i++) {
+    labels.push(formatLabel(start + (i + 0.5) * step));
+    items.push(null);
+  }
   return { labels, items };
 }
 

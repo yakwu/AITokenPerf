@@ -331,7 +331,7 @@ function renderLatencyChart() {
   const canvas = latencyCanvas.value;
   if (!canvas) return;
 
-  const { labels, items } = aggregateToFixedPoints(trend, 144);
+  const { labels, items } = aggregateToFixedPoints(trend, 144, timeRangeStore.hours);
 
   latencyChart = new Chart(canvas, {
     type: 'line',
@@ -401,7 +401,7 @@ function renderQualityChart() {
   const canvas = qualityCanvas.value;
   if (!canvas) return;
 
-  const { labels, items } = aggregateToFixedPoints(trend, 144);
+  const { labels, items } = aggregateToFixedPoints(trend, 144, timeRangeStore.hours);
   const failureData = items.map(r => r?.avg_success_rate != null ? (100 - r.avg_success_rate) : null);
 
   qualityChart = new Chart(canvas, {
