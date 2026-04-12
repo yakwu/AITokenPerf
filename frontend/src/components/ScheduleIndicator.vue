@@ -37,7 +37,7 @@
         @click="onNotifyClick(n)"
       >
         <div class="done-toast-left">
-          <span class="done-toast-dot"></span>
+          <svg class="done-toast-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <div class="done-toast-content">
           <div class="done-toast-title">{{ n.title }}</div>
@@ -400,11 +400,8 @@ onUnmounted(() => {
   background: var(--success-light, #e6f4ec);
 }
 
-.done-toast-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--success, #2D8B55);
+.done-toast-check {
+  stroke: var(--success, #2D8B55);
 }
 
 .done-toast-content {
