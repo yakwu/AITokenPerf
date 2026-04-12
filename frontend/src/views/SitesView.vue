@@ -398,25 +398,30 @@ async function confirmTest() {
     }
 
     toast('测试已启动', 'success');
-    pollTestCompletion(res.task_id);
+    pollTestCompletion(res.task_id, site);
   } catch (e) {
     toast('启动测试失败: ' + e.message, 'error');
   }
 }
 
-async function pollTestCompletion(taskId) {
+async function pollTestCompletion(taskId, site) {
+  const siteName = site?.profile?.name || '';
   const poll = async () => {
     try {
       const status = await api('/api/bench/status');
-      if (status.running) {
+      if (status.status === 'running') {
         setTimeout(poll, 2000);
       } else {
-        // Test complete, refresh site data
         await loadData();
-        toast('测试完成，数据已刷新', 'success');
+        if (siteName) {
+          toast(`${siteName} 测试完成 — 点击查看详情`, 'success', {
+            onClick: () => router.push(`/sites/${encodeURIComponent(siteName)}?tab=trends`),
+          });
+        } else {
+          toast('测试完成，数据已刷新', 'success');
+        }
       }
     } catch {
-      // On error, just refresh
       await loadData();
     }
   };

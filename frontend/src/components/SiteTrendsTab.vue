@@ -167,15 +167,18 @@ function toggleRecord(idx, r) {
 
 async function loadRecords(page = 1) {
   const baseUrl = props.profile?.base_url;
-  if (!baseUrl) return;
+  const profileName = props.profile?.name;
+  if (!baseUrl && !profileName) return;
   recordsLoading.value = true;
   try {
     const params = {
       limit: recordsPageSize,
       offset: (page - 1) * recordsPageSize,
       raw: true,
-      base_url: baseUrl,
     };
+    // 优先按 profile_name 过滤（精确区分同域名不同 key 的站点）
+    if (profileName) params.profile_name = profileName;
+    else params.base_url = baseUrl;
     if (timeRangeStore.hours) params.hours = timeRangeStore.hours;
     const data = await getResults(params);
     records.value = data.items || [];

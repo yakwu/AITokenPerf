@@ -508,8 +508,8 @@ async def get_results(user_id: int, hours: int | None = None) -> list[dict]:
         return [_row_to_result_dict(row) for row in rows]
 
 
-async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None, lightweight: bool = False, raw: bool = False, base_url: str | None = None) -> dict:
-    """返回历史记录。raw=True 时返回逐条原始结果；raw=False（默认）时同一定时任务的结果聚合成一条。hours 可选，仅返回最近 N 小时的数据。lightweight=True 时不返回大字段。base_url 可选，按站点 base_url 过滤。"""
+async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None, lightweight: bool = False, raw: bool = False, base_url: str | None = None, profile_name: str | None = None) -> dict:
+    """返回历史记录。profile_name 优先于 base_url 过滤（精确区分同域名不同 key 的站点）。"""
     params: dict = {"uid": user_id}
     time_filter = ""
     if hours is not None:
@@ -518,12 +518,15 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
         time_filter = "AND r.timestamp >= :cutoff"
         params["cutoff"] = cutoff
 
-    base_url_filter = ""
-    if base_url:
+    site_filter = ""
+    if profile_name:
+        site_filter = "AND json_extract(r.config_json, '$.profile_name')=:profile_name"
+        params["profile_name"] = profile_name
+    elif base_url:
         base_clean = base_url.rstrip("/")
         base_with_slash = base_clean + "/"
-        base_url_filter = ("AND (json_extract(r.config_json, '$.base_url')=:base_url"
-                           " OR json_extract(r.config_json, '$.base_url')=:base_url_slash)")
+        site_filter = ("AND (json_extract(r.config_json, '$.base_url')=:base_url"
+                       " OR json_extract(r.config_json, '$.base_url')=:base_url_slash)")
         params["base_url"] = base_clean
         params["base_url_slash"] = base_with_slash
 
@@ -532,7 +535,7 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
             text(f"""SELECT r.*, st.name AS schedule_name
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-                   WHERE r.user_id=:uid {time_filter} {base_url_filter}
+                   WHERE r.user_id=:uid {time_filter} {site_filter}
                    ORDER BY r.created_at DESC"""),
             params,
         )

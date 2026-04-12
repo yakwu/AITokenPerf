@@ -474,7 +474,7 @@ onUnmounted(() => { store.refreshFn = null; });
 /* ---- Summary Cards Row ---- */
 .dash-summary-row {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -483,7 +483,7 @@ onUnmounted(() => { store.refreshFn = null; });
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 16px 12px;
   text-align: center;
   box-shadow: var(--shadow-sm);
 }
@@ -875,17 +875,8 @@ onUnmounted(() => { store.refreshFn = null; });
 
 /* ---- Responsive ---- */
 @media (max-width: 1024px) {
-  .dash-summary-row {
-    grid-template-columns: repeat(3, 1fr);
-  }
   .dash-main {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 640px) {
-  .dash-summary-row {
-    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

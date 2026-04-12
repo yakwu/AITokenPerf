@@ -779,10 +779,11 @@ async def list_results(
     fields: str | None = Query(None),
     raw: bool = Query(False),
     base_url: str | None = Query(None),
+    profile_name: str | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
     lightweight = fields == "summary"
-    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight, raw=raw, base_url=base_url)
+    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight, raw=raw, base_url=base_url, profile_name=profile_name)
     return {"total": result["total"], "items": result["items"]}
 
 
@@ -876,6 +877,7 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
     if len(models) == 1:
         # 单模型：保持原有行为，返回单个 task_id
         config["model"] = models[0]
+        config["profile_name"] = profile_name
         task_id = uuid.uuid4().hex[:12]
         task = manager.create_task(task_id, user_id, profile_name=profile_name)
         task.status = "running"
@@ -901,6 +903,7 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
             model_config = dict(config)
             model_config["model"] = model_name
             model_config["protocol"] = detect_protocol(model_name, config.get("provider", ""))
+            model_config["profile_name"] = profile_name
 
             task_id = uuid.uuid4().hex[:12]
             task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
@@ -1044,6 +1047,7 @@ async def start_multi_bench(request: Request, user: dict = Depends(get_current_u
                     continue
                 config[key] = overrides[key]
 
+        config["profile_name"] = profile_name
         task_id = uuid.uuid4().hex[:12]
         task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
         task.status = "running"
@@ -1090,6 +1094,7 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
     group_id = f"multi_{uuid.uuid4().hex[:8]}"
     current_run_id.set(group_id)
     task_ids = []
+    profile_name = active.get("name", "")
 
     for model_name in models:
         config = dict(benchmark) if benchmark else {}
@@ -1112,8 +1117,8 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
             if key in overrides and overrides[key] is not None:
                 config[key] = overrides[key]
 
+        config["profile_name"] = profile_name
         task_id = uuid.uuid4().hex[:12]
-        profile_name = active.get("name", "")
         task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
         task.model_name = model_name
         task.status = "running"
