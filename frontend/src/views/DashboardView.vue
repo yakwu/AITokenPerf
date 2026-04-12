@@ -116,7 +116,7 @@
                     v-for="tag in alert.errorTags"
                     :key="tag"
                     class="dash-alert-tag"
-                    @click.stop="showTagToast(tag)"
+                    @click.stop="showErrorDetail(alert, tag)"
                   >{{ tag }}</span>
                 </div>
               </div>
@@ -291,6 +291,7 @@ const alerts = computed(() => {
         siteName: site.profile?.name || '-',
         description: desc,
         errorTags,
+        latestResults,
       };
     });
 });
@@ -424,8 +425,17 @@ function goSiteHistory(siteName) {
   }
 }
 
-function showTagToast(tag) {
-  toast('查看历史记录中的该错误类型: ' + tag, 'info');
+async function showErrorDetail(alert, tag) {
+  // tag 格式: "HTTP 503 × 1"，提取错误类型
+  const errorType = tag.split(' \u00d7 ')[0];
+  // 找到包含该错误类型的最近一条结果
+  const match = alert.latestResults.find(r => {
+    const errs = r.errors || {};
+    return errs[errorType] != null && errs[errorType] > 0;
+  });
+  if (match) {
+    await showDetail(match);
+  }
 }
 
 async function showDetail(result) {

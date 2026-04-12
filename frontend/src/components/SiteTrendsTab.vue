@@ -166,9 +166,8 @@ function toggleRecord(idx, r) {
 }
 
 async function loadRecords(page = 1) {
-  const baseUrl = props.profile?.base_url;
   const profileName = props.profile?.name;
-  if (!baseUrl && !profileName) return;
+  if (!profileName) return;
   recordsLoading.value = true;
   try {
     const params = {
@@ -176,10 +175,7 @@ async function loadRecords(page = 1) {
       offset: (page - 1) * recordsPageSize,
       raw: true,
     };
-    // 同时传 profile_name 和 base_url，后端 OR 匹配
-    // 新数据有 profile_name 精确匹配，老数据回退到 base_url
-    if (profileName) params.profile_name = profileName;
-    if (baseUrl) params.base_url = baseUrl;
+    params.profile_name = profileName;
     if (timeRangeStore.hours) params.hours = timeRangeStore.hours;
     const data = await getResults(params);
     records.value = data.items || [];
@@ -244,12 +240,12 @@ function renderTrendSummary() {
 
 // ---- Data Fetching ----
 async function fetchTrend() {
-  const baseUrl = props.profile?.base_url;
-  if (!baseUrl) return;
+  const profileName = props.profile?.name;
+  if (!profileName) return;
 
   loading.value = true;
   try {
-    const data = await getSiteTrend(baseUrl, { hours: timeRangeStore.hours });
+    const data = await getSiteTrend(profileName, { hours: timeRangeStore.hours });
     trendData.value = data.trend || [];
   } catch {
     trendData.value = [];

@@ -62,8 +62,8 @@ export const getScheduleResults = (id, { limit = 100, offset = 0, hours } = {}) 
 export const getScheduleTrend = (id, { hours } = {}) => api(`/api/schedules/${id}/trend` + (hours ? `?hours=${hours}` : ''));
 
 // Sites
-export const getSiteTrend = (baseUrl, { hours } = {}) => {
-  const params = new URLSearchParams({ base_url: baseUrl });
+export const getSiteTrend = (profileName, { hours } = {}) => {
+  const params = new URLSearchParams({ profile_name: profileName });
   if (hours) params.set('hours', hours);
   return api(`/api/sites/trend?${params}`);
 };
