@@ -509,7 +509,7 @@ async def get_results(user_id: int, hours: int | None = None) -> list[dict]:
 
 
 async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None, lightweight: bool = False, raw: bool = False, base_url: str | None = None, profile_name: str | None = None) -> dict:
-    """返回历史记录。profile_name 优先于 base_url 过滤（精确区分同域名不同 key 的站点）。"""
+    """返回历史记录。优先按 profile_name 精确过滤，回退到 base_url。"""
     params: dict = {"uid": user_id}
     time_filter = ""
     if hours is not None:
@@ -519,17 +519,7 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
         params["cutoff"] = cutoff
 
     site_filter = ""
-    if profile_name and base_url:
-        # 两者都有：OR 匹配（新数据有 profile_name，老数据只有 base_url）
-        base_clean = base_url.rstrip("/")
-        base_with_slash = base_clean + "/"
-        site_filter = ("AND (json_extract(r.config_json, '$.profile_name')=:profile_name"
-                       " OR json_extract(r.config_json, '$.base_url')=:base_url"
-                       " OR json_extract(r.config_json, '$.base_url')=:base_url_slash)")
-        params["profile_name"] = profile_name
-        params["base_url"] = base_clean
-        params["base_url_slash"] = base_with_slash
-    elif profile_name:
+    if profile_name:
         site_filter = "AND json_extract(r.config_json, '$.profile_name')=:profile_name"
         params["profile_name"] = profile_name
     elif base_url:
@@ -783,11 +773,9 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
     return result[-2000:]  # 最多2000个点
 
 
-async def get_site_trend(user_id: int, base_url: str, hours: int | None = None) -> list[dict]:
-    """按站点 base_url 聚合结果趋势（同时覆盖定时任务和手动测试结果）。
-    只查询需要的字段，按分钟聚合，最多返回 2000 个点。
-    """
-    params: dict = {"uid": user_id, "base_url": base_url}
+async def get_site_trend(user_id: int, base_url: str, hours: int | None = None, profile_name: str | None = None) -> list[dict]:
+    """按站点聚合结果趋势。优先按 profile_name 精确过滤，回退到 base_url。"""
+    params: dict = {"uid": user_id}
     time_filter = ""
     if hours is not None:
         from datetime import datetime, timedelta
@@ -795,21 +783,27 @@ async def get_site_trend(user_id: int, base_url: str, hours: int | None = None) 
         time_filter = "AND timestamp >= :cutoff"
         params["cutoff"] = cutoff
 
-    # 匹配 base_url（去尾斜杠兼容）
-    base_clean = base_url.rstrip("/")
-    base_with_slash = base_clean + "/"
+    if profile_name:
+        site_filter = "AND json_extract(config_json, '$.profile_name')=:profile_name"
+        params["profile_name"] = profile_name
+    else:
+        base_clean = base_url.rstrip("/")
+        base_with_slash = base_clean + "/"
+        site_filter = ("AND (json_extract(config_json, '$.base_url')=:base_url"
+                       " OR json_extract(config_json, '$.base_url')=:base_with_slash)")
+        params["base_url"] = base_clean
+        params["base_with_slash"] = base_with_slash
 
     async with engine.connect() as conn:
         cur = await conn.execute(
             text(f"""SELECT timestamp, summary_json, percentiles_json
                    FROM results
                    WHERE user_id=:uid
-                     AND (json_extract(config_json, '$.base_url')=:base_url
-                          OR json_extract(config_json, '$.base_url')=:base_with_slash)
+                     {site_filter}
                      {time_filter}
                    ORDER BY timestamp DESC
                    LIMIT 20000"""),
-            {**params, "base_with_slash": base_with_slash},
+            params,
         )
         rows = cur.fetchall()
 
@@ -1156,13 +1150,6 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
             "last_test_at": None,
         }
 
-    # 构建 base_url → [profile names] 查找表（一个 URL 可能对应多个 profile）
-    url_to_profiles = {}
-    for p in profiles:
-        base_url = (p.get("base_url") or "").rstrip("/")
-        if base_url:
-            url_to_profiles.setdefault(base_url, []).append(p["name"])
-
     # 构建 scheduled_task_id → profile name 查找表
     scheduled_tasks = await get_scheduled_tasks(user_id)
     task_to_profile = {}
@@ -1180,19 +1167,13 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
             summary[profile_name]["latest_results"].append(r)
             continue
 
-        # 回退 1：通过 scheduled_task_id 匹配（定时任务结果通常有此字段）
+        # 回退：通过 scheduled_task_id 匹配（定时任务结果通常有此字段）
         stid = r.get("scheduled_task_id") or 0
         if stid and stid in task_to_profile:
             matched = task_to_profile[stid]
             if matched in summary:
                 summary[matched]["latest_results"].append(r)
                 continue
-
-        # 回退 2：通过 base_url 匹配（关联所有同 URL 的 profile）
-        base_url = (config.get("base_url") or "").rstrip("/")
-        if base_url and base_url in url_to_profiles:
-            for matched_name in url_to_profiles[base_url]:
-                summary[matched_name]["latest_results"].append(r)
 
     # 计算 sparkline_data 和健康状态
     for key, val in summary.items():

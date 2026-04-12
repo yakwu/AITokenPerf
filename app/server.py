@@ -651,12 +651,12 @@ async def sites_summary(hours: int | None = None, user: dict = Depends(get_curre
 
 
 @app.get("/api/sites/trend")
-async def get_site_trend_handler(base_url: str, hours: int | None = None, user: dict = Depends(get_current_user)):
-    """按站点 base_url 获取聚合趋势数据（轻量，只返回聚合点）"""
+async def get_site_trend_handler(base_url: str = "", profile_name: str | None = None, hours: int | None = None, user: dict = Depends(get_current_user)):
+    """按站点获取聚合趋势数据（轻量，只返回聚合点）"""
     from app.db import get_site_trend as db_get_site_trend
-    if not base_url:
-        return JSONResponse({"error": "base_url required"}, status_code=400)
-    trend = await db_get_site_trend(user["user_id"], base_url, hours=hours)
+    if not base_url and not profile_name:
+        return JSONResponse({"error": "base_url or profile_name required"}, status_code=400)
+    trend = await db_get_site_trend(user["user_id"], base_url, hours=hours, profile_name=profile_name)
     return {"trend": trend}
 
 
