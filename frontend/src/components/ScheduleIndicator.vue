@@ -36,8 +36,9 @@
         class="done-toast"
         @click="onNotifyClick(n)"
       >
-        <div class="done-toast-left">
-          <svg class="done-toast-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <div class="done-toast-left" :class="{ 'has-fail': n.hasFail }">
+          <svg v-if="!n.hasFail" class="done-toast-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <svg v-else class="done-toast-warn" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </div>
         <div class="done-toast-content">
           <div class="done-toast-title">{{ n.title }}</div>
@@ -77,7 +78,7 @@ function progressPct(t) {
   return Math.min(100, Math.round(t.done / t.total * 100));
 }
 
-function upsertNotification(profileName, models, maxElapsed, isScheduled) {
+function upsertNotification(profileName, models, maxElapsed, isScheduled, success, failed) {
   const existing = doneNotifications.value.find(n => n.profileName === profileName && n.isScheduled === isScheduled);
   const totalRuns = (existing?.runCount || 0) + 1;
   const allModels = existing ? [...new Set([...existing.models, ...models])] : [...new Set(models)];
@@ -85,15 +86,27 @@ function upsertNotification(profileName, models, maxElapsed, isScheduled) {
     ? `${allModels.slice(0, 2).join(', ')} 等 ${allModels.length} 个模型`
     : allModels.join(', ');
   const prefix = isScheduled ? '定时任务' : '单次测试';
+
+  const total = success + failed;
+  let resultText;
+  if (total === 0) {
+    resultText = `用时 ${maxElapsed}s`;
+  } else if (failed === 0) {
+    resultText = `全部成功 · 用时 ${maxElapsed}s`;
+  } else {
+    resultText = `${success}/${total} 成功 · 用时 ${maxElapsed}s`;
+  }
   const subtitle = totalRuns > 1
-    ? `已完成 ${totalRuns} 次 · 最近用时 ${maxElapsed}s · 点击查看`
-    : `用时 ${maxElapsed}s · 点击查看`;
+    ? `已完成 ${totalRuns} 次 · ${resultText}`
+    : resultText;
+  const hasFail = failed > 0;
 
   if (existing) {
     existing.models = allModels;
     existing.modelsText = modelsText;
     existing.subtitle = subtitle;
     existing.runCount = totalRuns;
+    existing.hasFail = hasFail;
     existing.time = Date.now();
   } else {
     notifyIdCounter++;
@@ -105,6 +118,7 @@ function upsertNotification(profileName, models, maxElapsed, isScheduled) {
       subtitle,
       profileName,
       isScheduled,
+      hasFail,
       runCount: totalRuns,
       time: Date.now(),
     });
@@ -148,15 +162,17 @@ function detectCompleted(currentTasks) {
     if (!meta) continue;
     const key = `${meta.profile_name || id}_${meta.scheduled ? 's' : 'm'}`;
     if (!grouped[key]) {
-      grouped[key] = { profile_name: meta.profile_name, models: [], elapsed: 0, scheduled: meta.scheduled };
+      grouped[key] = { profile_name: meta.profile_name, models: [], elapsed: 0, scheduled: meta.scheduled, success: 0, failed: 0 };
     }
     grouped[key].models.push(meta.model || '?');
     grouped[key].elapsed = Math.max(grouped[key].elapsed, meta.elapsed || 0);
+    grouped[key].success += meta.success || 0;
+    grouped[key].failed += meta.failed || 0;
   }
 
   // 对每个站点 upsert 通知（同站点同类型多次完成会聚合到同一条）
   for (const [, g] of Object.entries(grouped)) {
-    upsertNotification(g.profile_name, g.models, g.elapsed, g.scheduled);
+    upsertNotification(g.profile_name, g.models, g.elapsed, g.scheduled, g.success, g.failed);
   }
 
   for (const id of completedIds) {
@@ -174,6 +190,8 @@ function updateMeta(tasks) {
       profile_name: t.profile_name || '',
       elapsed: t.elapsed || 0,
       scheduled: !!(t.scheduled_task_id),
+      success: t.success || 0,
+      failed: t.failed || 0,
     });
   }
 }
@@ -402,6 +420,14 @@ onUnmounted(() => {
 
 .done-toast-check {
   stroke: var(--success, #2D8B55);
+}
+
+.done-toast-left.has-fail {
+  background: var(--danger-light, #fef0f0);
+}
+
+.done-toast-warn {
+  stroke: var(--danger, #D63B3B);
 }
 
 .done-toast-content {
