@@ -1725,10 +1725,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.4);
-  z-index: 200;
-  justify-content: center;
-  align-items: center;
-  opacity: 0;
+  z-index: 2100;
   visibility: hidden;
   pointer-events: none;
   transition: opacity 0.15s ease;
