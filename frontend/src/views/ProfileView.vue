@@ -18,7 +18,7 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
               <input class="profile-chip-name-edit" v-model="profileDraftName" placeholder="配置名称" @keydown.enter.prevent="saveProfile()" @blur="profileDraftName = profileDraftName.trim()" ref="newProfileNameInputRef" @click.stop>
               <button v-if="canSaveProfile()" class="profile-chip-action profile-chip-action-save" @click.stop="saveProfile()" title="保存">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               </button>
             </div>
             <!-- 已有 profile 卡片 -->
@@ -34,7 +34,7 @@
                 <!-- 悬浮操作 -->
                 <div v-if="profileMode === 'selected' && currentProfileName === p.name" class="profile-chip-actions" @click.stop>
                   <button v-if="profileDirty" class="profile-chip-action profile-chip-action-save" @click="saveProfile()" title="保存更改">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   </button>
                   <button class="profile-chip-action profile-chip-action-del" @click="requestDeleteProfile(p.name)" title="删除">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -110,13 +110,15 @@
         </div>
       </div>
 
-      <div class="btn-group" style="margin-top:20px" v-if="profileMode === 'selected' || profileMode === 'new'">
-        <button class="btn btn-primary" @click="saveProfile()" :disabled="!canSaveProfile()">
-          {{ profileMode === 'new' ? '保存配置' : '更新配置' }}
-        </button>
-        <button class="btn btn-ghost" @click="dryRunTest()" v-if="profileMode === 'selected' && form.base_url && form.api_key && form.models.length">
-          连通性验证
-        </button>
+      <div class="profile-actions" v-if="profileMode === 'selected' || profileMode === 'new'">
+        <div class="profile-actions-left">
+          <button class="btn btn-primary" @click="saveProfile()">
+            {{ profileMode === 'new' ? '保存配置' : '更新配置' }}
+          </button>
+          <button class="btn btn-ghost" @click="dryRunTest()" v-if="profileMode === 'selected' && form.base_url && form.api_key && form.models.length">
+            连通性验证
+          </button>
+        </div>
       </div>
 
       <div v-if="profiles.length === 0 && profileMode !== 'new'" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">
@@ -573,3 +575,36 @@ onMounted(() => {
   loadKnownModels(form.value.provider);
 });
 </script>
+
+<style scoped>
+.card {
+  overflow: visible;
+}
+
+.profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.profile-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .profile-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .profile-actions-left {
+    justify-content: flex-end;
+  }
+}
+</style>

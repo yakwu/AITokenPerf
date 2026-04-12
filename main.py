@@ -16,12 +16,20 @@ import time
 import aiohttp
 
 from app.client import send_streaming_request
+from app.logger import current_run_id, RunIdFormatter
+
+log = logging.getLogger("bench")
+log.setLevel(logging.INFO)
+if not log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(RunIdFormatter("%(asctime)s [%(run_id)s] [bench] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    log.addHandler(_handler)
 
 
 async def run_burst(session: aiohttp.ClientSession, config: dict, concurrency: int, on_complete=None) -> list:
     """Burst 模式：一次性发出 N 个并发请求"""
     total_requests = config.get("requests_per_level") or concurrency
-    print(f"\n  [Burst] Launching {total_requests} requests with concurrency={concurrency}...")
+    log.info("[Burst] Launching %d requests with concurrency=%d", total_requests, concurrency)
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -38,15 +46,15 @@ async def run_burst(session: aiohttp.ClientSession, config: dict, concurrency: i
         done += 1
         results.append(m)
         if not m.success:
-            print(f"    [Burst] Request {done}/{total_requests} FAILED: {m.error} (status={m.status_code})")
+            log.warning("[Burst] Request %d/%d FAILED: %s (status=%s)", done, total_requests, m.error, m.status_code)
         if on_complete:
             await on_complete(done, total_requests, m)
         else:
             status = "OK" if m.success else f"FAIL({m.error})"
             if done % max(1, total_requests // 10) == 0 or done == total_requests:
-                print(f"    Progress: {done}/{total_requests} ({status})")
+                log.info("[Burst] Progress: %d/%d (%s)", done, total_requests, status)
 
-    print(f"  [Burst] Done: {len(results)} results, {sum(1 for r in results if r.success)} succeeded")
+    log.info("[Burst] Done: %d results, %d succeeded", len(results), sum(1 for r in results if r.success))
     return results
 
 
@@ -55,7 +63,7 @@ async def run_sustained(
     on_complete=None, stop_event: asyncio.Event = None
 ) -> list:
     """Sustained 模式：持续维持 N 个并发请求，跑 duration 秒"""
-    print(f"\n  [Sustained] Maintaining {concurrency} concurrent for {duration}s...")
+    log.info("[Sustained] Maintaining %d concurrent for %ds", concurrency, duration)
 
     results = []
     request_counter = 0
@@ -100,25 +108,19 @@ async def run_sustained(
 
 async def run_dry(session: aiohttp.ClientSession, config: dict):
     """Dry run: 发 1 个请求验证连通性和指标采集"""
-    print("\n  [Dry Run] Sending 1 request to verify connectivity...\n")
+    log.info("[Dry Run] Sending 1 request to verify connectivity")
     m = await send_streaming_request(session, config, 0)
 
     if m.success:
-        print(f"    Status: OK")
-        print(f"    TTFT: {m.ttft:.3f}s" if m.ttft else "    TTFT: N/A")
-        print(f"    TPOT: {m.tpot:.4f}s" if m.tpot else "    TPOT: N/A")
-        print(f"    E2E:  {m.e2e:.3f}s" if m.e2e else "    E2E: N/A")
-        print(f"    Output Tokens: {m.output_tokens}")
-        print(f"    Input Tokens: {m.input_tokens}")
-        print(f"    Token events captured: {len(m.token_timestamps)}")
-        print(f"\n    Dry run passed. Ready to benchmark.")
+        log.info("[Dry Run] OK — TTFT: %s, TPOT: %s, E2E: %s, tokens: %d in / %d out",
+                 f"{m.ttft:.3f}s" if m.ttft else "N/A",
+                 f"{m.tpot:.4f}s" if m.tpot else "N/A",
+                 f"{m.e2e:.3f}s" if m.e2e else "N/A",
+                 m.input_tokens, m.output_tokens)
+        return True
     else:
-        print(f"    Status: FAILED")
-        print(f"    HTTP Code: {m.status_code}")
-        print(f"    Error: {m.error}")
-        print(f"\n    Fix the error above before running the benchmark.")
+        log.error("[Dry Run] FAILED — HTTP %s, error: %s", m.status_code, m.error)
         return False
-    return True
 
 
 def main():
@@ -130,9 +132,42 @@ def main():
 
     import uvicorn
     log_fmt = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
-    logging.basicConfig(level=logging.INFO, format=log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
+    date_fmt = "%Y-%m-%d %H:%M:%S"
+    logging.basicConfig(level=logging.INFO, format=log_fmt, datefmt=date_fmt)
+
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": log_fmt,
+                "datefmt": date_fmt,
+            },
+            "access": {
+                "format": log_fmt,
+                "datefmt": date_fmt,
+            },
+        },
+        "handlers": {
+            "default": {
+                "formatter": "default",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+            "access": {
+                "formatter": "access",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        },
+    }
     uvicorn.run("app.server:app", host=args.host, port=args.port,
-                log_level="info", workers=args.workers, log_config=None)
+                log_level="info", workers=args.workers, log_config=log_config)
 
 
 if __name__ == "__main__":

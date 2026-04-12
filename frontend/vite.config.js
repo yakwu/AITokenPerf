@@ -9,6 +9,9 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
+  test: {
+    environment: 'jsdom',
+  },
   server: {
     port: 5180,
     strictPort: true,

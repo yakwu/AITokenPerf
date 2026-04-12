@@ -230,6 +230,36 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_sched_status_next ON scheduled_tasks (status, next_run_at)"
         ))
 
+    # 修复定时任务结果缺失 profile_name 的历史数据
+    await _migrate_schedule_results_profile_name()
+
+
+async def _migrate_schedule_results_profile_name():
+    """补齐定时任务产生的结果中缺失的 profile_name（一次性迁移）"""
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            await conn.execute(text("""
+                UPDATE results
+                SET config_json = json_set(config_json, '$.profile_name',
+                    (SELECT json_extract(st.profile_ids, '$[0]')
+                     FROM scheduled_tasks st
+                     WHERE st.id = results.scheduled_task_id))
+                WHERE scheduled_task_id IS NOT NULL
+                  AND (json_extract(config_json, '$.profile_name') IS NULL
+                       OR json_extract(config_json, '$.profile_name') = '')
+            """))
+        else:
+            await conn.execute(text("""
+                UPDATE results
+                SET config_json = jsonb_set(config_json::jsonb, '{profile_name}',
+                    to_jsonb((SELECT profile_ids::jsonb->>0
+                              FROM scheduled_tasks st
+                              WHERE st.id = results.scheduled_task_id)))::text
+                WHERE scheduled_task_id IS NOT NULL
+                  AND (config_json::jsonb->>'profile_name' IS NULL
+                       OR config_json::jsonb->>'profile_name' = '')
+            """))
+
 
 async def close_db():
     """关闭数据库连接池"""
@@ -467,34 +497,26 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
         )
 
 
-def _row_to_result_dict(row) -> dict:
+def _row_to_result_dict(row, lightweight: bool = False) -> dict:
     d = dict(row._mapping)
     d["config"] = json.loads(d["config_json"])
     d["summary"] = json.loads(d["summary_json"])
-    d["percentiles"] = json.loads(d["percentiles_json"])
-    d["errors"] = json.loads(d["errors_json"])
-    d["error_details"] = json.loads(d["error_details_json"])
+    if lightweight:
+        # 轻量模式：不解析大字段，直接移除原始 JSON 列
+        for key in ("percentiles_json", "errors_json", "error_details_json",
+                     "config_json", "summary_json"):
+            d.pop(key, None)
+    else:
+        d["percentiles"] = json.loads(d["percentiles_json"])
+        d["errors"] = json.loads(d["errors_json"])
+        d["error_details"] = json.loads(d["error_details_json"])
     if not d.get("schedule_name"):
         d["schedule_name"] = ""
     return d
 
 
-async def get_results(user_id: int) -> list[dict]:
-    async with engine.connect() as conn:
-        cur = await conn.execute(
-            text("""SELECT r.*, st.name AS schedule_name
-                   FROM results r
-                   LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-                   WHERE r.user_id=:uid
-                   ORDER BY r.created_at DESC"""),
-            {"uid": user_id},
-        )
-        rows = cur.fetchall()
-        return [_row_to_result_dict(row) for row in rows]
-
-
-async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None) -> dict:
-    """返回聚合后的历史记录，同一定时任务的结果聚合成一条。hours 可选，仅返回最近 N 小时的数据。"""
+async def get_results(user_id: int, hours: int | None = None) -> list[dict]:
+    """返回用户所有测试结果。hours 可选，仅返回最近 N 小时内的数据。"""
     params: dict = {"uid": user_id}
     time_filter = ""
     if hours is not None:
@@ -513,12 +535,55 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
             params,
         )
         rows = cur.fetchall()
+        return [_row_to_result_dict(row) for row in rows]
+
+
+async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None, lightweight: bool = False, raw: bool = False, base_url: str | None = None, profile_name: str | None = None) -> dict:
+    """返回历史记录。优先按 profile_name 精确过滤，回退到 base_url。"""
+    params: dict = {"uid": user_id}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND r.timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
+    site_filter = ""
+    if profile_name:
+        site_filter = "AND json_extract(r.config_json, '$.profile_name')=:profile_name"
+        params["profile_name"] = profile_name
+    elif base_url:
+        base_clean = base_url.rstrip("/")
+        base_with_slash = base_clean + "/"
+        site_filter = ("AND (json_extract(r.config_json, '$.base_url')=:base_url"
+                       " OR json_extract(r.config_json, '$.base_url')=:base_url_slash)")
+        params["base_url"] = base_clean
+        params["base_url_slash"] = base_with_slash
+
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text(f"""SELECT r.*, st.name AS schedule_name
+                   FROM results r
+                   LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+                   WHERE r.user_id=:uid {time_filter} {site_filter}
+                   ORDER BY r.created_at DESC"""),
+            params,
+        )
+        rows = cur.fetchall()
+
+    # raw 模式：跳过聚合，直接返回逐条结果
+    if raw:
+        all_items = [_row_to_result_dict(row, lightweight=lightweight) for row in rows]
+        all_items.sort(key=lambda r: r.get("timestamp") or r.get("created_at") or "", reverse=True)
+        total = len(all_items)
+        paged = all_items[offset:offset + limit]
+        return {"total": total, "items": paged}
 
     # 聚合
     manual_items = []
     scheduled_groups = {}
     for row in rows:
-        d = _row_to_result_dict(row)
+        d = _row_to_result_dict(row, lightweight=lightweight)
         sid = d.get("scheduled_task_id") or 0
         if sid == 0:
             manual_items.append(d)
@@ -584,9 +649,10 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
 
         representative = dict(group[0])
         representative["summary"] = avg_summary
-        representative["percentiles"] = avg_percentiles
+        if not lightweight:
+            representative["percentiles"] = avg_percentiles
+            representative["children"] = group
         representative["children_count"] = count
-        representative["children"] = group
         merged.append(representative)
 
     merged.sort(key=lambda r: r.get("created_at") or r.get("timestamp") or "", reverse=True)
@@ -693,7 +759,8 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
         minute = row.timestamp[:13]  # e.g. "20260408_1820" (YYYYMMDD_HHMM)
         if minute not in buckets:
             buckets[minute] = {"minute": minute, "count": 0, "success_rates": [],
-                               "throughputs": [], "ttft_p50s": [], "e2e_p50s": []}
+                               "throughputs": [], "tpses": [],
+                               "ttft_p50s": [], "tpot_p50s": [], "e2e_p50s": []}
         b = buckets[minute]
         b["count"] += 1
         try:
@@ -702,6 +769,8 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
                 b["success_rates"].append(float(s["success_rate"]))
             if s.get("throughput_rps") is not None:
                 b["throughputs"].append(float(s["throughput_rps"]))
+            if s.get("token_throughput_tps") is not None:
+                b["tpses"].append(float(s["token_throughput_tps"]))
         except (json.JSONDecodeError, TypeError):
             pass
         try:
@@ -709,6 +778,9 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
             ttft = p.get("TTFT", {})
             if ttft.get("P50") is not None:
                 b["ttft_p50s"].append(float(ttft["P50"]))
+            tpot = p.get("TPOT", {})
+            if tpot.get("P50") is not None:
+                b["tpot_p50s"].append(float(tpot["P50"]))
             e2e = p.get("E2E", {})
             if e2e.get("P50") is not None:
                 b["e2e_p50s"].append(float(e2e["P50"]))
@@ -723,10 +795,87 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
             "run_count": b["count"],
             "avg_success_rate": round(sum(b["success_rates"]) / len(b["success_rates"]), 4) if b["success_rates"] else None,
             "avg_throughput": round(sum(b["throughputs"]) / len(b["throughputs"]), 2) if b["throughputs"] else None,
-            "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 2) if b["ttft_p50s"] else None,
-            "avg_e2e_p50": round(sum(b["e2e_p50s"]) / len(b["e2e_p50s"]), 2) if b["e2e_p50s"] else None,
+            "avg_tps": round(sum(b["tpses"]) / len(b["tpses"]), 2) if b["tpses"] else None,
+            "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 6) if b["ttft_p50s"] else None,
+            "avg_tpot_p50": round(sum(b["tpot_p50s"]) / len(b["tpot_p50s"]), 6) if b["tpot_p50s"] else None,
+            "avg_e2e_p50": round(sum(b["e2e_p50s"]) / len(b["e2e_p50s"]), 6) if b["e2e_p50s"] else None,
         })
     return result[-2000:]  # 最多2000个点
+
+
+async def get_site_trend(user_id: int, base_url: str, hours: int | None = None, profile_name: str | None = None) -> list[dict]:
+    """按站点聚合结果趋势。优先按 profile_name 精确过滤，回退到 base_url。"""
+    params: dict = {"uid": user_id}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
+    if profile_name:
+        site_filter = "AND json_extract(config_json, '$.profile_name')=:profile_name"
+        params["profile_name"] = profile_name
+    else:
+        base_clean = base_url.rstrip("/")
+        base_with_slash = base_clean + "/"
+        site_filter = ("AND (json_extract(config_json, '$.base_url')=:base_url"
+                       " OR json_extract(config_json, '$.base_url')=:base_with_slash)")
+        params["base_url"] = base_clean
+        params["base_with_slash"] = base_with_slash
+
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text(f"""SELECT timestamp, summary_json, percentiles_json
+                   FROM results
+                   WHERE user_id=:uid
+                     {site_filter}
+                     {time_filter}
+                   ORDER BY timestamp DESC
+                   LIMIT 20000"""),
+            params,
+        )
+        rows = cur.fetchall()
+
+    buckets = {}
+    for row in rows:
+        minute = row[0][:13]  # timestamp
+        if minute not in buckets:
+            buckets[minute] = {"minute": minute, "count": 0, "success_rates": [],
+                               "tpses": [], "ttft_p50s": [], "tpot_p50s": []}
+        b = buckets[minute]
+        b["count"] += 1
+        try:
+            s = json.loads(row[1])  # summary_json
+            if s.get("success_rate") is not None:
+                b["success_rates"].append(float(s["success_rate"]))
+            if s.get("token_throughput_tps") is not None:
+                b["tpses"].append(float(s["token_throughput_tps"]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+        try:
+            p = json.loads(row[2])  # percentiles_json
+            ttft = p.get("TTFT", {})
+            if ttft.get("P50") is not None:
+                b["ttft_p50s"].append(float(ttft["P50"]))
+            tpot = p.get("TPOT", {})
+            if tpot.get("P50") is not None:
+                b["tpot_p50s"].append(float(tpot["P50"]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    result = []
+    for minute in sorted(buckets.keys()):
+        b = buckets[minute]
+        result.append({
+            "minute": minute,
+            "run_count": b["count"],
+            "avg_success_rate": round(sum(b["success_rates"]) / len(b["success_rates"]), 4) if b["success_rates"] else None,
+            "avg_tps": round(sum(b["tpses"]) / len(b["tpses"]), 2) if b["tpses"] else None,
+            "avg_ttft_p50": round(sum(b["ttft_p50s"]) / len(b["ttft_p50s"]), 6) if b["ttft_p50s"] else None,
+            "avg_tpot_p50": round(sum(b["tpot_p50s"]) / len(b["tpot_p50s"]), 6) if b["tpot_p50s"] else None,
+        })
+    return result[-2000:]
 
 
 # ---- User Settings CRUD ----
@@ -1011,3 +1160,100 @@ async def count_user_scheduled_tasks(user_id: int) -> int:
             {"uid": user_id},
         )
         return cur.fetchone()[0]
+
+
+# ---- Sites Summary ----
+
+async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict]:
+    """获取用户所有站点的最新测试摘要。hours 可选，仅使用最近 N 小时内的数据。"""
+    profiles = await get_profiles(user_id)
+    results = await get_results(user_id, hours=hours)
+
+    # 按 profile name 分组，聚合最新结果
+    summary = {}
+    for p in profiles:
+        key = p["name"]
+        summary[key] = {
+            "profile": p,
+            "latest_results": [],
+            "health": "unknown",
+            "last_test_at": None,
+        }
+
+    # 构建 scheduled_task_id → profile name 查找表
+    scheduled_tasks = await get_scheduled_tasks(user_id)
+    task_to_profile = {}
+    for st in scheduled_tasks:
+        pids = st.get("profile_ids") or []
+        if pids:
+            task_to_profile[st["id"]] = pids[0]
+
+    for r in results:
+        config = r.get("config", {})
+        profile_name = config.get("profile_name", "")
+
+        # 优先通过 profile_name 匹配
+        if profile_name and profile_name in summary:
+            summary[profile_name]["latest_results"].append(r)
+            continue
+
+        # 回退：通过 scheduled_task_id 匹配（定时任务结果通常有此字段）
+        stid = r.get("scheduled_task_id") or 0
+        if stid and stid in task_to_profile:
+            matched = task_to_profile[stid]
+            if matched in summary:
+                summary[matched]["latest_results"].append(r)
+                continue
+
+    # 计算 sparkline_data 和健康状态
+    for key, val in summary.items():
+        all_results = val["latest_results"]  # 全部匹配结果（时间窗口内）
+
+        # ---- sparkline_data：按 model 分组提取 TTFT P50 ----
+        model_ttfts: dict[str, list[tuple[str, float]]] = {}  # model → [(timestamp, ttft)]
+        for r in all_results:
+            model = r.get("config", {}).get("model", "-")
+            ttft = None
+            p = r.get("percentiles", {})
+            if p and isinstance(p, dict):
+                ttft_obj = p.get("TTFT")
+                if ttft_obj and isinstance(ttft_obj, dict):
+                    ttft = ttft_obj.get("P50")
+            if ttft is not None:
+                ts = r.get("timestamp", "")
+                model_ttfts.setdefault(model, []).append((ts, float(ttft)))
+
+        sparkline_data: dict[str, list[float]] = {}
+        for model, pairs in model_ttfts.items():
+            # 按 timestamp 正序排列（旧→新）
+            pairs.sort(key=lambda x: x[0])
+            values = [v for _, v in pairs]
+            # 采样到最多 50 个点
+            if len(values) > 50:
+                step = len(values) / 50
+                values = [values[int(i * step)] for i in range(50)]
+            sparkline_data[model] = values
+        val["sparkline_data"] = sparkline_data
+
+        # 截断 latest_results 到最近 10 条，防止内存膨胀
+        val["latest_results"] = all_results[:10]
+
+        latest = val["latest_results"][:5]  # 最近 5 次用于健康计算
+        if not latest:
+            val["health"] = "untested"
+            continue
+
+        val["last_test_at"] = latest[0].get("timestamp", "")
+        success_rates = []
+        for r in latest:
+            s = r.get("summary", {})
+            if s.get("total_requests", 0) > 0:
+                success_rates.append(s.get("success_count", s.get("successful_requests", 0)) / s["total_requests"])
+
+        if not success_rates:
+            val["health"] = "unknown"
+        else:
+            avg_rate = sum(success_rates) / len(success_rates)
+            val["health"] = "healthy" if avg_rate >= 0.95 else "error"
+
+    return list(summary.values())

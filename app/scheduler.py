@@ -21,13 +21,13 @@ from app.db import (
     release_scheduled_task,
     release_and_reschedule_scheduled_task,
 )
-from app.logger import log_bench, log_error
+from app.logger import log_bench, log_error, current_run_id, RunIdFormatter
 
 log = logging.getLogger("scheduler")
 log.setLevel(logging.INFO)
 if not log.handlers:
     _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(asctime)s [scheduler] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    _handler.setFormatter(RunIdFormatter("%(asctime)s [%(run_id)s] [scheduler] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
     log.addHandler(_handler)
 
 
@@ -192,6 +192,9 @@ async def _run_scheduled_task(task_id: int):
     """执行一个定时任务：为每个 profile 并行跑 benchmark"""
     from app.server import manager, _run_benchmark_task, BenchTaskManager, CONNECTION_KEYS, _apply_env_overrides
 
+    run_id = f"sched_{uuid.uuid4().hex[:8]}"
+    current_run_id.set(run_id)
+
     task_row = await get_scheduled_task(task_id)
     if not task_row or task_row.get("status") != "active":
         return
@@ -231,7 +234,7 @@ async def _run_scheduled_task(task_id: int):
     log_bench("scheduler:start", task_id=task_id, name=task_row["name"],
               profiles=profile_ids, user_id=user_id)
 
-    group_id = f"sched_{uuid.uuid4().hex[:12]}"
+    group_id = run_id
     bench_tasks = []
 
     for pname in profile_ids:
@@ -248,11 +251,13 @@ async def _run_scheduled_task(task_id: int):
                 config[k] = profile[k]
         _apply_env_overrides(config)
 
-        # 获取模型列表（支持多模型 Profile）
-        models = profile.get("models", [])
+        # 获取模型列表（优先用定时任务中选的模型子集）
+        models = configs_json.get("models") or []
         if not models:
-            raw_model = config.get("model", "")
+            raw_model = configs_json.get("model") or config.get("model", "")
             models = [raw_model] if raw_model else []
+        if not models:
+            models = profile.get("models", [])
 
         for key, val in configs_json.items():
             if val is not None:
@@ -275,6 +280,7 @@ async def _run_scheduled_task(task_id: int):
         for model_name in models:
             model_config = dict(config)
             model_config["model"] = model_name
+            model_config["profile_name"] = pname
 
             # 检查必要配置
             missing = [k for k in ("base_url", "api_key", "model") if not model_config.get(k)]

@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.client import send_streaming_request
 from app.stats import aggregate_metrics, build_report_dict
-from app.logger import log_access, log_security
+from app.logger import log_access, log_security, current_run_id
 
 log = logging.getLogger("server")
 from app.db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
@@ -29,6 +29,7 @@ from app.db import save_result as db_save_result, get_results as db_get_results
 from app.db import get_results_aggregated as db_get_results_aggregated
 from app.db import get_result_by_filename, delete_result as db_delete_result
 from app.db import get_settings, save_settings
+from app.db import get_sites_summary as db_get_sites_summary
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
 from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
 from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
@@ -92,6 +93,11 @@ class BenchTaskManager:
             if task.owner_id == user_id and task.status == "running":
                 return task
         return None
+
+    def get_user_running_tasks(self, user_id: int) -> list[BenchTask]:
+        """返回用户所有运行中的任务"""
+        return [t for t in self._tasks.values()
+                if t.owner_id == user_id and t.status == "running"]
 
     def get_user_task_count(self, user_id: int) -> int:
         return sum(1 for t in self._tasks.values() if t.owner_id == user_id and t.status == "running")
@@ -631,6 +637,29 @@ async def update_config(request: Request, user: dict = Depends(get_current_user)
     return {"status": "ok"}
 
 
+# ---- Sites Routes ----
+
+@app.get("/api/sites/summary")
+async def sites_summary(hours: int | None = None, user: dict = Depends(get_current_user)):
+    summary = await db_get_sites_summary(user["user_id"], hours=hours)
+    for entry in summary:
+        p = entry.get("profile")
+        if p and "api_key" in p:
+            p["api_key_display"] = _mask_api_key(p["api_key"])
+            del p["api_key"]
+    return {"summary": summary}
+
+
+@app.get("/api/sites/trend")
+async def get_site_trend_handler(base_url: str = "", profile_name: str | None = None, hours: int | None = None, user: dict = Depends(get_current_user)):
+    """按站点获取聚合趋势数据（轻量，只返回聚合点）"""
+    from app.db import get_site_trend as db_get_site_trend
+    if not base_url and not profile_name:
+        return JSONResponse({"error": "base_url or profile_name required"}, status_code=400)
+    trend = await db_get_site_trend(user["user_id"], base_url, hours=hours, profile_name=profile_name)
+    return {"trend": trend}
+
+
 # ---- Profiles Routes ----
 
 @app.get("/api/profiles")
@@ -747,9 +776,14 @@ async def list_results(
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     hours: int | None = Query(None),
+    fields: str | None = Query(None),
+    raw: bool = Query(False),
+    base_url: str | None = Query(None),
+    profile_name: str | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
-    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours)
+    lightweight = fields == "summary"
+    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight, raw=raw, base_url=base_url, profile_name=profile_name)
     return {"total": result["total"], "items": result["items"]}
 
 
@@ -843,6 +877,7 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
     if len(models) == 1:
         # 单模型：保持原有行为，返回单个 task_id
         config["model"] = models[0]
+        config["profile_name"] = profile_name
         task_id = uuid.uuid4().hex[:12]
         task = manager.create_task(task_id, user_id, profile_name=profile_name)
         task.status = "running"
@@ -860,13 +895,15 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
         if user_running + len(models) > BenchTaskManager.MAX_PER_USER:
             return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
 
-        group_id = f"multi_{uuid.uuid4().hex[:12]}"
+        group_id = f"multi_{uuid.uuid4().hex[:8]}"
+        current_run_id.set(group_id)
         task_ids = []
         from app.protocols import detect_protocol
         for model_name in models:
             model_config = dict(config)
             model_config["model"] = model_name
             model_config["protocol"] = detect_protocol(model_name, config.get("provider", ""))
+            model_config["profile_name"] = profile_name
 
             task_id = uuid.uuid4().hex[:12]
             task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
@@ -905,6 +942,26 @@ async def stop_bench(
         if not stopped:
             return JSONResponse({"error": "No benchmark running"}, status_code=400)
         return {"status": "stopping", "task_ids": stopped}
+
+
+@app.get("/api/bench/running")
+async def bench_running(user: dict = Depends(get_current_user)):
+    """返回当前用户所有正在执行的 benchmark 任务"""
+    tasks = manager.get_user_running_tasks(user["user_id"])
+    return {"tasks": [
+        {
+            "task_id": t.task_id,
+            "model": t.model_name,
+            "profile_name": t.profile_name,
+            "scheduled_task_id": t.scheduled_task_id or 0,
+            "done": t.done_count,
+            "total": t.total_count,
+            "success": t.success_count,
+            "failed": t.failed_count,
+            "elapsed": round(time.monotonic() - t.start_time, 1) if t.start_time else 0,
+        }
+        for t in tasks
+    ]}
 
 
 @app.get("/api/bench/status")
@@ -967,7 +1024,8 @@ async def start_multi_bench(request: Request, user: dict = Depends(get_current_u
     profile_map = {p["name"]: p for p in profiles}
     benchmark = await get_settings(user_id)
 
-    group_id = f"grp_{uuid.uuid4().hex[:12]}"
+    group_id = f"grp_{uuid.uuid4().hex[:8]}"
+    current_run_id.set(group_id)
     task_ids = []
 
     for spec in tasks_spec:
@@ -989,6 +1047,7 @@ async def start_multi_bench(request: Request, user: dict = Depends(get_current_u
                     continue
                 config[key] = overrides[key]
 
+        config["profile_name"] = profile_name
         task_id = uuid.uuid4().hex[:12]
         task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
         task.status = "running"
@@ -1032,8 +1091,10 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
     if user_running + len(models) > BenchTaskManager.MAX_PER_USER:
         return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
 
-    group_id = f"multi_{uuid.uuid4().hex[:12]}"
+    group_id = f"multi_{uuid.uuid4().hex[:8]}"
+    current_run_id.set(group_id)
     task_ids = []
+    profile_name = active.get("name", "")
 
     for model_name in models:
         config = dict(benchmark) if benchmark else {}
@@ -1056,8 +1117,8 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
             if key in overrides and overrides[key] is not None:
                 config[key] = overrides[key]
 
+        config["profile_name"] = profile_name
         task_id = uuid.uuid4().hex[:12]
-        profile_name = active.get("name", "")
         task = manager.create_task(task_id, user_id, profile_name=profile_name, group_id=group_id)
         task.model_name = model_name
         task.status = "running"

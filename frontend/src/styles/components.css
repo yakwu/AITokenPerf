@@ -11,7 +11,7 @@
   top: 0;
   left: 0;
   right: 0;
-  z-index: 100;
+  z-index: 200;
   backdrop-filter: blur(12px);
 }
 
@@ -78,6 +78,12 @@
   left: 0;
   right: 0;
   z-index: 100;
+}
+
+.global-time-range {
+  margin-left: auto;
+  align-self: center;
+  margin-right: 4px;
 }
 
 .tab-btn {
@@ -153,6 +159,9 @@
   padding: 20px;
   box-shadow: var(--shadow-sm);
   transition: var(--transition);
+  min-width: 0;
+  overflow: hidden;
+  container-type: inline-size;
 }
 
 .metric-card:hover {
@@ -175,6 +184,12 @@
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;
+}
+
+.metric-value--compact {
+  font-size: clamp(16px, 3.5cqw + 10px, 28px);
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .metric-value.success { color: var(--success); }
@@ -223,6 +238,7 @@
   color: var(--text-tertiary);
   margin-top: 4px;
   font-family: var(--font-mono);
+  word-break: break-word;
 }
 
 /* ---- Trend Summary Cards ---- */
@@ -517,9 +533,12 @@ tbody tr:last-child td { border-bottom: none; }
 /* Inline save button inside new-card */
 .profile-chip-new .profile-chip-action-save {
   flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  box-shadow: none;
+  box-shadow: 0 1px 4px rgba(232,93,38,0.25);
 }
 .profile-chip-new .profile-chip-action-save:hover {
   background: var(--accent-hover);
@@ -591,11 +610,11 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 .form-input, .form-select, .form-textarea {
-  padding: 10px 14px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-primary);
   background: var(--surface);
   transition: var(--transition);
@@ -661,7 +680,7 @@ tbody tr:last-child td { border-bottom: none; }
   width: max-content;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   max-height: 240px;
   overflow-y: auto;
@@ -770,25 +789,26 @@ tbody tr:last-child td { border-bottom: none; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border-radius: 8px;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--radius);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   border: none;
   cursor: pointer;
   transition: var(--transition);
   white-space: nowrap;
+  letter-spacing: -0.01em;
 }
 
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-primary {
   background: var(--accent);
   color: white;
 }
-.btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 
 .btn-danger {
   background: var(--danger);
@@ -803,9 +823,9 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .btn-ghost:hover:not(:disabled) { background: var(--bg); border-color: var(--text-tertiary); }
 
-.btn-sm { padding: 6px 12px; font-size: 12px; }
+.btn-sm { padding: 4px 10px; font-size: 11px; border-radius: 6px; }
 
-.btn-group { display: flex; gap: 10px; margin-top: 8px; }
+.btn-group { display: flex; gap: 8px; margin-top: 8px; }
 
 /* ---- Radio Cards ---- */
 .radio-group {
@@ -931,24 +951,24 @@ tbody tr:last-child td { border-bottom: none; }
   display: flex;
   gap: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
   flex-shrink: 0;
 }
 .time-range-pill {
-  padding: 8px 12px;
+  padding: 5px 10px;
   border: none;
   background: var(--surface);
-  font-family: var(--font-body);
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: var(--transition);
   border-right: 1px solid var(--border);
 }
 .time-range-pill:last-child { border-right: none; }
-.time-range-pill:hover { background: var(--bg); }
+.time-range-pill:hover { background: var(--bg); color: var(--text-secondary); }
 .time-range-pill.active {
   background: var(--accent-light);
   color: var(--accent);
@@ -1007,19 +1027,19 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 .filter-chip {
-  padding: 7px 14px;
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
   background: var(--surface);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: var(--transition);
 }
 
-.filter-chip:hover { border-color: var(--text-tertiary); }
+.filter-chip:hover { border-color: var(--text-tertiary); color: var(--text-secondary); }
 
 .filter-chip.active {
   border-color: var(--accent);
@@ -1668,18 +1688,26 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 }
 
 /* ---- Toast ---- */
-.toast {
+.toast-container {
   position: fixed;
   bottom: 24px;
   right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
   padding: 12px 20px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
   color: white;
-  z-index: 1000;
   animation: slideUp 0.3s ease;
   box-shadow: var(--shadow-lg);
+  pointer-events: auto;
 }
 
 .toast.success { background: var(--success); }
@@ -1693,16 +1721,20 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 
 /* ---- Comparison ---- */
 .compare-overlay {
-  display: none;
+  display: flex;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.3);
-  backdrop-filter: blur(4px);
-  z-index: 200;
-  justify-content: center;
-  align-items: center;
+  background: rgba(0,0,0,0.4);
+  z-index: 2100;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
-.compare-overlay.open { display: flex; }
+.compare-overlay.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
 
 .compare-modal {
   background: var(--surface);
@@ -1742,6 +1774,100 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 .compare-worst {
   color: var(--danger, #D63B3B);
   font-weight: 600;
+}
+
+/* ---- Compare Bar (multi-select) ---- */
+.compare-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--accent-light);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.compare-bar.visible { display: flex; }
+.compare-bar-label {
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.compare-bar-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.compare-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.compare-tag-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.compare-tag-remove:hover { color: var(--danger); }
+
+/* ---- Compare Table (inline) ---- */
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.compare-table th,
+.compare-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.compare-table thead th {
+  background: var(--bg);
+  font-weight: 600;
+  font-size: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.compare-table tbody tr:hover { background: rgba(232, 93, 38, 0.03); }
+.compare-table .compare-best {
+  color: var(--success);
+  font-weight: 700;
+}
+.compare-pct-diff {
+  font-size: 11px;
+  margin-left: 6px;
+  font-weight: 600;
+}
+.compare-back-link {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.compare-back-link:hover { text-decoration: underline; }
+
+/* ---- Error Row (anomaly) ---- */
+.error-row {
+  background: rgba(214, 59, 59, 0.06) !important;
+}
+.error-row:hover {
+  background: rgba(214, 59, 59, 0.10) !important;
 }
 
 /* ---- Responsive ---- */

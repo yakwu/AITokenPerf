@@ -3,13 +3,14 @@
   <header class="header">
     <div class="header-left">
       <div class="logo">AIToken<span>Perf</span></div>
-      <div class="status-badge" :class="store.status" v-if="store.user">
+      <div class="status-badge" :class="store.status" v-if="store.user && store.status !== 'idle'">
         <div class="status-dot"></div>
         <span>{{ store.statusLabels[store.status] || store.status }}</span>
       </div>
     </div>
     <div class="header-right" v-if="store.user">
       <button v-if="store.refreshFn" class="btn btn-ghost btn-sm header-refresh" @click="store.refreshFn()" title="刷新"><i class="ph ph-arrows-clockwise"></i></button>
+      <ScheduleIndicator />
       <div class="user-menu" v-click-outside="() => userMenuOpen = false">
         <button class="user-avatar" @click="userMenuOpen = !userMenuOpen">
           {{ (store.user?.email || '?')[0].toUpperCase() }}
@@ -43,10 +44,10 @@
 
   <!-- Tabs -->
   <nav class="tab-bar" v-if="store.user">
-    <router-link to="/" class="tab-btn" :class="{ active: $route.path === '/' }" @click="userMenuOpen = false">总览</router-link>
-    <router-link to="/bench" class="tab-btn" :class="{ active: $route.path.startsWith('/bench') }" @click="userMenuOpen = false">测试</router-link>
-    <router-link to="/history" class="tab-btn" :class="{ active: $route.path === '/history' }" @click="userMenuOpen = false">历史记录</router-link>
-    <router-link to="/config" class="tab-btn" :class="{ active: $route.path === '/config' }" @click="userMenuOpen = false">配置</router-link>
+    <router-link v-for="tab in tabs" :key="tab.path" :to="tab.path" class="tab-btn" :class="{ active: tab.activeMatch ? tab.activeMatch($route.path) : $route.path === tab.path }" @click="userMenuOpen = false">{{ tab.name }}</router-link>
+    <div class="time-range-pills global-time-range">
+      <button v-for="opt in timeRangeStore.options" :key="opt.label" class="time-range-pill" :class="{ active: timeRangeStore.hours === opt.value }" @click="timeRangeStore.setHours(opt.value)">{{ opt.label }}</button>
+    </div>
   </nav>
 
   <!-- Router View -->
@@ -75,9 +76,19 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { useAppStore } from './stores/app';
+import { useTimeRangeStore } from './stores/timeRange';
 import { useRouter, useRoute } from 'vue-router';
+import ScheduleIndicator from './components/ScheduleIndicator.vue';
 
 const store = useAppStore();
+const timeRangeStore = useTimeRangeStore();
+
+const tabs = [
+  { name: '概览', path: '/' },
+  { name: '目标站点', path: '/sites', activeMatch: (p) => p.startsWith('/sites') },
+  { name: '历史与对比', path: '/history' },
+  { name: '定时任务', path: '/tasks' },
+];
 
 // Global detail overlay
 function closeDetailOverlay() {

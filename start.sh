@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 
 # 启动后端
-./venv/bin/python3 -m uvicorn app.server:app --host 127.0.0.1 --port 8080 "$@" &
+./venv/bin/python3 main.py "$@" &
 BACKEND_PID=$!
 
 # 启动前端 dev server

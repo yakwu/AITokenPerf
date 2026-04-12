@@ -1,34 +1,345 @@
 <template>
   <section class="tab-content active">
-    <div v-if="loading && !contentHtml" style="text-align:center;color:var(--text-tertiary);padding:40px">加载中...</div>
-    <div v-else v-html="contentHtml"></div>
+    <!-- Loading -->
+    <div v-if="loading && !sites.length" style="text-align:center;color:var(--text-tertiary);padding:40px">
+      加载中...
+    </div>
+
+    <template v-else>
+      <!-- Top: 5 Summary Cards -->
+      <div class="dash-summary-row">
+        <div class="dash-summary-card">
+          <div class="dash-summary-value">{{ sites.length }}</div>
+          <div class="dash-summary-label">目标站点数</div>
+          <div v-if="errorCount || healthyCount || untestedCount" class="dash-summary-tags">
+            <span v-if="errorCount > 0" class="dash-summary-sub danger">{{ errorCount }} 异常</span>
+            <span v-if="healthyCount > 0" class="dash-summary-sub success">{{ healthyCount }} 健康</span>
+            <span v-if="untestedCount > 0" class="dash-summary-sub muted">{{ untestedCount }} 未测试</span>
+          </div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-summary-value">{{ activeSchedules }}</div>
+          <div class="dash-summary-label" title="状态为「运行中」的定时任务数量">
+            活跃定时任务
+            <span v-if="pausedSchedules > 0" class="dash-summary-sub muted">{{ pausedSchedules }} 已暂停</span>
+          </div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-summary-value">{{ resultsTotal }}</div>
+          <div class="dash-summary-label" title="当前时间范围内的测试结果记录总数">测试数</div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-summary-value" :class="rateColorClass(overallSuccessRate)">
+            {{ fmtPct(overallSuccessRate) }}
+          </div>
+          <div class="dash-summary-label">
+            整体成功率
+            <span v-if="yesterdayRate != null" class="dash-summary-sub" :class="rateDiffClass">
+              vs 昨日 {{ rateDiff >= 0 ? '+' : '' }}{{ rateDiff.toFixed(1) }}%
+            </span>
+          </div>
+        </div>
+        <div class="dash-summary-card" :title="modelVendorTooltip">
+          <div class="dash-summary-value">{{ modelCount }}</div>
+          <div class="dash-summary-label">
+            覆盖模型数
+            <span v-if="vendorCount > 0" class="dash-summary-sub muted">{{ vendorCount }} 家厂商</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main: two-column layout -->
+      <div class="dash-main">
+        <!-- Left column: Site Status List -->
+        <div class="dash-sites-panel">
+          <h3 class="dash-panel-title">站点状态</h3>
+          <div v-if="!sites.length" class="dash-empty">暂无站点</div>
+          <div v-else class="dash-site-list">
+            <div
+              v-for="site in sortedSites"
+              :key="site.profile.name"
+              class="dash-site-row"
+              :class="siteRowClass(site)"
+              @click="goSiteDetail(site)"
+            >
+              <span class="site-health-dot" :class="site.health"></span>
+              <div class="dash-site-info">
+                <div class="dash-site-name-row">
+                  <span class="dash-site-name">{{ site.profile.name }}</span>
+                  <span v-if="getSiteModelCount(site) > 0" class="dash-site-model-count">{{ getSiteModelCount(site) }} 模型</span>
+                </div>
+                <span class="dash-site-url">{{ hostName(site.profile.base_url) }}</span>
+                <div v-if="getSiteTopErrors(site).length" class="dash-site-errors">
+                  <span v-for="tag in getSiteTopErrors(site)" :key="tag" class="dash-site-error-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="dash-site-metrics">
+                <template v-if="site.health !== 'untested' && getSiteLatestMetrics(site)">
+                  <div class="dash-site-metrics-inner">
+                    <span class="dash-metric" title="TTFT P50">{{ fmtTime(getSiteLatestMetrics(site).ttft) }}</span>
+                    <span class="dash-metric" title="Token/s">{{ getSiteLatestMetrics(site).tps != null ? fmtNum(getSiteLatestMetrics(site).tps, 0) + ' t/s' : '-' }}</span>
+                    <span class="rate-badge" :class="rateColorClass(getSiteLatestMetrics(site).successRate)" style="font-size:11px">
+                      {{ fmtPct(getSiteLatestMetrics(site).successRate) }}
+                    </span>
+                  </div>
+                  <span v-if="site.last_test_at" class="dash-site-time">{{ relativeTime(site.last_test_at) }}</span>
+                </template>
+                <template v-else>
+                  <span class="dash-metric dash-metric--muted">未测试</span>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div class="dash-right-col">
+          <!-- Right top: Anomaly Alerts -->
+          <div class="dash-alerts-panel">
+            <h3 class="dash-panel-title">异常告警</h3>
+            <div v-if="!alerts.length" class="dash-empty">暂无异常</div>
+            <div v-else class="dash-alert-list">
+              <div
+                v-for="alert in alerts"
+                :key="alert.siteName"
+                class="dash-alert-item"
+              >
+                <div class="dash-alert-header">
+                  <span
+                    class="dash-alert-site"
+                    @click.stop="goSiteHistory(alert.siteName)"
+                  >{{ alert.siteName }}</span>
+                  <span class="dash-alert-desc">{{ alert.description }}</span>
+                </div>
+                <div v-if="alert.errorTags.length" class="dash-alert-tags">
+                  <span
+                    v-for="tag in alert.errorTags"
+                    :key="tag"
+                    class="dash-alert-tag"
+                    @click.stop="showErrorDetail(alert, tag)"
+                  >{{ tag }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right bottom: Recent Activity -->
+          <div class="dash-activity-panel">
+            <h3 class="dash-panel-title">最近活动</h3>
+            <div v-if="!recentActivity.length" class="dash-empty">暂无活动</div>
+            <div v-else class="dash-activity-list">
+              <div
+                v-for="act in recentActivity"
+                :key="act.filename"
+                class="dash-activity-item"
+                @click="showDetail(act.raw)"
+              >
+                <span class="dash-activity-time">{{ relativeTime(act.timestamp) }}</span>
+                <span class="dash-activity-icon" :class="act.success ? 'ok' : 'fail'">
+                  {{ act.success ? '\u2713' : '\u2717' }}
+                </span>
+                <span class="dash-activity-site">{{ act.siteName }}</span>
+                <span class="dash-activity-model">{{ act.model }}</span>
+                <span class="rate-badge" :class="rateColorClass(act.successRate)" style="font-size:11px">
+                  {{ fmtPct(act.successRate) }}
+                </span>
+                <span class="dash-activity-source">{{ act.source }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
   </section>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
-import { getResults } from '../api';
-import { fmtTime, fmtPct, fmtNum, escHtml, infoIconHtml } from '../utils/formatters';
+import { useTimeRangeStore } from '../stores/timeRange';
+import { getSitesSummary, getSchedules, getResults, getResult } from '../api';
+import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
+import { renderResultDetail } from '../utils/resultDetail';
+import { toast } from '../composables/useToast';
+import { useRouter, useRoute } from 'vue-router';
 
 const store = useAppStore();
-const loading = ref(false);
-const contentHtml = ref('');
+const timeRangeStore = useTimeRangeStore();
+const router = useRouter();
+const route = useRoute();
 
-function host(url) {
+const loading = ref(false);
+const sites = ref([]);
+const schedules = ref([]);
+const results = ref([]);
+const resultsTotal = ref(0);
+
+// --- Computed ---
+
+const healthyCount = computed(() => sites.value.filter(s => s.health === 'healthy').length);
+const errorCount = computed(() => sites.value.filter(s => s.health === 'error').length);
+const untestedCount = computed(() => sites.value.filter(s => s.health === 'untested' || s.health === 'unknown').length);
+
+// Sorted sites: error (worst rate first) > healthy (worst rate first) > untested (by name)
+const healthOrder = { error: 0, healthy: 1, untested: 2, unknown: 2 };
+const sortedSites = computed(() =>
+  [...sites.value].sort((a, b) => {
+    const ha = healthOrder[a.health] ?? 2;
+    const hb = healthOrder[b.health] ?? 2;
+    if (ha !== hb) return ha - hb;
+    // untested: sort by name
+    if (ha === 2) return (a.profile?.name || '').localeCompare(b.profile?.name || '');
+    // error/healthy: sort by success rate ascending (worst first)
+    const rateA = getSiteSuccessRate(a);
+    const rateB = getSiteSuccessRate(b);
+    if (rateA !== rateB) return (rateA ?? 999) - (rateB ?? 999);
+    return (b.last_test_at || '').localeCompare(a.last_test_at || '');
+  })
+);
+
+const activeSchedules = computed(() => schedules.value.filter(s => s.status === 'active').length);
+const pausedSchedules = computed(() => schedules.value.filter(s => s.status === 'paused').length);
+
+// Overall success rate
+const overallSuccessRate = computed(() => {
+  const items = results.value;
+  const totalReqs = items.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
+  const totalSuccess = items.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
+  return totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
+});
+
+// Yesterday's success rate for comparison
+const yesterdayRate = computed(() => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const prefix = String(yesterday.getFullYear()) +
+    String(yesterday.getMonth() + 1).padStart(2, '0') +
+    String(yesterday.getDate()).padStart(2, '0');
+  const ydResults = results.value.filter(r => r.timestamp && r.timestamp.startsWith(prefix));
+  const totalReqs = ydResults.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
+  const totalSuccess = ydResults.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
+  return totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
+});
+
+const rateDiff = computed(() => {
+  if (overallSuccessRate.value == null || yesterdayRate.value == null) return 0;
+  return overallSuccessRate.value - yesterdayRate.value;
+});
+
+const rateDiffClass = computed(() => {
+  const diff = rateDiff.value;
+  if (diff > 0) return 'success';
+  if (diff < -3) return 'danger';
+  if (diff < 0) return 'warning';
+  return '';
+});
+
+// Model / vendor counts + lists for tooltip
+const modelList = computed(() =>
+  [...new Set(results.value.map(r => r.config?.model).filter(Boolean))].sort()
+);
+const modelCount = computed(() => modelList.value.length);
+
+const vendorList = computed(() => {
+  const vendors = new Set();
+  for (const s of sites.value) {
+    const provider = s.profile?.provider;
+    if (provider) vendors.add(provider);
+  }
+  return [...vendors].sort();
+});
+const vendorCount = computed(() => vendorList.value.length);
+
+const modelVendorTooltip = computed(() => {
+  const models = modelList.value.length > 10
+    ? modelList.value.slice(0, 10).join(', ') + ` ...等 ${modelList.value.length} 个`
+    : modelList.value.join(', ');
+  const vendors = vendorList.value.join(', ');
+  return `模型: ${models || '无'}\n厂商: ${vendors || '无'}`;
+});
+
+// Alerts: sites with error health
+const alerts = computed(() => {
+  return sites.value
+    .filter(s => s.health === 'error')
+    .map(site => {
+      const latestResults = site.latest_results || [];
+      // Calculate avg success rate from latest results
+      const totalReqs = latestResults.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
+      const totalSuccess = latestResults.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
+      const avgRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : 0;
+
+      // Collect error types with counts
+      const errorMap = {};
+      for (const r of latestResults) {
+        const errs = r.errors || {};
+        for (const [type, count] of Object.entries(errs)) {
+          errorMap[type] = (errorMap[type] || 0) + count;
+        }
+      }
+
+      const errorTags = Object.entries(errorMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([type, count]) => `${type} \u00d7 ${count}`);
+
+      const desc = avgRate > 0
+        ? `成功率 ${avgRate.toFixed(1)}%`
+        : '持续异常';
+
+      return {
+        siteName: site.profile?.name || '-',
+        description: desc,
+        errorTags,
+        latestResults,
+      };
+    });
+});
+
+// Recent activity: from results, X records sorted with failures first
+const recentActivity = computed(() => {
+  const items = results.value.slice(0, 30);
+  const activities = items.map(r => {
+    const s = r.summary || {};
+    const c = r.config || {};
+    const rate = s.success_rate;
+    const success = rate != null && rate >= 95;
+    return {
+      timestamp: r.timestamp,
+      success,
+      siteName: c.profile_name || hostName(c.base_url),
+      model: shortModel(c.model),
+      successRate: rate,
+      source: r.scheduled_task_id ? '定时' : '手动',
+      filename: r.filename,
+      raw: r,
+    };
+  });
+
+  // Sort by timestamp descending (most recent first)
+  activities.sort((a, b) => {
+    return (b.timestamp || '').localeCompare(a.timestamp || '');
+  });
+
+  return activities.slice(0, 15);
+});
+
+// --- Methods ---
+
+function hostName(url) {
   if (!url) return '-';
   try { return new URL(url).hostname; } catch { return url; }
 }
 
 function shortModel(m) {
   if (!m) return '-';
-  return m.replace('claude-', '').replace('-20251001', '');
+  return m.replace('claude-', '').replace(/-202\d{5}/, '');
 }
 
 function relativeTime(ts) {
   if (!ts) return '-';
-  const y = +ts.slice(0,4), mo = +ts.slice(4,6)-1, d = +ts.slice(6,8);
-  const h = +ts.slice(9,11), mi = +ts.slice(11,13);
+  const y = +ts.slice(0, 4), mo = +ts.slice(4, 6) - 1, d = +ts.slice(6, 8);
+  const h = +ts.slice(9, 11), mi = +ts.slice(11, 13);
   const date = new Date(y, mo, d, h, mi);
   const now = new Date();
   const diffMs = now - date;
@@ -39,256 +350,543 @@ function relativeTime(ts) {
   if (diffH < 24) return diffH + '小时前';
   const diffD = Math.floor(diffH / 24);
   if (diffD < 7) return diffD + '天前';
-  return ts.slice(4,6) + '/' + ts.slice(6,8) + ' ' + ts.slice(9,11) + ':' + ts.slice(11,13);
+  return ts.slice(4, 6) + '/' + ts.slice(6, 8) + ' ' + ts.slice(9, 11) + ':' + ts.slice(11, 13);
 }
 
-function aggregateRuns(runs) {
-  const totalReqs = runs.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-  const totalSuccess = runs.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
-  const avgRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : 0;
-  const ttfts = runs.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
-  const ttftMin = ttfts.length ? Math.min(...ttfts) : null;
-  const ttftMax = ttfts.length ? Math.max(...ttfts) : null;
-  const tpsList = runs.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
-  const avgTps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
-  const name = runs[0]?.config?.model || runs[0]?.name || '-';
-  return { name, count: runs.length, avgRate, ttftMin, ttftMax, avgTps };
+function rateColorClass(rate) {
+  if (rate == null) return '';
+  return rate >= 95 ? 'success' : rate >= 80 ? 'accent' : 'danger';
 }
 
-function renderAggRow(item, extra = '') {
-  const rateClass = item.avgRate >= 95 ? 'success' : item.avgRate >= 80 ? 'accent' : 'danger';
-  let ttftStr = '-';
-  if (item.ttftMin != null && item.ttftMax != null) {
-    ttftStr = item.ttftMin === item.ttftMax
-      ? fmtTime(item.ttftMin)
-      : fmtTime(item.ttftMin) + ' ~ ' + fmtTime(item.ttftMax);
-  }
-  const displayName = item.name.includes('.') ? item.name : shortModel(item.name);
-  return `<tr>
-    <td class="matrix-model">${escHtml(displayName)}${extra}</td>
-    <td style="text-align:center">${item.count}</td>
-    <td><span class="rate-badge ${rateClass}">${item.avgRate.toFixed(1)}%</span></td>
-    <td>${ttftStr}</td>
-    <td>${item.avgTps != null ? fmtNum(item.avgTps, 0) + ' t/s' : '-'}</td>
-  </tr>`;
+function siteRowClass(site) {
+  if (site.health === 'error') return 'dash-site-row--error';
+  if (site.health === 'untested') return 'dash-site-row--untested';
+  return '';
 }
 
-function renderGroupHeading(name) {
-  return `<div class="ep-heading"><div class="ep-name">${escHtml(name)}</div></div>`;
-}
+// Get aggregated metrics for a site from its latest_results
+function getSiteLatestMetrics(site) {
+  const results = site.latest_results || [];
+  if (!results.length) return null;
 
-function renderGroupMeta(count, rateClass, avgRate) {
-  return `<div class="ep-meta">
-    <span class="ep-count">${count} 次</span>
-    <span class="rate-badge ${rateClass}">${avgRate.toFixed(1)}%</span>
-  </div>`;
-}
-
-function renderSectionCard(title, content, icon = 'globe') {
-  const icons = {
-    globe: 'M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm88,104a87.62,87.62,0,0,1-6.4,32.94l-44.7-27.49a15.92,15.92,0,0,0-6.24-2.23l-22.82-3.08a16.11,16.11,0,0,0-16,7.86h-8.72l-3.8-7.86a15.91,15.91,0,0,0-11-8.67l-8-1.73L96.14,104h16.71a16.06,16.06,0,0,0,7.73-2l12.25-6.76a16.62,16.62,0,0,0,3-2.14l26.91-24.34A15.93,15.93,0,0,0,166,49.1l-.36-.65A88.11,88.11,0,0,1,216,128ZM143.31,41.34,152,56.9,125.09,81.24,112.85,88H96.14a16,16,0,0,0-13.88,8l-8.73,15.23L63.38,84.19,74.32,58.32a87.87,87.87,0,0,1,69-17ZM40,128a87.53,87.53,0,0,1,8.54-37.8l11.34,30.27a16,16,0,0,0,11.62,10l21.43,4.61L96.74,143a16.09,16.09,0,0,0,14.4,9h1.48l-7.23,16.23a16,16,0,0,0,2.86,17.37l.14.14L128,205.94l-1.94,10A88.11,88.11,0,0,1,40,128Zm102.58,86.78,1.13-5.81a16.09,16.09,0,0,0-4-13.9,1.85,1.85,0,0,1-.14-.14L120,174.74,133.7,144l22.82,3.08,45.72,28.12A88.18,88.18,0,0,1,142.58,214.78Z',
-    cube: 'M223.68,66.15,135.68,18h0a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32h0l80.34,44L128,120,47.66,76ZM40,90l80,43.78v85.79L40,175.82Zm96,129.57V133.82L216,90v85.78Z',
-    recent: 'M136,80v43.47l36.12,21.67a8,8,0,0,1-8.24,13.72l-40-24A8,8,0,0,1,120,128V80a8,8,0,0,1,16,0Zm-8-48A95.44,95.44,0,0,0,60.08,60.15C52.81,67.51,46.35,74.59,40,82V64a8,8,0,0,0-16,0v40a8,8,0,0,0,8,8H72a8,8,0,0,0,0-16H49c7.15-8.42,14.27-16.35,22.39-24.57a80,80,0,1,1,1.66,114.75,8,8,0,1,0-11,11.64A96,96,0,1,0,128,32Z',
-  };
-  const path = icons[icon] || icons.globe;
-  return `<section class="card dashboard-section-card">
-    <div class="dashboard-section-header">
-      <span class="dashboard-section-icon" aria-hidden="true">
-        <svg viewBox="0 0 256 256" fill="currentColor"><path d="${path}"></path></svg>
-      </span>
-      <h2 class="dashboard-section-title">${escHtml(title)}</h2>
-    </div>
-    ${content}
-  </section>`;
-}
-
-function renderHeroStats(results) {
-  const totalTests = results.length;
-  const models = new Set(results.map(r => r.config?.model).filter(Boolean));
-  const endpoints = new Set(results.map(r => {
-    try { return new URL(r.config?.base_url).hostname; } catch { return r.config?.base_url; }
-  }).filter(Boolean));
-  const totalRequests = results.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
+  const totalReqs = results.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
   const totalSuccess = results.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
-  const overallRate = totalRequests > 0 ? (totalSuccess / totalRequests * 100) : 0;
-  const rateClass = overallRate >= 95 ? 'success' : overallRate >= 80 ? 'accent' : 'danger';
+  const successRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
 
-  return `<div class="hero-stats">
-    <div class="hero-stat"><div class="hero-stat-value">${totalTests}</div><div class="hero-stat-label">测试总数</div></div>
-    <div class="hero-stat"><div class="hero-stat-value">${models.size}</div><div class="hero-stat-label">覆盖模型</div></div>
-    <div class="hero-stat"><div class="hero-stat-value">${endpoints.size}</div><div class="hero-stat-label">配置</div></div>
-    <div class="hero-stat"><div class="hero-stat-value">${totalRequests.toLocaleString()}</div><div class="hero-stat-label">累计请求</div></div>
-    <div class="hero-stat"><div class="hero-stat-value ${rateClass}">${overallRate.toFixed(1)}%</div><div class="hero-stat-label">总体成功率</div></div>
-  </div>`;
+  const ttfts = results.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
+  const ttft = ttfts.length ? ttfts.reduce((a, b) => a + b, 0) / ttfts.length : null;
+
+  const tpsList = results.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
+  const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
+
+  return { ttft, tps, successRate };
 }
 
-function renderEndpointOverview(results) {
-  const epGroups = {};
+function getSiteSuccessRate(site) {
+  const m = getSiteLatestMetrics(site);
+  return m?.successRate ?? null;
+}
+
+function getSiteModelCount(site) {
+  const results = site.latest_results || [];
+  const models = new Set();
   for (const r of results) {
-    const h = host(r.config?.base_url);
-    if (!epGroups[h]) epGroups[h] = [];
-    epGroups[h].push(r);
+    const m = r.config?.model;
+    if (m) models.add(m);
   }
-
-  const endpoints = Object.entries(epGroups).map(([hostName, list]) => {
-    const totalReqs = list.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-    const totalSuccess = list.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
-    const avgRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : 0;
-
-    const modelMap = {};
-    for (const r of list) {
-      const model = r.config?.model || '-';
-      if (!modelMap[model]) modelMap[model] = [];
-      modelMap[model].push(r);
-    }
-    const models = Object.entries(modelMap).map(([model, runs]) => {
-      const agg = aggregateRuns(runs);
-      agg.name = model;
-      return agg;
-    }).sort((a, b) => a.name.localeCompare(b.name));
-
-    return { host: hostName, count: list.length, avgRate, models };
-  }).sort((a, b) => b.count - a.count);
-
-  let html = '<div class="ep-grid">';
-  for (const ep of endpoints) {
-    const epRateClass = ep.avgRate >= 95 ? 'success' : ep.avgRate >= 80 ? 'accent' : 'danger';
-    html += `<div class="ep-group">
-      <div class="ep-header">
-        ${renderGroupHeading(ep.host)}
-        ${renderGroupMeta(ep.count, epRateClass, ep.avgRate)}
-      </div>
-      <div class="table-wrap"><table class="matrix-table"><thead><tr>
-        <th>模型</th><th>测试</th><th>成功率</th>
-        <th>TTFT P50 ${infoIconHtml('TTFT')}</th><th>Token/s</th>
-      </tr></thead><tbody>`;
-    for (const m of ep.models) {
-      html += renderAggRow(m);
-    }
-    html += '</tbody></table></div></div>';
-  }
-  html += '</div>';
-  return renderSectionCard('配置概览', html, 'globe');
+  return models.size;
 }
 
-function renderModelOverview(results) {
-  const modelGroups = {};
+function getSiteTopErrors(site) {
+  const results = site.latest_results || [];
+  const errorCounts = {};
   for (const r of results) {
-    const model = r.config?.model || '-';
-    if (!modelGroups[model]) modelGroups[model] = [];
-    modelGroups[model].push(r);
-  }
-
-  const models = Object.entries(modelGroups).map(([model, list]) => {
-    const totalReqs = list.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-    const totalSuccess = list.reduce((s, r) => s + (r.summary?.success_count || 0), 0);
-    const avgRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : 0;
-
-    const hostMap = {};
-    for (const r of list) {
-      const h = host(r.config?.base_url);
-      if (!hostMap[h]) hostMap[h] = [];
-      hostMap[h].push(r);
+    const errs = r.errors || {};
+    for (const [type, count] of Object.entries(errs)) {
+      errorCounts[type] = (errorCounts[type] || 0) + count;
     }
-    const hosts = Object.entries(hostMap).map(([hostName, runs]) => {
-      const agg = aggregateRuns(runs);
-      agg.name = hostName;
-      return agg;
-    }).sort((a, b) => {
-      if (Math.abs(b.avgRate - a.avgRate) > 5) return b.avgRate - a.avgRate;
-      return (b.avgTps || 0) - (a.avgTps || 0);
-    });
-
-    return { model, count: list.length, avgRate, hosts };
-  }).sort((a, b) => a.model.localeCompare(b.model));
-
-  let html = '<div class="ep-grid">';
-  for (const md of models) {
-    const mdRateClass = md.avgRate >= 95 ? 'success' : md.avgRate >= 80 ? 'accent' : 'danger';
-    html += `<div class="ep-group">
-      <div class="ep-header">
-        ${renderGroupHeading(shortModel(md.model))}
-        ${renderGroupMeta(md.count, mdRateClass, md.avgRate)}
-      </div>
-      <div class="table-wrap"><table class="matrix-table"><thead><tr>
-        <th>配置</th><th>测试</th><th>成功率</th>
-        <th>TTFT P50 ${infoIconHtml('TTFT')}</th><th>Token/s</th>
-      </tr></thead><tbody>`;
-    for (let i = 0; i < md.hosts.length; i++) {
-      const h = md.hosts[i];
-      const rankBadge = i === 0 && md.hosts.length > 1 ? ' <span class="rank-best">#1</span>' : '';
-      html += renderAggRow(h, rankBadge);
-    }
-    html += '</tbody></table></div></div>';
   }
-  html += '</div>';
-  return renderSectionCard('模型性能概览', html, 'cube');
+  return Object.entries(errorCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([type, count]) => `${type}×${count}`);
 }
 
-function renderRecentTests(results) {
-  const recent = results.slice(0, 5);
-  let html = `<div class="table-wrap"><table class="recent-table"><thead><tr>
-      <th>ID</th><th>时间</th><th>模型</th><th>配置</th>
-      <th>并发</th><th>模式</th><th>成功率</th>
-      <th>TTFT P50</th><th>Token/s</th>
-    </tr></thead><tbody>`;
-
-  for (const r of recent) {
-    const c = r.config || {};
-    const s = r.summary || {};
-    const p = r.percentiles || {};
-    const rate = s.success_rate;
-    const rateClass = (rate || 0) >= 95 ? 'success' : (rate || 0) >= 80 ? 'accent' : 'danger';
-    const tid = r.test_id || '-';
-    html += `<tr class="recent-row" style="cursor:pointer" onclick="window.__goHistory('${escHtml(r.filename || '')}')">
-      <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">${escHtml(tid)}</td>
-      <td>${relativeTime(r.timestamp)}</td>
-      <td class="matrix-model">${escHtml(shortModel(c.model))}</td>
-      <td class="matrix-host">${escHtml(host(c.base_url))}</td>
-      <td style="text-align:center">${c.concurrency || '-'}</td>
-      <td><span class="mode-tag ${c.mode || ''}">${c.mode || '-'}</span></td>
-      <td><span class="rate-badge ${rateClass}">${fmtPct(rate)}</span></td>
-      <td>${fmtTime(p.TTFT?.P50)}</td>
-      <td>${s.token_throughput_tps != null ? fmtNum(s.token_throughput_tps, 0) : '-'}</td>
-    </tr>`;
+function goSiteDetail(site) {
+  const name = site.profile?.name;
+  if (name) {
+    router.push(`/sites/${encodeURIComponent(name)}?tab=trends`);
   }
-  html += '</tbody></table></div>';
-  return renderSectionCard('最近测试', html, 'recent');
 }
 
-async function refreshDashboard() {
+function goSiteHistory(siteName) {
+  if (siteName) {
+    router.push(`/sites/${encodeURIComponent(siteName)}?tab=trends`);
+  }
+}
+
+async function showErrorDetail(alert, tag) {
+  // tag 格式: "HTTP 503 × 1"，提取错误类型
+  const errorType = tag.split(' \u00d7 ')[0];
+  // 找到包含该错误类型的最近一条结果
+  const match = alert.latestResults.find(r => {
+    const errs = r.errors || {};
+    return errs[errorType] != null && errs[errorType] > 0;
+  });
+  if (match) {
+    await showDetail(match);
+  }
+}
+
+async function showDetail(result) {
+  try {
+    const full = await getResult(result.filename);
+    window.showDetailOverlay(renderResultDetail(full));
+  } catch {
+    window.showDetailOverlay(renderResultDetail(result));
+  }
+}
+
+// --- Data Loading ---
+
+async function loadDashboard() {
   loading.value = true;
   try {
-    const data = await getResults({ limit: 500 });
-    const results = data.items || [];
-    if (!results.length) {
-      contentHtml.value = '<div class="empty-state"><div class="empty-state-icon">&#9201;</div><div class="empty-state-text">暂无测试结果</div><p style="color:var(--text-tertiary);font-size:13px">运行一次压测后结果将在此展示。</p></div>';
-    } else {
-      let html = '';
-      html += renderHeroStats(results);
-      html += renderEndpointOverview(results);
-      html += renderModelOverview(results);
-      html += renderRecentTests(results);
-      contentHtml.value = html;
-    }
+    const [sitesData, schedulesData, resultsData] = await Promise.all([
+      getSitesSummary({ hours: timeRangeStore.hours }).catch(() => ({ summary: [] })),
+      getSchedules().catch(() => []),
+      getResults({ limit: 1000, hours: timeRangeStore.hours, fields: 'summary', raw: true }).catch(() => ({ items: [], total: 0 })),
+    ]);
+
+    sites.value = sitesData.summary || [];
+    schedules.value = schedulesData?.schedules || [];
+    results.value = resultsData.items || [];
+    resultsTotal.value = resultsData.total || 0;
   } catch (e) {
-    contentHtml.value = '<div style="text-align:center;color:var(--danger);padding:40px">加载失败: ' + escHtml(e.message) + '</div>';
+    toast('加载概览数据失败: ' + e.message, 'error');
   }
   loading.value = false;
 }
 
-import { useRoute } from 'vue-router';
-import { onUnmounted } from 'vue';
-const route = useRoute();
 watch(() => route.path, (val) => {
-  if (val === '/') refreshDashboard();
+  if (val === '/') loadDashboard();
 }, { immediate: true });
 
-window.__goHistory = (filename) => {
-  store.pendingFilename = filename;
-  store.switchTab('history');
-};
-store.refreshFn = refreshDashboard;
+watch(() => timeRangeStore.hours, () => {
+  if (route.path === '/') loadDashboard();
+});
 
-onUnmounted(() => { delete window.__goHistory; store.refreshFn = null; });
+store.refreshFn = loadDashboard;
+onUnmounted(() => { store.refreshFn = null; });
 </script>
+
+<style scoped>
+/* ---- Summary Cards Row ---- */
+.dash-summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.dash-summary-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 12px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-summary-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  line-height: 1.2;
+}
+
+.dash-summary-value.success { color: var(--success); }
+.dash-summary-value.danger { color: var(--danger); }
+.dash-summary-value.accent { color: var(--warning); }
+
+.dash-summary-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.dash-summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.dash-summary-sub {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.dash-summary-sub.success {
+  color: var(--success);
+  background: var(--success-light);
+}
+
+.dash-summary-sub.muted {
+  color: var(--text-tertiary);
+  background: var(--border-subtle);
+}
+
+.dash-summary-sub.danger {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+
+.dash-summary-sub.warning {
+  color: var(--warning);
+  background: var(--warning-light);
+}
+
+/* ---- Main Two-Column Layout ---- */
+.dash-main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.dash-panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ---- Left: Site Status List ---- */
+.dash-sites-panel {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-site-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dash-site-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.dash-site-row:hover {
+  background: var(--border-subtle);
+}
+
+.dash-site-row--error {
+  background: var(--danger-light);
+}
+
+.dash-site-row--error:hover {
+  background: #fde5e5;
+}
+
+.dash-site-row--untested {
+  opacity: 0.65;
+}
+
+.dash-site-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dash-site-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-site-url {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-site-metrics {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.dash-site-metrics-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dash-site-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.dash-site-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dash-site-model-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--border-subtle);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dash-site-errors {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dash-site-error-tag {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--danger);
+  background: var(--danger-light);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.dash-metric {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.dash-metric--muted {
+  color: var(--text-tertiary);
+  font-family: var(--font-body);
+  font-style: italic;
+}
+
+/* Health dot — reuse global styles from SitesView */
+.site-health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.site-health-dot.healthy { background: var(--success); }
+.site-health-dot.error { background: var(--danger); }
+.site-health-dot.untested,
+.site-health-dot.unknown { background: var(--text-tertiary); }
+
+/* ---- Right Column ---- */
+.dash-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---- Right Top: Anomaly Alerts ---- */
+.dash-alerts-panel {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dash-alert-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.dash-alert-item:hover {
+  background: var(--border-subtle);
+}
+
+.dash-alert-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.dash-alert-site {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.dash-alert-site:hover {
+  color: var(--accent);
+}
+
+.dash-alert-desc {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.dash-alert-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dash-alert-tag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.dash-alert-tag:hover {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+/* ---- Right Bottom: Recent Activity ---- */
+.dash-activity-panel {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dash-activity-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 13px;
+}
+
+.dash-activity-item:hover {
+  background: var(--border-subtle);
+}
+
+.dash-activity-time {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.dash-activity-icon {
+  font-size: 14px;
+  font-weight: 700;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.dash-activity-icon.ok { color: var(--success); }
+.dash-activity-icon.fail { color: var(--danger); }
+
+.dash-activity-site {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
+}
+
+.dash-activity-model {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.dash-activity-source {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  padding: 1px 6px;
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+
+/* ---- Empty State ---- */
+.dash-empty {
+  text-align: center;
+  padding: 24px 0;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 1024px) {
+  .dash-main {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

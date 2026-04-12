@@ -35,6 +35,7 @@ export const getBenchStatus = () => api('/api/bench/status');
 export const dryRunApi = (data) => api('/api/bench/dry-run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const startMultiBenchApi = (data) => api('/api/bench/start-multi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const getMultiBenchStatus = (groupId) => api(`/api/bench/status-multi/${encodeURIComponent(groupId)}`);
+export const getRunningTasks = () => api('/api/bench/running');
 
 // Results
 export const getResults = (params = {}) => {
@@ -60,6 +61,13 @@ export const getScheduleResults = (id, { limit = 100, offset = 0, hours } = {}) 
 };
 export const getScheduleTrend = (id, { hours } = {}) => api(`/api/schedules/${id}/trend` + (hours ? `?hours=${hours}` : ''));
 
+// Sites
+export const getSiteTrend = (profileName, { hours } = {}) => {
+  const params = new URLSearchParams({ profile_name: profileName });
+  if (hours) params.set('hours', hours);
+  return api(`/api/sites/trend?${params}`);
+};
+
 // Settings
 export const updateProfileApi = (data) => api('/api/user/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const changePasswordApi = (data) => api('/api/user/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
@@ -68,6 +76,14 @@ export const changePasswordApi = (data) => api('/api/user/password', { method: '
 export const getUsers = () => api('/api/admin/users');
 export const updateUserRoleApi = (id, role) => api(`/api/admin/users/${id}/role`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
 export const deleteUserApi = (id) => api(`/api/admin/users/${id}`, { method: 'DELETE' });
+
+// Sites
+export const getSitesSummary = ({ hours } = {}) => {
+  const params = new URLSearchParams();
+  if (hours != null) params.set('hours', hours);
+  const qs = params.toString();
+  return api('/api/sites/summary' + (qs ? '?' + qs : ''));
+};
 
 // Models
 export const getModels = (baseUrl, apiKey) =>
