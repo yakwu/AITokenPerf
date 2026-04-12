@@ -278,6 +278,7 @@ async def _run_scheduled_task(task_id: int):
         for model_name in models:
             model_config = dict(config)
             model_config["model"] = model_name
+            model_config["profile_name"] = pname
 
             # 检查必要配置
             missing = [k for k in ("base_url", "api_key", "model") if not model_config.get(k)]

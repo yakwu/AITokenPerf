@@ -230,6 +230,36 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_sched_status_next ON scheduled_tasks (status, next_run_at)"
         ))
 
+    # 修复定时任务结果缺失 profile_name 的历史数据
+    await _migrate_schedule_results_profile_name()
+
+
+async def _migrate_schedule_results_profile_name():
+    """补齐定时任务产生的结果中缺失的 profile_name（一次性迁移）"""
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            await conn.execute(text("""
+                UPDATE results
+                SET config_json = json_set(config_json, '$.profile_name',
+                    (SELECT json_extract(st.profile_ids, '$[0]')
+                     FROM scheduled_tasks st
+                     WHERE st.id = results.scheduled_task_id))
+                WHERE scheduled_task_id IS NOT NULL
+                  AND (json_extract(config_json, '$.profile_name') IS NULL
+                       OR json_extract(config_json, '$.profile_name') = '')
+            """))
+        else:
+            await conn.execute(text("""
+                UPDATE results
+                SET config_json = jsonb_set(config_json::jsonb, '{profile_name}',
+                    to_jsonb((SELECT profile_ids::jsonb->>0
+                              FROM scheduled_tasks st
+                              WHERE st.id = results.scheduled_task_id)))::text
+                WHERE scheduled_task_id IS NOT NULL
+                  AND (config_json::jsonb->>'profile_name' IS NULL
+                       OR config_json::jsonb->>'profile_name' = '')
+            """))
+
 
 async def close_db():
     """关闭数据库连接池"""
