@@ -519,7 +519,17 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
         params["cutoff"] = cutoff
 
     site_filter = ""
-    if profile_name:
+    if profile_name and base_url:
+        # 两者都有：OR 匹配（新数据有 profile_name，老数据只有 base_url）
+        base_clean = base_url.rstrip("/")
+        base_with_slash = base_clean + "/"
+        site_filter = ("AND (json_extract(r.config_json, '$.profile_name')=:profile_name"
+                       " OR json_extract(r.config_json, '$.base_url')=:base_url"
+                       " OR json_extract(r.config_json, '$.base_url')=:base_url_slash)")
+        params["profile_name"] = profile_name
+        params["base_url"] = base_clean
+        params["base_url_slash"] = base_with_slash
+    elif profile_name:
         site_filter = "AND json_extract(r.config_json, '$.profile_name')=:profile_name"
         params["profile_name"] = profile_name
     elif base_url:

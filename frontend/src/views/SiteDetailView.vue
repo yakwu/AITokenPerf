@@ -22,7 +22,10 @@
             @click="switchSite(s.name)"
           >
             <span class="site-health-dot" :class="s.health" v-if="s.health"></span>
-            <span class="switcher-item-name">{{ s.name }}</span>
+            <div class="switcher-item-info">
+              <span class="switcher-item-name">{{ s.name }}</span>
+              <span class="switcher-item-url" v-if="s.base_url">{{ s.base_url }}</span>
+            </div>
           </div>
           <div v-if="!allSites.length" class="switcher-empty">无站点</div>
         </div>
@@ -124,7 +127,7 @@ async function loadSiteData() {
     // 构建站点切换列表
     allSites.value = profiles.map(p => {
       const s = summaries.find(ss => ss.profile?.name === p.name);
-      return { name: p.name, health: s?.health || '' };
+      return { name: p.name, health: s?.health || '', base_url: p.base_url || '' };
     });
   } catch (e) {
     toast('加载站点数据失败: ' + e.message, 'error');
@@ -265,7 +268,23 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+.switcher-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .switcher-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-item-url {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

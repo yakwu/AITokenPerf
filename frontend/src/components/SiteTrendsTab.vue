@@ -176,9 +176,10 @@ async function loadRecords(page = 1) {
       offset: (page - 1) * recordsPageSize,
       raw: true,
     };
-    // 优先按 profile_name 过滤（精确区分同域名不同 key 的站点）
+    // 同时传 profile_name 和 base_url，后端 OR 匹配
+    // 新数据有 profile_name 精确匹配，老数据回退到 base_url
     if (profileName) params.profile_name = profileName;
-    else params.base_url = baseUrl;
+    if (baseUrl) params.base_url = baseUrl;
     if (timeRangeStore.hours) params.hours = timeRangeStore.hours;
     const data = await getResults(params);
     records.value = data.items || [];
