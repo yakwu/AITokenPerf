@@ -752,7 +752,6 @@ onUnmounted(() => { store.refreshFn = null; document.removeEventListener('moused
 
 .site-name-link:hover {
   color: var(--accent);
-  text-decoration: underline;
 }
 
 .site-status-label {
