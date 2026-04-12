@@ -29,19 +29,22 @@
 
   <!-- 右下角完成通知 -->
   <Teleport to="body">
-    <div class="done-notifications" v-if="doneNotifications.length > 0">
+    <div class="done-toast-stack" v-if="doneNotifications.length > 0">
       <div
         v-for="n in doneNotifications"
         :key="n.id"
-        class="done-notify"
+        class="done-toast"
         @click="onNotifyClick(n)"
       >
-        <div class="done-notify-icon">✓</div>
-        <div class="done-notify-body">
-          <div class="done-notify-title">{{ n.title }}</div>
-          <div class="done-notify-sub">{{ n.subtitle }}</div>
+        <div class="done-toast-left">
+          <span class="done-toast-dot"></span>
         </div>
-        <button class="done-notify-close" @click.stop="dismissNotify(n.id)">×</button>
+        <div class="done-toast-content">
+          <div class="done-toast-title">{{ n.title }}</div>
+          <div class="done-toast-models">{{ n.modelsText }}</div>
+          <div class="done-toast-meta">{{ n.subtitle }}</div>
+        </div>
+        <button class="done-toast-dismiss" @click.stop="dismissNotify(n.id)">&times;</button>
       </div>
     </div>
   </Teleport>
@@ -58,7 +61,7 @@ const panelOpen = ref(false);
 const runningTasks = ref([]);
 const indicatorRef = ref(null);
 
-// 完成通知
+// 完成通知 — 按 profile_name 聚合（同站点只保留一条，持续更新）
 const doneNotifications = ref([]);
 let prevTaskIds = new Set();
 let prevTaskMeta = new Map(); // task_id -> { model, profile_name, elapsed }
@@ -74,18 +77,38 @@ function progressPct(t) {
   return Math.min(100, Math.round(t.done / t.total * 100));
 }
 
-function addNotification(title, subtitle, profileName) {
-  notifyIdCounter++;
-  doneNotifications.value.push({
-    id: notifyIdCounter,
-    title,
-    subtitle,
-    profileName,
-    time: Date.now(),
-  });
-  // 超过 5 条，移除最旧的
-  while (doneNotifications.value.length > MAX_NOTIFICATIONS) {
-    doneNotifications.value.shift();
+function upsertNotification(profileName, models, maxElapsed) {
+  const existing = doneNotifications.value.find(n => n.profileName === profileName);
+  const totalRuns = (existing?.runCount || 0) + 1;
+  const allModels = existing ? [...new Set([...existing.models, ...models])] : [...new Set(models)];
+  const modelsText = allModels.length > 2
+    ? `${allModels.slice(0, 2).join(', ')} 等 ${allModels.length} 个模型`
+    : allModels.join(', ');
+  const subtitle = totalRuns > 1
+    ? `已完成 ${totalRuns} 次 · 最近用时 ${maxElapsed}s · 点击查看`
+    : `用时 ${maxElapsed}s · 点击查看`;
+
+  if (existing) {
+    existing.models = allModels;
+    existing.modelsText = modelsText;
+    existing.subtitle = subtitle;
+    existing.runCount = totalRuns;
+    existing.time = Date.now();
+  } else {
+    notifyIdCounter++;
+    doneNotifications.value.push({
+      id: notifyIdCounter,
+      title: `${profileName || '测试'} 完成`,
+      models: allModels,
+      modelsText,
+      subtitle,
+      profileName,
+      runCount: totalRuns,
+      time: Date.now(),
+    });
+    while (doneNotifications.value.length > MAX_NOTIFICATIONS) {
+      doneNotifications.value.shift();
+    }
   }
 }
 
@@ -103,7 +126,6 @@ function onNotifyClick(n) {
 function detectCompleted(currentTasks) {
   const currentIds = new Set(currentTasks.map(t => t.task_id));
 
-  // 找出消失的任务（上次在运行，本次不在了 → 已完成）
   const completedIds = [];
   for (const id of prevTaskIds) {
     if (!currentIds.has(id)) {
@@ -112,13 +134,12 @@ function detectCompleted(currentTasks) {
   }
 
   if (completedIds.length === 0) {
-    // 更新 meta
     updateMeta(currentTasks);
     prevTaskIds = currentIds;
     return;
   }
 
-  // 按 profile_name 聚合（定时任务的多个模型会聚合成一条通知）
+  // 按 profile_name 聚合当次完成的任务
   const grouped = {};
   for (const id of completedIds) {
     const meta = prevTaskMeta.get(id);
@@ -131,16 +152,11 @@ function detectCompleted(currentTasks) {
     grouped[key].elapsed = Math.max(grouped[key].elapsed, meta.elapsed || 0);
   }
 
+  // 对每个站点 upsert 通知（同站点多次完成会聚合到同一条）
   for (const [, g] of Object.entries(grouped)) {
-    const modelCount = g.models.length;
-    const title = modelCount > 1
-      ? `${g.profile_name || '测试'} 完成 · ${modelCount} 个模型`
-      : `${g.profile_name || '测试'} · ${g.models[0]} 完成`;
-    const subtitle = `用时 ${g.elapsed}s · 点击查看`;
-    addNotification(title, subtitle, g.profile_name);
+    upsertNotification(g.profile_name, g.models, g.elapsed);
   }
 
-  // 清理已完成的 meta
   for (const id of completedIds) {
     prevTaskMeta.delete(id);
   }
@@ -337,8 +353,8 @@ onUnmounted(() => {
 </style>
 
 <style>
-/* 右下角完成通知（非 scoped，Teleport 到 body） */
-.done-notifications {
+/* 右下角完成通知栈 */
+.done-toast-stack {
   position: fixed;
   bottom: 20px;
   right: 20px;
@@ -346,79 +362,95 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column-reverse;
   gap: 8px;
-  max-width: 340px;
+  width: 300px;
 }
 
-.done-notify {
+.done-toast {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
+  align-items: stretch;
   background: var(--surface-raised, #fff);
-  border: 1px solid var(--border, #e0e0e0);
-  border-left: 3px solid var(--success, #2D8B55);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border, #E8E6E1);
+  border-radius: var(--radius, 10px);
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,0.06));
   cursor: pointer;
-  transition: transform 0.15s, opacity 0.15s;
-  animation: notifySlideIn 0.25s ease;
+  overflow: hidden;
+  animation: doneToastIn 0.2s ease;
+  transition: box-shadow 0.15s, transform 0.15s;
 }
 
-.done-notify:hover {
-  transform: translateX(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+.done-toast:hover {
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.08));
+  transform: translateY(-1px);
 }
 
-@keyframes notifySlideIn {
-  from { opacity: 0; transform: translateX(40px); }
+@keyframes doneToastIn {
+  from { opacity: 0; transform: translateX(30px); }
   to { opacity: 1; transform: translateX(0); }
 }
 
-.done-notify-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--success, #2D8B55);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
+.done-toast-left {
+  width: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  background: var(--success-light, #e6f4ec);
 }
 
-.done-notify-body {
+.done-toast-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success, #2D8B55);
+}
+
+.done-toast-content {
   flex: 1;
   min-width: 0;
+  padding: 10px 0 10px 10px;
 }
 
-.done-notify-title {
+.done-toast-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary, #111);
+  color: var(--text-primary, #1A1A18);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.3;
 }
 
-.done-notify-sub {
+.done-toast-models {
   font-size: 11px;
-  color: var(--text-tertiary, #999);
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary, #6B6B65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   margin-top: 2px;
 }
 
-.done-notify-close {
+.done-toast-meta {
+  font-size: 11px;
+  color: var(--text-tertiary, #9C9C96);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.done-toast-dismiss {
   background: none;
   border: none;
   font-size: 16px;
-  color: var(--text-tertiary, #999);
+  color: var(--text-tertiary, #9C9C96);
   cursor: pointer;
-  padding: 0 2px;
+  padding: 8px 10px;
   line-height: 1;
   flex-shrink: 0;
+  align-self: flex-start;
   transition: color 0.15s;
 }
 
-.done-notify-close:hover {
-  color: var(--text-primary, #111);
+.done-toast-dismiss:hover {
+  color: var(--text-primary, #1A1A18);
 }
 </style>
