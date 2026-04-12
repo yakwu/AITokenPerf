@@ -44,6 +44,10 @@
           <label class="form-label">密码</label>
           <input class="form-input" type="password" v-model="password" placeholder="至少 6 位" @keydown.enter="submit()">
         </div>
+        <div class="form-group" v-show="mode === 'register'">
+          <label class="form-label">确认密码</label>
+          <input class="form-input" type="password" v-model="registerConfirmPassword" placeholder="再次输入密码" @keydown.enter="submit()">
+        </div>
         <button class="btn btn-primary" style="width:100%;margin-top:8px" @click="submit()" :disabled="loading">
           <span v-if="!loading">{{ mode === 'login' ? '登录' : '注册' }}</span>
           <span v-else>处理中...</span>
@@ -69,6 +73,7 @@ const loading = ref(false);
 const forceChangePassword = ref(false);
 const newPassword = ref('');
 const confirmPassword = ref('');
+const registerConfirmPassword = ref('');
 let pendingToken = null;
 let pendingUser = null;
 let oldPassword = '';
@@ -76,6 +81,10 @@ let oldPassword = '';
 async function submit() {
   if (!email.value || !password.value) {
     error.value = '请输入邮箱和密码';
+    return;
+  }
+  if (mode.value === 'register' && password.value !== registerConfirmPassword.value) {
+    error.value = '两次密码不一致';
     return;
   }
   error.value = '';
