@@ -7,10 +7,26 @@
         目标站点
       </router-link>
       <span class="breadcrumb-sep">/</span>
-      <span class="breadcrumb-current">
-        <span class="site-health-dot" :class="siteHealth" v-if="siteHealth"></span>
-        {{ siteName }}
-      </span>
+      <div class="breadcrumb-switcher" ref="switcherRef">
+        <button class="breadcrumb-current" @click.stop="switcherOpen = !switcherOpen">
+          <span class="site-health-dot" :class="siteHealth" v-if="siteHealth"></span>
+          {{ siteName }}
+          <svg class="breadcrumb-chevron" :class="{ open: switcherOpen }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="switcher-dropdown" v-show="switcherOpen">
+          <div
+            v-for="s in allSites"
+            :key="s.name"
+            class="switcher-item"
+            :class="{ active: s.name === siteName }"
+            @click="switchSite(s.name)"
+          >
+            <span class="site-health-dot" :class="s.health" v-if="s.health"></span>
+            <span class="switcher-item-name">{{ s.name }}</span>
+          </div>
+          <div v-if="!allSites.length" class="switcher-empty">无站点</div>
+        </div>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -57,7 +73,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getProfiles, getSitesSummary } from '../api';
 import { toast } from '../composables/useToast';
@@ -76,6 +92,9 @@ const loading = ref(false);
 const profile = ref(null);
 const siteHealth = ref('');
 const activeTab = ref('test');
+const allSites = ref([]);
+const switcherOpen = ref(false);
+const switcherRef = ref(null);
 
 const internalTabs = [
   { key: 'test', label: '单次任务' },
@@ -101,11 +120,31 @@ async function loadSiteData() {
     const summaries = summaryData.summary || [];
     const siteSummary = summaries.find(s => s.profile?.name === siteName.value);
     siteHealth.value = siteSummary?.health || '';
+
+    // 构建站点切换列表
+    allSites.value = profiles.map(p => {
+      const s = summaries.find(ss => ss.profile?.name === p.name);
+      return { name: p.name, health: s?.health || '' };
+    });
   } catch (e) {
     toast('加载站点数据失败: ' + e.message, 'error');
     profile.value = null;
   }
   loading.value = false;
+}
+
+function switchSite(name) {
+  switcherOpen.value = false;
+  if (name !== siteName.value) {
+    const tabQuery = route.query.tab || 'trends';
+    router.push(`/sites/${encodeURIComponent(name)}?tab=${tabQuery}`);
+  }
+}
+
+function onClickOutside(e) {
+  if (switcherRef.value && !switcherRef.value.contains(e.target)) {
+    switcherOpen.value = false;
+  }
 }
 
 function onSiteDeleted() {
@@ -119,6 +158,14 @@ watch(() => route.params.id, () => {
     loadSiteData();
   }
 }, { immediate: true });
+
+onMounted(() => {
+  document.addEventListener('click', onClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', onClickOutside);
+});
 </script>
 
 <style scoped>
@@ -156,6 +203,79 @@ watch(() => route.params.id, () => {
   gap: 6px;
   color: var(--text-primary);
   font-weight: 600;
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.breadcrumb-current:hover {
+  background: var(--border-subtle);
+}
+
+.breadcrumb-chevron {
+  transition: transform 0.15s;
+  color: var(--text-tertiary);
+}
+
+.breadcrumb-chevron.open {
+  transform: rotate(180deg);
+}
+
+.breadcrumb-switcher {
+  position: relative;
+}
+
+.switcher-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  padding: 4px 0;
+}
+
+.switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.switcher-item:hover {
+  background: var(--border-subtle);
+}
+
+.switcher-item.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.switcher-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-empty {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 .site-health-dot {
