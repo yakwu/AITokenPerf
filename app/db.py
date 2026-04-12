@@ -249,6 +249,12 @@ async def _migrate_schedule_results_profile_name():
                        OR json_extract(config_json, '$.profile_name') = '')
             """))
         else:
+            # 先将 NULL 的 config_json 设为 '{}'，避免 jsonb_set 返回 NULL 违反约束
+            await conn.execute(text("""
+                UPDATE results SET config_json = '{}'
+                WHERE scheduled_task_id IS NOT NULL
+                  AND config_json IS NULL
+            """))
             await conn.execute(text("""
                 UPDATE results
                 SET config_json = jsonb_set(config_json::jsonb, '{profile_name}',
