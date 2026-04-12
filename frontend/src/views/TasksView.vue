@@ -33,7 +33,7 @@
     <div v-else-if="!filteredSchedules.length && !loading" class="empty-state">
       <div class="empty-state-icon">&#9200;</div>
       <div class="empty-state-text">{{ schedules.length ? '没有匹配的定时任务' : '尚无定时任务' }}</div>
-      <p style="color:var(--text-tertiary);font-size:13px">{{ schedules.length ? '尝试调整筛选条件' : '请进入对应站点详情页创建定时任务' }}</p>
+      <p style="color:var(--text-tertiary);font-size:13px">{{ schedules.length ? '尝试调整筛选条件' : '点击「新建任务」创建你的第一个定时任务' }}</p>
     </div>
 
     <!-- Schedule Table -->
@@ -123,16 +123,85 @@
         </table>
       </div>
     </div>
+    <!-- Create Modal -->
+    <ModalOverlay :show="showCreateForm" title="新建定时任务" max-width="560px" @close="showCreateForm = false">
+      <div class="create-modal-grid">
+        <!-- Profile Combobox -->
+        <div class="form-group">
+          <label class="form-label">目标站点</label>
+          <div class="combobox" ref="profileComboboxRef">
+            <input class="form-input" :value="createForm.profile_name" placeholder="选择站点"
+                   @focus="profileDropdownOpen = true" @keydown.escape="profileDropdownOpen = false"
+                   readonly autocomplete="off">
+            <button class="combobox-toggle" type="button" @click.stop="profileDropdownOpen = !profileDropdownOpen" @mousedown.prevent>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+            </button>
+            <div class="combobox-dropdown" v-show="profileDropdownOpen">
+              <div v-for="p in profiles" :key="p.name" class="combobox-option" :class="{ active: createForm.profile_name === p.name }" @mousedown.prevent="selectCreateProfile(p.name)">{{ p.name }}</div>
+              <div class="combobox-empty" v-if="!profiles.length">暂无站点配置</div>
+            </div>
+          </div>
+        </div>
+        <!-- Task Name -->
+        <div class="form-group">
+          <label class="form-label">任务名称</label>
+          <input class="form-input" v-model="createForm.name" placeholder="例如：快速巡检">
+        </div>
+        <!-- Frequency Combobox -->
+        <div class="form-group">
+          <label class="form-label">执行频率</label>
+          <div class="combobox" ref="freqComboboxRef">
+            <input class="form-input" :value="frequencyLabel" placeholder="选择频率"
+                   @focus="freqDropdownOpen = true" @keydown.escape="freqDropdownOpen = false"
+                   readonly autocomplete="off">
+            <button class="combobox-toggle" type="button" @click.stop="freqDropdownOpen = !freqDropdownOpen" @mousedown.prevent>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+            </button>
+            <div class="combobox-dropdown" v-show="freqDropdownOpen">
+              <div v-for="opt in frequencyOptions" :key="opt.value" class="combobox-option" :class="{ active: frequencyPreset === opt.value }" @mousedown.prevent="selectFrequency(opt.value)">{{ opt.label }}</div>
+            </div>
+          </div>
+          <div class="form-hint" v-if="frequencyPreset === 'custom'" style="margin-top:6px">
+            <input class="form-input" type="number" v-model.number="createForm.schedule_value" min="60" placeholder="秒" style="width:120px">
+          </div>
+          <div class="form-hint">每 {{ formatInterval(createForm.schedule_value) }} 执行一次</div>
+        </div>
+        <!-- Model Combobox -->
+        <div class="form-group">
+          <label class="form-label">选择模型</label>
+          <div class="combobox" ref="modelComboboxRef">
+            <input class="form-input" :value="createForm.model" :placeholder="createForm.profile_name ? '选择模型' : '请先选择站点'"
+                   :readonly="!createForm.profile_name"
+                   @focus="createForm.profile_name && (modelDropdownOpen = true)" @keydown.escape="modelDropdownOpen = false"
+                   autocomplete="off">
+            <button class="combobox-toggle" type="button" @click.stop="createForm.profile_name && (modelDropdownOpen = !modelDropdownOpen)" @mousedown.prevent>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+            </button>
+            <div class="combobox-dropdown" v-show="modelDropdownOpen">
+              <div v-for="m in selectedProfileModels" :key="m" class="combobox-option" :class="{ active: createForm.model === m }" @mousedown.prevent="selectCreateModel(m)">{{ m }}</div>
+              <div class="combobox-empty" v-if="!selectedProfileModels.length">该站点未配置模型</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="btn-group" style="margin-top:20px">
+        <button class="btn btn-primary" @click="createSchedule" :disabled="createLoading">
+          {{ createLoading ? '创建中...' : '创建' }}
+        </button>
+        <button class="btn btn-ghost" @click="showCreateForm = false">取消</button>
+      </div>
+    </ModalOverlay>
   </section>
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
-import { getSchedules, getProfiles, pauseScheduleApi, resumeScheduleApi, runNowApi, deleteScheduleApi } from '../api/index.js';
+import { getSchedules, getProfiles, createScheduleApi, pauseScheduleApi, resumeScheduleApi, runNowApi, deleteScheduleApi } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { useRoute } from 'vue-router';
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
+import ModalOverlay from '../components/ModalOverlay.vue';
 
 const store = useAppStore();
 const route = useRoute();
@@ -151,6 +220,76 @@ const statusFilters = [
   { label: '已暂停', value: 'paused' },
   { label: '异常', value: 'error' },
 ];
+
+// ---- Create form ----
+const showCreateForm = ref(false);
+const createLoading = ref(false);
+const frequencyPreset = ref('300');
+const frequencyOptions = [
+  { label: '每 5 分钟', value: '300' },
+  { label: '每 15 分钟', value: '900' },
+  { label: '每 30 分钟', value: '1800' },
+  { label: '每 1 小时', value: '3600' },
+  { label: '每 6 小时', value: '21600' },
+  { label: '自定义...', value: 'custom' },
+];
+
+// Combobox state
+const profileDropdownOpen = ref(false);
+const freqDropdownOpen = ref(false);
+const modelDropdownOpen = ref(false);
+const profileComboboxRef = ref(null);
+const freqComboboxRef = ref(null);
+const modelComboboxRef = ref(null);
+
+function handleDocClick(e) {
+  if (profileComboboxRef.value && !profileComboboxRef.value.contains(e.target)) profileDropdownOpen.value = false;
+  if (freqComboboxRef.value && !freqComboboxRef.value.contains(e.target)) freqDropdownOpen.value = false;
+  if (modelComboboxRef.value && !modelComboboxRef.value.contains(e.target)) modelDropdownOpen.value = false;
+}
+
+function resetCreateForm() {
+  createForm.value = { name: '', profile_name: '', schedule_value: 300, model: '' };
+  frequencyPreset.value = '300';
+  profileDropdownOpen.value = false;
+  freqDropdownOpen.value = false;
+  modelDropdownOpen.value = false;
+}
+
+const createForm = ref({ name: '', profile_name: '', schedule_value: 300, model: '' });
+
+const selectedProfileModels = computed(() => {
+  const p = profiles.value.find(p => p.name === createForm.value.profile_name);
+  if (!p) return [];
+  return p.models || (p.model ? [p.model] : []);
+});
+
+const frequencyLabel = computed(() => {
+  if (frequencyPreset.value === 'custom') return '自定义';
+  const opt = frequencyOptions.find(o => o.value === frequencyPreset.value);
+  return opt ? opt.label : '';
+});
+
+function selectCreateProfile(name) {
+  createForm.value.profile_name = name;
+  createForm.value.model = '';
+  profileDropdownOpen.value = false;
+}
+
+function selectFrequency(value) {
+  frequencyPreset.value = value;
+  if (value !== 'custom') {
+    createForm.value.schedule_value = parseInt(value);
+  } else {
+    createForm.value.schedule_value = 300;
+  }
+  freqDropdownOpen.value = false;
+}
+
+function selectCreateModel(m) {
+  createForm.value.model = m;
+  modelDropdownOpen.value = false;
+}
 
 // ---- Profile lookup map ----
 const profileMap = computed(() => {
@@ -247,7 +386,54 @@ function successRateClass(rate) {
 
 // ---- Actions ----
 function onCreateTask() {
-  toast('请进入对应站点详情页创建定时任务', 'info');
+  resetCreateForm();
+  showCreateForm.value = true;
+}
+
+async function createSchedule() {
+  const f = createForm.value;
+  if (!f.profile_name) {
+    toast('请选择目标站点', 'info');
+    return;
+  }
+  if (!f.name.trim()) {
+    toast('请输入任务名称', 'info');
+    return;
+  }
+  if (!f.model) {
+    toast('请选择模型', 'info');
+    return;
+  }
+
+  createLoading.value = true;
+  try {
+    const payload = {
+      name: f.name.trim(),
+      profile_ids: [f.profile_name],
+      configs_json: {
+        concurrency_levels: [10],
+        mode: 'burst',
+        max_tokens: 512,
+        timeout: 120,
+        duration: 120,
+        model: f.model,
+      },
+      schedule_type: 'interval',
+      schedule_value: String(f.schedule_value),
+    };
+    const res = await createScheduleApi(payload);
+    if (res.error) {
+      toast(res.error, 'error');
+      return;
+    }
+    toast('定时任务已创建', 'success');
+    showCreateForm.value = false;
+    resetCreateForm();
+    await loadData();
+  } catch (e) {
+    toast('创建失败: ' + e.message, 'error');
+  }
+  createLoading.value = false;
 }
 
 async function pauseSchedule(id) {
@@ -312,7 +498,8 @@ watch(() => route.path, (val) => {
 }, { immediate: true });
 
 store.refreshFn = loadData;
-onUnmounted(() => { store.refreshFn = null; });
+onMounted(() => { document.addEventListener('mousedown', handleDocClick); });
+onUnmounted(() => { store.refreshFn = null; document.removeEventListener('mousedown', handleDocClick); });
 </script>
 
 <style scoped>
@@ -439,5 +626,34 @@ onUnmounted(() => { store.refreshFn = null; });
   font-size: 12px;
   color: var(--text-tertiary);
   white-space: nowrap;
+}
+
+/* ---- Create Modal ---- */
+.create-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.frequency-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.frequency-row .form-input:first-child {
+  flex: 1;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+  .create-modal-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
