@@ -165,7 +165,7 @@
             <div class="combobox-dropdown" v-show="modelDropdownOpen">
               <div v-for="m in filteredModels" :key="m" class="combobox-option" :class="{ active: createForm.models.includes(m) }" @mousedown.prevent="toggleModel(m)">{{ m }}</div>
               <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">无匹配，按回车添加「{{ modelSearch }}」</div>
-              <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch && !loadingModels">{{ createForm.base_url ? '点击上方搜索框加载模型' : '请先填写目标地址和 API Key' }}</div>
+              <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch && !loadingModels">{{ managedModels.length ? '无匹配模型' : '暂无模型数据，请先在模型管理中添加' }}</div>
             </div>
           </div>
           <div class="form-hint" v-if="!createForm.models.length && !createErrors.models" style="margin-top:4px">填写地址和 Key 后自动获取，也可手动输入后回车添加</div>
@@ -205,7 +205,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
-import { api, getSitesSummary, getModels } from '../api';
+import { api, getSitesSummary, getModels, getModelsConfig } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
@@ -546,6 +546,7 @@ const modelDropdownOpen = ref(false);
 const modelComboboxRef = ref(null);
 const modelSearch = ref('');
 const availableModels = ref([]);
+const managedModels = ref([]);
 const loadingModels = ref(false);
 
 function handleDocClick(e) {
@@ -554,8 +555,10 @@ function handleDocClick(e) {
 }
 
 const filteredModels = computed(() => {
+  // 合并模型管理数据 + 实时 API 拉取的数据，去重
+  const all = [...new Set([...managedModels.value, ...availableModels.value])];
   const q = (modelSearch.value || '').toLowerCase();
-  const list = availableModels.value.filter(m => !createForm.value.models.includes(m));
+  const list = all.filter(m => !createForm.value.models.includes(m));
   if (!q) return list;
   return list.filter(m => m.toLowerCase().includes(q));
 });
@@ -606,6 +609,22 @@ function createSite() {
   providerDropdownOpen.value = false;
   availableModels.value = [];
   showCreateModal.value = true;
+  loadManagedModels();
+}
+
+async function loadManagedModels() {
+  try {
+    const res = await getModelsConfig();
+    const enabled = res.enabled_models || [];
+    // enabled_models 为空表示全部启用，此时用实时 API 拉取
+    if (enabled.length > 0) {
+      managedModels.value = enabled;
+    } else {
+      managedModels.value = [];
+    }
+  } catch {
+    managedModels.value = [];
+  }
 }
 
 function validateCreate() {
