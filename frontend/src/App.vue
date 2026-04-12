@@ -120,11 +120,11 @@ watch(
   { immediate: true }
 );
 
-// 登录后如果在 /auth 跳转到 /
+// 登录后如果在 /auth 跳转到 /（强制改密时除外）
 watch(
   () => store.user,
   (u) => {
-    if (u && route.path === '/auth') {
+    if (u && route.path === '/auth' && !u.must_change_password) {
       router.push('/');
     }
   }
