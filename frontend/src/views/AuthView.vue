@@ -97,6 +97,7 @@ async function submit() {
       oldPassword = password.value;
       store.setUser(res.user, res.token);
       forceChangePassword.value = true;
+      loading.value = false;
       error.value = '';
       return;
     }
@@ -126,8 +127,9 @@ async function doForceChange() {
       return;
     }
     // 更新 user 对象，must_change_password 已清除
-    pendingUser.must_change_password = false;
-    store.setUser(pendingUser, pendingToken);
+    const updatedUser = { ...pendingUser, must_change_password: false };
+    store.setUser(updatedUser, pendingToken);
+    loading.value = false;
     toast('密码已修改', 'success');
     store.switchTab('dashboard');
   } catch (e) {
