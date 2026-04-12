@@ -77,13 +77,14 @@ function progressPct(t) {
   return Math.min(100, Math.round(t.done / t.total * 100));
 }
 
-function upsertNotification(profileName, models, maxElapsed) {
-  const existing = doneNotifications.value.find(n => n.profileName === profileName);
+function upsertNotification(profileName, models, maxElapsed, isScheduled) {
+  const existing = doneNotifications.value.find(n => n.profileName === profileName && n.isScheduled === isScheduled);
   const totalRuns = (existing?.runCount || 0) + 1;
   const allModels = existing ? [...new Set([...existing.models, ...models])] : [...new Set(models)];
   const modelsText = allModels.length > 2
     ? `${allModels.slice(0, 2).join(', ')} 等 ${allModels.length} 个模型`
     : allModels.join(', ');
+  const prefix = isScheduled ? '定时任务' : '单次测试';
   const subtitle = totalRuns > 1
     ? `已完成 ${totalRuns} 次 · 最近用时 ${maxElapsed}s · 点击查看`
     : `用时 ${maxElapsed}s · 点击查看`;
@@ -98,11 +99,12 @@ function upsertNotification(profileName, models, maxElapsed) {
     notifyIdCounter++;
     doneNotifications.value.push({
       id: notifyIdCounter,
-      title: `${profileName || '测试'} 完成`,
+      title: `${prefix}：${profileName || '测试'} 完成`,
       models: allModels,
       modelsText,
       subtitle,
       profileName,
+      isScheduled,
       runCount: totalRuns,
       time: Date.now(),
     });
@@ -139,22 +141,22 @@ function detectCompleted(currentTasks) {
     return;
   }
 
-  // 按 profile_name 聚合当次完成的任务
+  // 按 profile_name + 类型 聚合当次完成的任务
   const grouped = {};
   for (const id of completedIds) {
     const meta = prevTaskMeta.get(id);
     if (!meta) continue;
-    const key = meta.profile_name || id;
+    const key = `${meta.profile_name || id}_${meta.scheduled ? 's' : 'm'}`;
     if (!grouped[key]) {
-      grouped[key] = { profile_name: meta.profile_name, models: [], elapsed: 0 };
+      grouped[key] = { profile_name: meta.profile_name, models: [], elapsed: 0, scheduled: meta.scheduled };
     }
     grouped[key].models.push(meta.model || '?');
     grouped[key].elapsed = Math.max(grouped[key].elapsed, meta.elapsed || 0);
   }
 
-  // 对每个站点 upsert 通知（同站点多次完成会聚合到同一条）
+  // 对每个站点 upsert 通知（同站点同类型多次完成会聚合到同一条）
   for (const [, g] of Object.entries(grouped)) {
-    upsertNotification(g.profile_name, g.models, g.elapsed);
+    upsertNotification(g.profile_name, g.models, g.elapsed, g.scheduled);
   }
 
   for (const id of completedIds) {
@@ -171,6 +173,7 @@ function updateMeta(tasks) {
       model: t.model || '-',
       profile_name: t.profile_name || '',
       elapsed: t.elapsed || 0,
+      scheduled: !!(t.scheduled_task_id),
     });
   }
 }
