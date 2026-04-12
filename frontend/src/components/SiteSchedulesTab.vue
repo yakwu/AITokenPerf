@@ -64,10 +64,10 @@
           </div>
           <div class="form-group">
             <label class="form-label">测试模式</label>
-            <select class="form-input" v-model="createForm.mode">
-              <option value="burst">Burst（突发）</option>
-              <option value="sustained">Sustained（持续）</option>
-            </select>
+            <div class="time-range-pills">
+              <button class="time-range-pill" :class="{ active: createForm.mode === 'burst' }" @click="createForm.mode = 'burst'">突发</button>
+              <button class="time-range-pill" :class="{ active: createForm.mode === 'sustained' }" @click="createForm.mode = 'sustained'">持续</button>
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">超时 (秒)</label>
