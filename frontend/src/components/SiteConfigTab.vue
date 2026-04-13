@@ -16,7 +16,12 @@
         <!-- Base URL -->
         <div class="form-group">
           <label class="form-label">目标地址</label>
-          <input class="form-input" v-model="form.base_url" placeholder="https://api.anthropic.com">
+          <input class="form-input" v-model="form.base_url" :placeholder="form.custom_endpoint ? 'https://open.bigmodel.cn/api/paas/v4/chat/completions' : 'https://api.anthropic.com'">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.custom_endpoint">
+            <span>完整 URL 模式</span>
+            <span class="form-hint">勾选后不再自动追加 /v1/chat/completions 等路径后缀</span>
+          </label>
         </div>
 
         <!-- API Key -->
@@ -85,6 +90,7 @@ const form = ref({
   base_url: '',
   api_key: '',
   models: [],
+  custom_endpoint: false,
 });
 const showApiKey = ref(false);
 const confirmDelete = ref(false);
@@ -100,6 +106,7 @@ function initForm() {
   form.value.base_url = props.profile.base_url || '';
   form.value.api_key = props.profile.api_key_display || props.profile.api_key || '';
   form.value.models = props.profile.models || (props.profile.model ? [props.profile.model] : []);
+  form.value.custom_endpoint = !!props.profile.custom_endpoint;
   snapshotConfig();
 }
 
@@ -108,6 +115,7 @@ function snapshotConfig() {
     base_url: form.value.base_url,
     api_key: form.value.api_key,
     models: [...form.value.models],
+    custom_endpoint: form.value.custom_endpoint,
   };
   formDirty.value = false;
 }
@@ -118,7 +126,8 @@ function checkDirty() {
   formDirty.value = (
     form.value.base_url !== (s.base_url || '') ||
     form.value.api_key !== (s.api_key || '') ||
-    JSON.stringify(form.value.models) !== JSON.stringify(s.models || [])
+    JSON.stringify(form.value.models) !== JSON.stringify(s.models || []) ||
+    form.value.custom_endpoint !== (s.custom_endpoint || false)
   );
 }
 
@@ -126,6 +135,7 @@ function checkDirty() {
 watch(() => form.value.base_url, () => checkDirty());
 watch(() => form.value.api_key, () => checkDirty());
 watch(() => form.value.models, () => checkDirty(), { deep: true });
+watch(() => form.value.custom_endpoint, () => checkDirty());
 
 watch(() => props.profile, () => {
   initForm();
@@ -168,6 +178,7 @@ async function saveProfile() {
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         models: form.value.models,
+        custom_endpoint: form.value.custom_endpoint,
         api_version: '2023-06-01',
       }),
     });
@@ -287,6 +298,28 @@ async function doDelete() {
 .btn-danger-text:hover {
   background: var(--danger-light);
   color: var(--danger);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.form-hint {
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 @media (max-width: 768px) {

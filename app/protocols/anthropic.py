@@ -13,6 +13,8 @@ from app.protocols.base import ProtocolAdapter
 class AnthropicAdapter(ProtocolAdapter):
 
     def build_url(self, config: dict) -> str:
+        if config.get("custom_endpoint"):
+            return config["base_url"].rstrip("/")
         return f"{config['base_url'].rstrip('/')}/v1/messages"
 
     def build_headers(self, config: dict) -> dict:

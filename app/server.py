@@ -38,7 +38,7 @@ from app.auth import _is_public_path
 BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
-CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version", "provider", "protocol")
+CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version", "provider", "protocol", "custom_endpoint")
 BENCHMARK_KEYS = ("mode", "concurrency_levels", "duration", "max_tokens",
                    "timeout", "connector_limit", "system_prompt", "user_prompt")
 
@@ -704,6 +704,7 @@ async def save_profile(request: Request, user: dict = Depends(get_current_user))
         model=model,
         provider=data.get("provider", ""),
         protocol=data.get("protocol", ""),
+        custom_endpoint=1 if data.get("custom_endpoint") else 0,
         set_active=True,
     )
     return {"status": "ok"}
