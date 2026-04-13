@@ -1,280 +1,157 @@
 <template>
   <section class="tab-content active">
-    <!-- Toolbar（和历史记录页同结构） -->
-    <div class="history-toolbar">
-      <div class="search-input-wrap">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input class="form-input" v-model="search" placeholder="搜索模型名…" autocomplete="off">
-      </div>
-      <div class="filter-chips">
-        <div class="combobox" ref="filterComboboxRef" style="min-width:160px;width:auto">
-          <input class="form-input" :value="filterDropdownOpen ? filterSearch : filterLabel" :placeholder="'全部厂商'" @focus="onFilterFocus" @input="onFilterInput($event)" @keydown.escape="filterDropdownOpen = false" readonly autocomplete="off">
-          <button class="combobox-toggle" type="button" @click.stop="filterDropdownOpen = !filterDropdownOpen" @mousedown.prevent>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-          </button>
-          <div class="combobox-dropdown" v-show="filterDropdownOpen">
-            <div class="combobox-option" :class="{ active: filterProvider === '' }" @mousedown.prevent="selectFilterProvider('')">全部提供商</div>
-            <div v-for="p in filteredFilterOptions" :key="p.value" class="combobox-option" :class="{ active: filterProvider === p.value }" @mousedown.prevent="selectFilterProvider(p.value)">{{ p.label }}</div>
-          </div>
+    <!-- Tab Navigation -->
+    <div class="models-tabs">
+      <button
+        class="models-tab"
+        :class="{ active: activeTab === 'my' }"
+        @click="activeTab = 'my'"
+      >我的模型</button>
+      <button
+        class="models-tab"
+        :class="{ active: activeTab === 'library' }"
+        @click="activeTab = 'library'; loadLibrary()"
+      >模型库</button>
+    </div>
+
+    <!-- Tab 1: My Models -->
+    <div v-if="activeTab === 'my'" class="models-panel">
+      <div class="history-toolbar">
+        <div class="search-input-wrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="form-input" v-model="mySearch" placeholder="搜索模型名…" autocomplete="off">
+        </div>
+        <div class="filter-chips">
+          <button class="filter-chip" :class="{ active: myVendor === '' }" @click="myVendor = ''">全部</button>
+          <button v-for="v in vendors" :key="v.id" class="filter-chip" :class="{ active: myVendor === v.id }" @click="myVendor = v.id">{{ v.name }}</button>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+          <span class="models-count">
+            已启用 <strong>{{ enabledCount }}</strong> · 共 {{ myModels.length }}
+          </span>
+          <button class="btn btn-ghost btn-sm" @click="showAddForm = !showAddForm" :class="{ active: showAddForm }">+ 自定义</button>
         </div>
       </div>
-      <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
-        <span class="models-count">
-          已启用 <strong>{{ enabledSet.size }}</strong>
-          <span v-if="!enabledSet.size" style="color:var(--accent)">(全部)</span>
-          · 共 {{ allModels.length }}
-        </span>
-        <button class="btn btn-ghost btn-sm" @click="showAddForm = !showAddForm" :class="{ active: showAddForm }">+ 自定义</button>
+
+      <!-- Add Custom Model Panel -->
+      <div v-show="showAddForm" class="models-add-panel">
+        <input class="form-input" v-model="addForm.id" placeholder="模型 ID" @keydown.enter="addCustomModel" autocomplete="off">
+        <select class="form-select" v-model="addForm.vendor" style="width:160px">
+          <option value="">选择厂商</option>
+          <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
+        </select>
+        <button class="btn btn-primary btn-sm" @click="addCustomModel" :disabled="!addForm.id.trim()">添加</button>
+        <button class="btn btn-ghost btn-sm" @click="showAddForm = false">取消</button>
+      </div>
+
+      <!-- My Models Table -->
+      <div class="card" style="width:100%">
+        <div v-if="myLoading" class="models-loading">加载中…</div>
+        <div v-else class="models-table-wrap">
+          <table class="models-table">
+            <thead>
+              <tr>
+                <th class="models-th-check"><input type="checkbox" :checked="allVisibleEnabled" :indeterminate="someVisibleEnabled && !allVisibleEnabled" @change="toggleVisible"></th>
+                <th class="models-th-name" @click="toggleSort('id')">模型名 <span class="models-sort-arrow" v-if="sortKey === 'id'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+                <th class="models-th-provider" @click="toggleSort('vendor')">厂商 <span class="models-sort-arrow" v-if="sortKey === 'vendor'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span></th>
+                <th class="models-th-price">输入价格</th>
+                <th class="models-th-price">输出价格</th>
+                <th class="models-th-action"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in sortedMyModels" :key="m.id" :class="{ 'models-row-custom': m.custom }">
+                <td class="models-td-check"><input type="checkbox" :checked="m.enabled" @change="toggleModel(m.id)"></td>
+                <td class="models-td-name" :title="m.id">{{ m.id }}<span v-if="m.custom" class="models-custom-badge">自定义</span></td>
+                <td class="models-td-provider">{{ vendorLabel(m.vendor) }}</td>
+                <td class="models-td-price">{{ fmtPrice(m.input_cost_per_token) }}</td>
+                <td class="models-td-price">{{ fmtPrice(m.output_cost_per_token) }}</td>
+                <td class="models-td-action">
+                  <button v-if="m.custom" class="models-remove-btn" @click="removeModel(m.id)" title="删除">×</button>
+                </td>
+              </tr>
+              <tr v-if="!sortedMyModels.length">
+                <td colspan="6" class="models-empty">无匹配模型</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="btn-group" style="margin-top:16px">
+          <button class="btn btn-primary" @click="saveMyModels" :disabled="saving">{{ saving ? '保存中…' : '保存配置' }}</button>
+          <span v-if="savedMsg" class="models-save-msg">{{ savedMsg }}</span>
+        </div>
       </div>
     </div>
 
-    <!-- 添加自定义模型面板 -->
-    <div v-show="showAddForm" class="models-add-panel">
-      <input class="form-input" v-model="addForm.id" placeholder="模型 ID" @keydown.enter="addCustomModel" autocomplete="off">
-      <input class="form-input" v-model="addForm.provider" placeholder="厂商" autocomplete="off">
-      <input class="form-input" v-model="addForm.input_price" placeholder="输入价格 ($/token)" autocomplete="off">
-      <input class="form-input" v-model="addForm.output_price" placeholder="输出价格 ($/token)" autocomplete="off">
-      <button class="btn btn-primary btn-sm" @click="addCustomModel" :disabled="!addForm.id.trim()">添加</button>
-      <button class="btn btn-ghost btn-sm" @click="showAddForm = false">取消</button>
-    </div>
-
-    <!-- 卡片：表格 -->
-    <div class="card" style="width:100%">
-      <div v-if="loading" class="models-loading">加载中…</div>
-
-      <div v-else class="models-table-wrap">
-        <table class="models-table">
-          <thead>
-            <tr>
-              <th class="models-th-check"><input type="checkbox" :checked="allVisibleEnabled" :indeterminate="someVisibleEnabled && !allVisibleEnabled" @change="toggleVisible"></th>
-              <th class="models-th-name" @click="toggleSort('id')">
-                模型名
-                <span class="models-sort-arrow" v-if="sortKey === 'id'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-              </th>
-              <th class="models-th-provider" @click="toggleSort('provider')">
-                提供商
-                <span class="models-sort-arrow" v-if="sortKey === 'provider'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-              </th>
-              <th class="models-th-price" @click="toggleSort('input')">
-                输入价格
-                <span class="models-sort-arrow" v-if="sortKey === 'input'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-              </th>
-              <th class="models-th-price" @click="toggleSort('output')">
-                输出价格
-                <span class="models-sort-arrow" v-if="sortKey === 'output'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
-              </th>
-              <th class="models-th-action"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="m in sortedModels" :key="m.id" :class="{ 'models-row-custom': m._custom }">
-              <td class="models-td-check"><input type="checkbox" :checked="enabledSet.has(m.id)" @change="toggleModel(m.id)"></td>
-              <td class="models-td-name" :title="m.id">{{ m.id }}<span v-if="m._custom" class="models-custom-badge">自定义</span></td>
-              <td class="models-td-provider">{{ m.provider || '-' }}</td>
-              <td class="models-td-price">{{ fmtPrice(m.input_cost_per_token) }}</td>
-              <td class="models-td-price">{{ fmtPrice(m.output_cost_per_token) }}</td>
-              <td class="models-td-action">
-                <button v-if="m._custom" class="models-remove-btn" @click="removeCustom(m.id)" title="删除">×</button>
-              </td>
-            </tr>
-            <tr v-if="!sortedModels.length">
-              <td colspan="6" class="models-empty">无匹配模型</td>
-            </tr>
-          </tbody>
-        </table>
+    <!-- Tab 2: Library -->
+    <div v-if="activeTab === 'library'" class="models-panel">
+      <div class="history-toolbar">
+        <div class="search-input-wrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="form-input" v-model="libSearch" placeholder="搜索模型名…" @input="debouncedLoadLibrary" autocomplete="off">
+        </div>
+        <div class="search-input-wrap" style="max-width:200px">
+          <input class="form-input" v-model="libVendor" placeholder="按厂商过滤…" @input="debouncedLoadLibrary" autocomplete="off">
+        </div>
+        <span class="models-count" style="margin-left:auto">共 {{ libTotal }} 个模型</span>
       </div>
 
-      <!-- 底部保存 -->
-      <div class="btn-group" style="margin-top:16px">
-        <button class="btn btn-primary" @click="save" :disabled="saving">
-          <span v-if="!saving">保存配置</span>
-          <span v-else>保存中…</span>
-        </button>
-        <span v-if="savedMsg" class="models-save-msg">{{ savedMsg }}</span>
+      <div class="card" style="width:100%">
+        <div v-if="libLoading" class="models-loading">加载中…</div>
+        <div v-else class="models-table-wrap">
+          <table class="models-table">
+            <thead>
+              <tr>
+                <th class="models-th-name">模型名</th>
+                <th class="models-th-provider">厂商</th>
+                <th class="models-th-price">输入价格</th>
+                <th class="models-th-price">输出价格</th>
+                <th style="width:80px">Max Tokens</th>
+                <th class="models-th-action">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in libModels" :key="m.id">
+                <td class="models-td-name" :title="m.id">{{ m.id }}</td>
+                <td class="models-td-provider">{{ m.provider || '-' }}</td>
+                <td class="models-td-price">{{ fmtPrice(m.input_cost_per_token) }}</td>
+                <td class="models-td-price">{{ fmtPrice(m.output_cost_per_token) }}</td>
+                <td style="font-size:11px;font-family:var(--font-mono)">{{ m.max_input_tokens ? fmtNum(m.max_input_tokens) : '-' }}</td>
+                <td class="models-td-action">
+                  <button v-if="myModelIds.has(m.id)" class="btn btn-ghost btn-sm" disabled style="opacity:0.5">已添加</button>
+                  <button v-else class="btn btn-ghost btn-sm" @click="addFromLibrary(m)">添加</button>
+                </td>
+              </tr>
+              <tr v-if="!libModels.length">
+                <td colspan="6" class="models-empty">无匹配模型</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Pagination -->
+        <div v-if="libTotal > libPageSize" class="models-pagination">
+          <button class="btn btn-ghost btn-sm" :disabled="libPage <= 1" @click="libPage--; loadLibrary()">上一页</button>
+          <span class="models-page-info">第 {{ libPage }} / {{ Math.ceil(libTotal / libPageSize) }} 页</span>
+          <button class="btn btn-ghost btn-sm" :disabled="libPage * libPageSize >= libTotal" @click="libPage++; loadLibrary()">下一页</button>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
-import { getPricingModels, getModelsConfig, putModelsConfig } from '../api';
+import { ref, computed, onMounted } from 'vue';
+import { getModelsConfig, putModelsConfig, getLibrary, getVendors } from '../api';
 import { toast } from '../composables/useToast';
 
-const loading = ref(true);
-const saving = ref(false);
-const savedMsg = ref('');
-const search = ref('');
-const filterProvider = ref('');
-const sortKey = ref('id');
-const sortDir = ref('asc');
-const showAddForm = ref(false);
+const activeTab = ref('my');
 
-const addForm = ref({ id: '', provider: '', input_price: '', output_price: '' });
+// ---- Shared ----
+const vendors = ref([]);
 
-// 提供商筛选 combobox
-const filterDropdownOpen = ref(false);
-const filterSearch = ref('');
-const filterComboboxRef = ref(null);
-
-const allModels = ref([]);
-const customModels = ref([]);
-const enabledSet = ref(new Set());
-
-onMounted(async () => {
-  try {
-    const [modelsRes, configRes] = await Promise.all([
-      getPricingModels(''),
-      getModelsConfig(),
-    ]);
-    allModels.value = modelsRes.models || [];
-    const enabled = configRes.enabled_models || [];
-    enabledSet.value = new Set(enabled);
-    const knownIds = new Set(allModels.value.map(m => m.id));
-    customModels.value = enabled
-      .filter(id => !knownIds.has(id))
-      .map(id => ({ id, provider: '', input_cost_per_token: 0, output_cost_per_token: 0, _custom: true }));
-  } catch (e) {
-    toast('加载模型列表失败: ' + e.message, 'error');
-  }
-  loading.value = false;
-});
-
-// 筛选 combobox handlers
-// 从实际数据提取所有提供商，按模型数量降序排列
-const filterOptions = computed(() => {
-  const counts = {};
-  for (const m of allModels.value) {
-    const p = m.provider || 'unknown';
-    counts[p] = (counts[p] || 0) + 1;
-  }
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([value, count]) => ({ value, label: `${value} (${count})` }));
-});
-
-const filterLabel = computed(() => {
-  const p = filterOptions.value.find(o => o.value === filterProvider.value);
-  return p ? p.value : '';
-});
-const filteredFilterOptions = computed(() => {
-  const q = (filterSearch.value || '').toLowerCase();
-  if (!q) return filterOptions.value;
-  return filterOptions.value.filter(p => p.value.toLowerCase().includes(q));
-});
-function onFilterFocus() { filterSearch.value = ''; filterDropdownOpen.value = true; }
-function onFilterInput(e) { filterSearch.value = e.target.value; filterDropdownOpen.value = true; }
-function selectFilterProvider(val) { filterProvider.value = val; filterDropdownOpen.value = false; filterSearch.value = ''; }
-
-// 筛选 combobox click-outside
-let filterListenerActive = false;
-function handleFilterOutside(e) {
-  if (filterComboboxRef.value && !filterComboboxRef.value.contains(e.target)) {
-    filterDropdownOpen.value = false;
-  }
-}
-watch(filterDropdownOpen, (open) => {
-  if (open) {
-    if (!filterListenerActive) {
-      filterListenerActive = true;
-      setTimeout(() => document.addEventListener('mousedown', handleFilterOutside), 0);
-    }
-  } else if (filterListenerActive) {
-    filterListenerActive = false;
-    document.removeEventListener('mousedown', handleFilterOutside);
-  }
-});
-
-const filteredModels = computed(() => {
-  let list = [...allModels.value, ...customModels.value];
-  const q = search.value.toLowerCase().trim();
-  if (q) list = list.filter(m => m.id.toLowerCase().includes(q));
-  if (filterProvider.value) list = list.filter(m => m.provider === filterProvider.value);
-  return list;
-});
-
-const sortedModels = computed(() => {
-  const list = filteredModels.value;
-  if (!sortKey.value) return list;
-  return [...list].sort((a, b) => {
-    let va, vb;
-    switch (sortKey.value) {
-      case 'id': va = a.id; vb = b.id; break;
-      case 'provider': va = a.provider || ''; vb = b.provider || ''; break;
-      case 'input': va = a.input_cost_per_token || 0; vb = b.input_cost_per_token || 0; break;
-      case 'output': va = a.output_cost_per_token || 0; vb = b.output_cost_per_token || 0; break;
-      default: return 0;
-    }
-    const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
-    return sortDir.value === 'asc' ? cmp : -cmp;
-  });
-});
-
-const visibleIds = computed(() => sortedModels.value.map(m => m.id));
-const allVisibleEnabled = computed(() =>
-  visibleIds.value.length > 0 && visibleIds.value.every(id => enabledSet.value.has(id))
-);
-const someVisibleEnabled = computed(() =>
-  visibleIds.value.some(id => enabledSet.value.has(id))
-);
-
-function toggleSort(key) {
-  if (sortKey.value === key) {
-    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
-  } else {
-    sortKey.value = key;
-    sortDir.value = key === 'id' ? 'asc' : 'desc';
-  }
-}
-
-function toggleModel(id) {
-  const s = new Set(enabledSet.value);
-  if (s.has(id)) s.delete(id); else s.add(id);
-  enabledSet.value = s;
-}
-
-function selectAll() {
-  const s = new Set(enabledSet.value);
-  for (const id of visibleIds.value) s.add(id);
-  enabledSet.value = s;
-}
-
-function selectNone() {
-  const s = new Set(enabledSet.value);
-  for (const id of visibleIds.value) s.delete(id);
-  enabledSet.value = s;
-}
-
-function toggleVisible() {
-  if (allVisibleEnabled.value) selectNone(); else selectAll();
-}
-
-function addCustomModel() {
-  const name = addForm.value.id.trim();
-  if (!name) return;
-  const all = [...allModels.value, ...customModels.value];
-  if (all.some(m => m.id === name)) {
-    toast('模型已存在', 'error');
-    return;
-  }
-  customModels.value.push({
-    id: name,
-    provider: addForm.value.provider.trim(),
-    input_cost_per_token: parseFloat(addForm.value.input_price) || 0,
-    output_cost_per_token: parseFloat(addForm.value.output_price) || 0,
-    _custom: true,
-  });
-  const s = new Set(enabledSet.value);
-  s.add(name);
-  enabledSet.value = s;
-  addForm.value = { id: '', provider: '', input_price: '', output_price: '' };
-}
-
-function removeCustom(id) {
-  customModels.value = customModels.value.filter(m => m.id !== id);
-  const s = new Set(enabledSet.value);
-  s.delete(id);
-  enabledSet.value = s;
+function vendorLabel(vendorId) {
+  const v = vendors.value.find(x => x.id === vendorId);
+  return v ? v.name : vendorId || '-';
 }
 
 function fmtPrice(v) {
@@ -282,13 +159,114 @@ function fmtPrice(v) {
   return '$' + (v * 1000000).toFixed(2) + '/M';
 }
 
-async function save() {
+function fmtNum(v) {
+  if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+  if (v >= 1000) return (v / 1000).toFixed(0) + 'K';
+  return String(v);
+}
+
+// ---- Tab 1: My Models ----
+const myLoading = ref(true);
+const saving = ref(false);
+const savedMsg = ref('');
+const mySearch = ref('');
+const myVendor = ref('');
+const sortKey = ref('id');
+const sortDir = ref('asc');
+const showAddForm = ref(false);
+const addForm = ref({ id: '', vendor: '' });
+
+const myModels = ref([]);
+const myModelIds = computed(() => new Set(myModels.value.map(m => m.id)));
+const enabledCount = computed(() => myModels.value.filter(m => m.enabled).length);
+
+const filteredMyModels = computed(() => {
+  let list = myModels.value;
+  const q = mySearch.value.toLowerCase().trim();
+  if (q) list = list.filter(m => m.id.toLowerCase().includes(q));
+  if (myVendor.value) list = list.filter(m => m.vendor === myVendor.value);
+  return list;
+});
+
+const sortedMyModels = computed(() => {
+  const list = [...filteredMyModels.value];
+  return list.sort((a, b) => {
+    let va, vb;
+    switch (sortKey.value) {
+      case 'id': va = a.id; vb = b.id; break;
+      case 'vendor': va = a.vendor || ''; vb = b.vendor || ''; break;
+      default: return 0;
+    }
+    const cmp = va.localeCompare(vb);
+    return sortDir.value === 'asc' ? cmp : -cmp;
+  });
+});
+
+const visibleIds = computed(() => sortedMyModels.value.map(m => m.id));
+const allVisibleEnabled = computed(() =>
+  visibleIds.value.length > 0 && visibleIds.value.every(id => {
+    const m = myModels.value.find(x => x.id === id);
+    return m?.enabled;
+  })
+);
+const someVisibleEnabled = computed(() =>
+  visibleIds.value.some(id => {
+    const m = myModels.value.find(x => x.id === id);
+    return m?.enabled;
+  })
+);
+
+function toggleSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortKey.value = key;
+    sortDir.value = 'asc';
+  }
+}
+
+function toggleModel(id) {
+  const m = myModels.value.find(x => x.id === id);
+  if (m) m.enabled = !m.enabled;
+}
+
+function toggleVisible() {
+  const target = !allVisibleEnabled.value;
+  for (const id of visibleIds.value) {
+    const m = myModels.value.find(x => x.id === id);
+    if (m) m.enabled = target;
+  }
+}
+
+function addCustomModel() {
+  const id = addForm.value.id.trim();
+  if (!id) return;
+  if (myModels.value.some(m => m.id === id)) {
+    toast('模型已存在', 'error');
+    return;
+  }
+  myModels.value.push({
+    id,
+    vendor: addForm.value.vendor,
+    enabled: true,
+    custom: true,
+  });
+  addForm.value = { id: '', vendor: '' };
+}
+
+function removeModel(id) {
+  myModels.value = myModels.value.filter(m => m.id !== id);
+}
+
+async function saveMyModels() {
   saving.value = true;
   savedMsg.value = '';
   try {
-    const models = [...enabledSet.value];
-    await putModelsConfig(models);
-    savedMsg.value = `已保存 ${models.length} 个模型`;
+    await putModelsConfig({
+      vendors: vendors.value,
+      models: myModels.value,
+    });
+    savedMsg.value = `已保存 ${myModels.value.length} 个模型`;
     toast('模型配置已保存', 'success');
     setTimeout(() => savedMsg.value = '', 3000);
   } catch (e) {
@@ -296,4 +274,128 @@ async function save() {
   }
   saving.value = false;
 }
+
+// ---- Tab 2: Library ----
+const libLoading = ref(false);
+const libSearch = ref('');
+const libVendor = ref('');
+const libModels = ref([]);
+const libTotal = ref(0);
+const libPage = ref(1);
+const libPageSize = 50;
+
+let libTimer = null;
+function debouncedLoadLibrary() {
+  clearTimeout(libTimer);
+  libTimer = setTimeout(() => { libPage.value = 1; loadLibrary(); }, 300);
+}
+
+async function loadLibrary() {
+  libLoading.value = true;
+  try {
+    const data = await getLibrary({
+      search: libSearch.value,
+      vendor: libVendor.value,
+      page: libPage.value,
+      pageSize: libPageSize,
+    });
+    libModels.value = data.models || [];
+    libTotal.value = data.total || 0;
+  } catch (e) {
+    toast('加载模型库失败: ' + e.message, 'error');
+  }
+  libLoading.value = false;
+}
+
+function addFromLibrary(model) {
+  if (myModels.value.some(m => m.id === model.id)) return;
+
+  let vendor = '';
+  const provider = (model.provider || '').toLowerCase();
+  for (const v of vendors.value) {
+    if (provider.includes(v.id)) {
+      vendor = v.id;
+      break;
+    }
+  }
+
+  myModels.value.push({
+    id: model.id,
+    vendor,
+    enabled: true,
+  });
+  toast(`已添加 ${model.id}`, 'success');
+}
+
+// ---- Init ----
+onMounted(async () => {
+  try {
+    const [configRes, vendorsRes] = await Promise.all([
+      getModelsConfig(),
+      getVendors(),
+    ]);
+    vendors.value = vendorsRes.vendors || [];
+    myModels.value = configRes.models || [];
+  } catch (e) {
+    toast('加载失败: ' + e.message, 'error');
+  }
+  myLoading.value = false;
+});
 </script>
+
+<style scoped>
+/* ---- Tab Navigation ---- */
+.models-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.models-tab {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.models-tab:hover {
+  color: var(--text-primary);
+}
+
+.models-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.models-panel {
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Pagination ---- */
+.models-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.models-page-info {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+</style>
