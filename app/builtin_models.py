@@ -38,6 +38,7 @@ DEFAULT_MODELS = [
     {"id": "glm-4-plus", "vendor": "zhipu", "enabled": True},
     {"id": "moonshot-v1-auto", "vendor": "moonshot", "enabled": True},
     {"id": "doubao-pro-32k", "vendor": "bytedance", "enabled": True},
+    {"id": "command-r-plus", "vendor": "cohere", "enabled": True},
 ]
 
 _JSON_FILENAME = "builtin_models.json"
@@ -118,6 +119,8 @@ class BuiltinModelsManager:
             return "moonshot"
         if "doubao" in mid:
             return "bytedance"
+        if "command-r" in mid or "cohere" in mid:
+            return "cohere"
         return ""
 
     def _save(self, data: Optional[dict] = None):

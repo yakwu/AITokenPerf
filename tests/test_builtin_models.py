@@ -152,3 +152,11 @@ def test_migrate_from_old_config(tmp_path):
     assert "custom-xyz" in ids
     custom = next(m for m in models if m["id"] == "custom-xyz")
     assert custom.get("custom") is True
+
+    claude_model = next(m for m in models if m["id"] == "claude-opus-4-6")
+    assert claude_model["vendor"] == "anthropic"
+
+    gpt_model = next(m for m in models if m["id"] == "gpt-5.2")
+    assert gpt_model["vendor"] == "openai"
+
+    assert custom["vendor"] == ""  # unknown model, no vendor guessed
