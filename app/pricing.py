@@ -25,22 +25,7 @@ _FETCH_TIMEOUT = 10  # seconds，从 30s 缩短
 _CACHE_PATH = Path(__file__).parent.parent / "data" / "pricing_cache.json"
 
 log = logging.getLogger("pricing")
-_MODELS_CONFIG_PATH = Path(__file__).parent.parent / "data" / "models_config.json"
 _REFRESH_INTERVAL = 86400  # 24 hours
-
-# 用于过滤模型名的关键词 — 每个 provider 对应一组模型名关键词
-PROVIDER_MODEL_KEYWORDS = {
-    "anthropic": ["claude"],
-    "openai": ["gpt-", "o1", "o3", "o4", "chatgpt"],
-    "deepseek": ["deepseek"],
-    "qwen": ["qwen", "qwq"],
-    "google": ["gemini", "gemma", "palm"],
-    "mistral": ["mistral", "mixtral", "codestral", "pixtral"],
-    "cohere": ["command", "cohere"],
-    "bytedance": ["doubao", "bytedance"],
-    "zhipu": ["glm", "chatglm", "zhipu"],
-    "moonshot": ["moonshot", "kimi"],
-}
 
 
 class PricingService:
@@ -168,56 +153,38 @@ class PricingService:
 
         return None
 
-    def get_models_by_provider(self, provider: str = "", enabled_only: bool = False) -> list[dict]:
-        """按 provider 过滤返回模型列表，用于前端下拉框"""
+    def get_library(
+        self, search: str = "", vendor: str = "",
+        page: int = 1, page_size: int = 50,
+    ) -> dict:
+        """浏览 LiteLLM 全量模型数据，支持搜索和分页"""
         if not self._cache:
-            return []
+            return {"models": [], "total": 0, "page": page, "page_size": page_size}
 
-        enabled = set()
-        if enabled_only:
-            enabled = set(self.get_enabled_models())
+        items = list(self._cache.items())
 
-        if not provider or provider == "other":
-            items = list(self._cache.items())
-        else:
-            # 按关键词匹配模型名
-            keywords = PROVIDER_MODEL_KEYWORDS.get(provider, [])
-            if not keywords:
-                items = list(self._cache.items())
-            else:
-                items = []
-                for key, info in self._cache.items():
-                    key_lower = key.lower()
-                    if any(kw in key_lower for kw in keywords):
-                        items.append((key, info))
+        if search:
+            search_lower = search.lower()
+            items = [(k, v) for k, v in items if search_lower in k.lower()]
 
-        if enabled:
-            items = [(k, v) for k, v in items if k in enabled]
+        if vendor:
+            vendor_lower = vendor.lower()
+            items = [
+                (k, v) for k, v in items
+                if vendor_lower in (v.get("litellm_provider") or "").lower()
+            ]
 
-        return self._format_model_list(items)
+        total = len(items)
+        items.sort(key=lambda x: x[0])
+        start = (page - 1) * page_size
+        items = items[start:start + page_size]
 
-    # ---- 模型启用配置 ----
-
-    def get_enabled_models(self) -> list[str]:
-        """返回用户启用的模型列表，空列表 = 全部启用"""
-        try:
-            if _MODELS_CONFIG_PATH.exists():
-                data = json.loads(_MODELS_CONFIG_PATH.read_text(encoding="utf-8"))
-                return data.get("enabled_models", [])
-        except Exception:
-            pass
-        return []
-
-    def save_enabled_models(self, models: list[str]):
-        """保存用户启用的模型列表"""
-        _MODELS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _MODELS_CONFIG_PATH.write_text(
-            json.dumps(
-                {"enabled_models": models, "updated_at": time.time()},
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
+        return {
+            "models": self._format_model_list(items),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     @staticmethod
     def _format_model_list(items: list) -> list[dict]:

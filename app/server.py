@@ -1451,36 +1451,78 @@ async def list_models(request: Request, user: dict = Depends(get_current_user)):
         return JSONResponse({"error": str(e)}, status_code=502)
 
 
-# ---- Pricing ----
+# ---- Pricing / Models ----
+
+@app.get("/api/pricing/vendors")
+async def pricing_vendors(user: dict = Depends(get_current_user)):
+    """返回厂商列表"""
+    from app.builtin_models import builtin_models_manager
+    return {"vendors": builtin_models_manager.get_vendors()}
+
 
 @app.get("/api/pricing/models")
 async def pricing_models(
-    provider: str = Query(""),
+    vendor: str = Query(""),
     enabled_only: bool = Query(False),
     user: dict = Depends(get_current_user),
 ):
-    """按 provider 返回 LiteLLM 价格库中的模型列表"""
+    """返回内置模型列表，附带 LiteLLM 价格信息"""
+    from app.builtin_models import builtin_models_manager
     from app.pricing import pricing_service
-    models = pricing_service.get_models_by_provider(provider, enabled_only=enabled_only)
+    models = builtin_models_manager.get_builtin_models(vendor=vendor, enabled_only=enabled_only)
+    for m in models:
+        pricing = pricing_service.get_pricing(m["id"])
+        if pricing:
+            m["input_cost_per_token"] = pricing.get("input_cost_per_token", 0)
+            m["output_cost_per_token"] = pricing.get("output_cost_per_token", 0)
+        else:
+            m.setdefault("input_cost_per_token", 0)
+            m.setdefault("output_cost_per_token", 0)
     return {"models": models, "total": len(models)}
 
 
 @app.get("/api/pricing/models-config")
 async def get_models_config(user: dict = Depends(get_current_user)):
-    """返回用户启用的模型列表"""
+    """返回完整的内置模型配置（含 LiteLLM 价格）"""
+    from app.builtin_models import builtin_models_manager
     from app.pricing import pricing_service
-    return {"enabled_models": pricing_service.get_enabled_models()}
+    models = builtin_models_manager.get_builtin_models()
+    for m in models:
+        pricing = pricing_service.get_pricing(m["id"])
+        if pricing:
+            m["input_cost_per_token"] = pricing.get("input_cost_per_token", 0)
+            m["output_cost_per_token"] = pricing.get("output_cost_per_token", 0)
+        else:
+            m.setdefault("input_cost_per_token", 0)
+            m.setdefault("output_cost_per_token", 0)
+    return {
+        "vendors": builtin_models_manager.get_vendors(),
+        "models": models,
+    }
 
 
 @app.put("/api/pricing/models-config")
 async def put_models_config(body: dict, user: dict = Depends(require_admin)):
-    """管理员保存全局启用的模型列表"""
-    from app.pricing import pricing_service
-    models = body.get("enabled_models", [])
+    """管理员保存内置模型配置"""
+    from app.builtin_models import builtin_models_manager
+    models = body.get("models")
     if not isinstance(models, list):
-        return JSONResponse({"error": "enabled_models must be a list"}, status_code=400)
-    pricing_service.save_enabled_models(models)
+        return JSONResponse({"error": "models must be a list"}, status_code=400)
+    builtin_models_manager.save_builtin_models(body)
     return {"ok": True, "count": len(models)}
+
+
+@app.get("/api/pricing/library")
+async def pricing_library(
+    search: str = Query(""),
+    vendor: str = Query(""),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    user: dict = Depends(get_current_user),
+):
+    """浏览 LiteLLM 全量模型库"""
+    from app.pricing import pricing_service
+    return pricing_service.get_library(search=search, vendor=vendor, page=page, page_size=page_size)
 
 
 @app.post("/api/pricing/refresh")
