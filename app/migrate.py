@@ -171,6 +171,10 @@ async def _migrate_schema():
             await conn.execute(text("ALTER TABLE profiles ADD COLUMN protocol TEXT NOT NULL DEFAULT ''"))
             log.info("schema 迁移: profiles 表添加 protocol 列")
 
+        if "custom_endpoint" not in columns:
+            await conn.execute(text("ALTER TABLE profiles ADD COLUMN custom_endpoint INTEGER NOT NULL DEFAULT 0"))
+            log.info("schema 迁移: profiles 表添加 custom_endpoint 列")
+
     # scheduled_tasks 表新增 locked_until 列（分布式锁）
     async with engine.begin() as conn:
         if _is_sqlite:

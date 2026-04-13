@@ -16,7 +16,12 @@
         <!-- Base URL -->
         <div class="form-group">
           <label class="form-label">目标地址</label>
-          <input class="form-input" v-model="form.base_url" placeholder="https://api.anthropic.com">
+          <input class="form-input" v-model="form.base_url" :placeholder="form.custom_endpoint ? 'https://open.bigmodel.cn/api/paas/v4/chat/completions' : 'https://api.anthropic.com'">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.custom_endpoint">
+            <span>完整 URL 模式</span>
+            <span class="form-hint">勾选后不再自动追加 /v1/chat/completions 等路径后缀</span>
+          </label>
         </div>
 
         <!-- API Key -->
@@ -31,47 +36,15 @@
           </div>
         </div>
 
-        <!-- Provider -->
-        <div class="form-group">
-          <label class="form-label">模型厂商</label>
-          <div class="combobox" ref="providerComboboxRef">
-            <input class="form-input" :value="providerDropdownOpen ? providerSearch : providerLabel" :placeholder="'选择模型厂商'" @focus="onProviderFocus" @input="onProviderInput($event)" @keydown.escape="providerDropdownOpen = false" readonly autocomplete="off">
-            <button class="combobox-toggle" type="button" @click.stop="providerDropdownOpen = !providerDropdownOpen" @mousedown.prevent>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-            </button>
-            <div class="combobox-dropdown" v-show="providerDropdownOpen">
-              <div class="combobox-option" :class="{ active: form.provider === '' }" @mousedown.prevent="selectProvider('')">全部</div>
-              <div v-for="p in filteredProviders" :key="p.value" class="combobox-option" :class="{ active: form.provider === p.value }" @mousedown.prevent="selectProvider(p.value)">{{ p.label }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Models (tag-style combobox) -->
+        <!-- Models -->
         <div class="form-group form-group--full">
           <label class="form-label">绑定模型</label>
-          <div class="combobox" ref="comboboxRef">
-            <div class="model-tags-input" @click="modelDropdownOpen = true">
-              <span v-for="(m, i) in form.models" :key="m" class="model-tag">
-                {{ m }}
-                <button type="button" class="model-tag-remove" @click.stop="removeModel(i)">&times;</button>
-              </span>
-              <input class="model-tag-search" v-model="modelSearch" :placeholder="form.models.length ? '' : '选择或输入模型 ID'" @focus="modelDropdownOpen = true" @keydown.enter.prevent="addModelFromSearch()" @keydown.backspace="onModelBackspace()" @keydown.escape="modelDropdownOpen = false" autocomplete="off" ref="modelSearchInputRef">
-            </div>
-            <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-            </button>
-            <div class="combobox-dropdown" v-show="modelDropdownOpen">
-              <template v-for="m in filteredModels" :key="m.id || m">
-                <div class="combobox-option" :class="{ active: form.models.includes(m.id || m) }" @mousedown.prevent="selectModel(m)">{{ m.id || m }}</div>
-              </template>
-              <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">无匹配模型，按回车添加「{{ modelSearch }}」</div>
-              <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch">
-                <span v-if="modelsApiLoading">正在获取模型列表...</span>
-                <span v-else-if="form.provider">该厂商下暂无模型数据</span>
-                <span v-else>请先选择模型厂商</span>
-              </div>
-            </div>
-          </div>
+          <ModelSelector
+            v-model="form.models"
+            :vendor-filter="true"
+            :allow-custom="true"
+            placeholder="选择或输入模型 ID"
+          />
         </div>
       </div>
 
@@ -102,82 +75,30 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, watch } from 'vue';
 import { api } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
+import ModelSelector from './ModelSelector.vue';
 
 const props = defineProps({
   profile: { type: Object, required: true },
 });
 const emit = defineEmits(['deleted']);
 
-const router = useRouter();
-
-// ---- Template refs ----
-const comboboxRef = ref(null);
-const providerComboboxRef = ref(null);
-const modelSearchInputRef = ref(null);
-
 // ---- Form state ----
 const form = ref({
   base_url: '',
   api_key: '',
   models: [],
-  provider: '',
+  custom_endpoint: false,
 });
 const showApiKey = ref(false);
 const confirmDelete = ref(false);
 const formDirty = ref(false);
 const savedConfig = ref(null);
 
-// ---- Model combobox ----
-const knownModels = ref([]);
-const modelsApiLoading = ref(false);
-const modelDropdownOpen = ref(false);
-const modelSearch = ref('');
-
-// ---- Provider combobox ----
-const providerDropdownOpen = ref(false);
-const providerSearch = ref('');
-const providerOptions = [
-  { value: 'anthropic', label: 'Anthropic (Claude)' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'qwen', label: 'Qwen (通义千问)' },
-  { value: 'google', label: 'Google (Gemini)' },
-  { value: 'mistral', label: 'Mistral' },
-  { value: 'cohere', label: 'Cohere' },
-  { value: 'bytedance', label: '字节 (豆包)' },
-  { value: 'zhipu', label: '智谱 (GLM)' },
-  { value: 'moonshot', label: 'Moonshot (Kimi)' },
-  { value: 'other', label: '其他' },
-];
-
 // ---- Connectivity test ----
 const testing = ref(false);
-
-// ---- Computed ----
-const filteredModels = computed(() => {
-  const q = (modelSearch.value || '').toLowerCase();
-  const models = knownModels.value;
-  if (!q) return models;
-  return models.filter(m => {
-    const id = typeof m === 'string' ? m : (m.id || '');
-    return id.toLowerCase().includes(q);
-  });
-});
-
-const providerLabel = computed(() => {
-  const p = providerOptions.find(o => o.value === form.value.provider);
-  return p ? p.label : '';
-});
-
-const filteredProviders = computed(() => {
-  const q = (providerSearch.value || '').toLowerCase();
-  if (!q) return providerOptions;
-  return providerOptions.filter(p => p.label.toLowerCase().includes(q) || p.value.toLowerCase().includes(q));
-});
 
 // ---- Init form from profile ----
 function initForm() {
@@ -185,7 +106,7 @@ function initForm() {
   form.value.base_url = props.profile.base_url || '';
   form.value.api_key = props.profile.api_key_display || props.profile.api_key || '';
   form.value.models = props.profile.models || (props.profile.model ? [props.profile.model] : []);
-  form.value.provider = props.profile.provider || '';
+  form.value.custom_endpoint = !!props.profile.custom_endpoint;
   snapshotConfig();
 }
 
@@ -194,7 +115,7 @@ function snapshotConfig() {
     base_url: form.value.base_url,
     api_key: form.value.api_key,
     models: [...form.value.models],
-    provider: form.value.provider,
+    custom_endpoint: form.value.custom_endpoint,
   };
   formDirty.value = false;
 }
@@ -206,7 +127,7 @@ function checkDirty() {
     form.value.base_url !== (s.base_url || '') ||
     form.value.api_key !== (s.api_key || '') ||
     JSON.stringify(form.value.models) !== JSON.stringify(s.models || []) ||
-    form.value.provider !== (s.provider || '')
+    form.value.custom_endpoint !== (s.custom_endpoint || false)
   );
 }
 
@@ -214,124 +135,11 @@ function checkDirty() {
 watch(() => form.value.base_url, () => checkDirty());
 watch(() => form.value.api_key, () => checkDirty());
 watch(() => form.value.models, () => checkDirty(), { deep: true });
-watch(() => form.value.provider, () => checkDirty());
+watch(() => form.value.custom_endpoint, () => checkDirty());
 
 watch(() => props.profile, () => {
   initForm();
-  if (props.profile?.provider) loadKnownModels(props.profile.provider);
 }, { immediate: true });
-
-// ---- Model combobox ----
-function addModel(name) {
-  const n = name.trim();
-  if (!n || form.value.models.includes(n)) return;
-  form.value.models.push(n);
-}
-
-function removeModel(index) {
-  form.value.models.splice(index, 1);
-}
-
-function selectModel(m) {
-  const id = typeof m === 'string' ? m : (m.id || '');
-  addModel(id);
-  modelSearch.value = '';
-  modelDropdownOpen.value = false;
-}
-
-function addModelFromSearch() {
-  if (modelSearch.value) {
-    addModel(modelSearch.value);
-    modelSearch.value = '';
-  }
-}
-
-function onModelBackspace() {
-  if (!modelSearch.value && form.value.models.length) {
-    form.value.models.pop();
-  }
-}
-
-// Click outside for model combobox
-let modelListenerActive = false;
-function handleModelOutside(e) {
-  if (comboboxRef.value && !comboboxRef.value.contains(e.target)) {
-    if (modelSearch.value) {
-      addModel(modelSearch.value);
-      modelSearch.value = '';
-    }
-    modelDropdownOpen.value = false;
-  }
-}
-function addModelListener() {
-  if (modelListenerActive) return;
-  modelListenerActive = true;
-  setTimeout(() => document.addEventListener('mousedown', handleModelOutside), 0);
-}
-function removeModelListener() {
-  if (!modelListenerActive) return;
-  modelListenerActive = false;
-  document.removeEventListener('mousedown', handleModelOutside);
-}
-watch(modelDropdownOpen, (open) => {
-  if (open) addModelListener(); else removeModelListener();
-});
-
-// ---- Provider combobox ----
-function onProviderFocus() {
-  providerSearch.value = '';
-  providerDropdownOpen.value = true;
-}
-
-function onProviderInput(e) {
-  providerSearch.value = e.target.value;
-  providerDropdownOpen.value = true;
-}
-
-function selectProvider(val) {
-  form.value.provider = val;
-  providerDropdownOpen.value = false;
-  providerSearch.value = '';
-  checkDirty();
-  loadKnownModels(val);
-}
-
-// Click outside for provider combobox
-let providerListenerActive = false;
-function handleProviderOutside(e) {
-  if (providerComboboxRef.value && !providerComboboxRef.value.contains(e.target)) {
-    providerDropdownOpen.value = false;
-  }
-}
-watch(providerDropdownOpen, (open) => {
-  if (open) {
-    if (!providerListenerActive) {
-      providerListenerActive = true;
-      setTimeout(() => document.addEventListener('mousedown', handleProviderOutside), 0);
-    }
-  } else {
-    if (providerListenerActive) {
-      providerListenerActive = false;
-      document.removeEventListener('mousedown', handleProviderOutside);
-    }
-  }
-});
-
-// ---- Load known models ----
-async function loadKnownModels(provider) {
-  modelsApiLoading.value = true;
-  try {
-    const params = new URLSearchParams();
-    if (provider) params.set('provider', provider);
-    params.set('enabled_only', 'true');
-    const data = await api(`/api/pricing/models?${params}`);
-    knownModels.value = data.models || [];
-  } catch {
-    knownModels.value = [];
-  } finally {
-    modelsApiLoading.value = false;
-  }
-}
 
 // ---- Validation ----
 function canSave() {
@@ -370,7 +178,7 @@ async function saveProfile() {
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         models: form.value.models,
-        provider: form.value.provider,
+        custom_endpoint: form.value.custom_endpoint,
         api_version: '2023-06-01',
       }),
     });
@@ -392,7 +200,6 @@ async function dryRunTest() {
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         model: form.value.models[0] || '',
-        provider: form.value.provider,
         concurrency_levels: [1],
         requests_per_level: 1,
         mode: 'burst',
@@ -422,20 +229,6 @@ async function doDelete() {
   }
 }
 
-// ---- Cleanup ----
-onUnmounted(() => {
-  removeModelListener();
-  if (providerListenerActive) {
-    document.removeEventListener('mousedown', handleProviderOutside);
-  }
-});
-
-// ---- Init ----
-onMounted(() => {
-  if (props.profile?.provider) {
-    loadKnownModels(props.profile.provider);
-  }
-});
 </script>
 
 <style scoped>
@@ -505,6 +298,28 @@ onMounted(() => {
 .btn-danger-text:hover {
   background: var(--danger-light);
   color: var(--danger);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.form-hint {
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 @media (max-width: 768px) {

@@ -38,25 +38,53 @@
           </div>
           <div class="form-group">
             <label class="form-label">选择模型</label>
-            <div class="combobox">
-              <div class="model-tags-input" @click.stop>
+            <div class="combobox" ref="createModelComboRef">
+              <div class="model-tags-input" @click.stop="createModelDropdownOpen = true">
                 <span v-for="(m, i) in createForm.models" :key="m" class="model-tag">
                   {{ m }}
                   <button type="button" class="model-tag-remove" @click.stop="createForm.models.splice(i, 1)">&times;</button>
                 </span>
-                <input class="model-tag-search" v-model="createModelSearch" :placeholder="createForm.models.length ? '' : '选择或搜索模型'" @focus.stop @keydown.enter.prevent="addCreateModel()" @keydown.backspace="createForm.models.length && !createModelSearch && createForm.models.pop()" autocomplete="off">
+                <input class="model-tag-search" v-model="createModelSearch" :placeholder="createForm.models.length ? '' : '选择或搜索模型'" @focus.stop="createModelDropdownOpen = true" @keydown.enter.prevent="addCreateModel()" @keydown.backspace="createForm.models.length && !createModelSearch && createForm.models.pop()" @keydown.escape="createModelDropdownOpen = false" autocomplete="off">
               </div>
-              <div class="combobox-dropdown" v-show="true" style="position:relative;display:block;border:none;box-shadow:none;max-height:160px">
+              <button class="combobox-toggle" type="button" @click.stop="createModelDropdownOpen = !createModelDropdownOpen" @mousedown.prevent>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+              </button>
+              <div class="combobox-dropdown" v-show="createModelDropdownOpen">
                 <div v-for="m in filteredCreateModels" :key="m" class="combobox-option" :class="{ active: createForm.models.includes(m) }" @mousedown.prevent="toggleCreateModel(m)">{{ m }}</div>
                 <div class="combobox-empty" v-show="!filteredCreateModels.length && createModelSearch">无匹配，按回车添加「{{ createModelSearch }}」</div>
+                <div class="combobox-empty" v-show="!filteredCreateModels.length && !createModelSearch">站点未配置模型</div>
               </div>
-              <div class="form-hint" v-if="!profileModels.length" style="margin-top:4px">站点未配置模型，请先在配置 Tab 中添加</div>
             </div>
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="form-group">
+            <label class="form-label">并发数</label>
+            <input class="form-input" type="number" v-model.number="createForm.concurrency" min="1" max="100" placeholder="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">测试模式</label>
+            <div class="time-range-pills">
+              <button class="time-range-pill" :class="{ active: createForm.mode === 'burst' }" @click="createForm.mode = 'burst'">突发</button>
+              <button class="time-range-pill" :class="{ active: createForm.mode === 'sustained' }" @click="createForm.mode = 'sustained'">持续</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">超时 (秒)</label>
+            <input class="form-input" type="number" v-model.number="createForm.timeout" min="10" placeholder="120">
+          </div>
+          <div class="form-group">
+            <label class="form-label">持续时长 (秒)</label>
+            <input class="form-input" type="number" v-model.number="createForm.duration" min="10" placeholder="120">
+          </div>
+          <div class="form-group">
+            <label class="form-label">最大 Token</label>
+            <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
           </div>
         </div>
         <div class="create-form-notice">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          并发、模式、超时等参数继承自站点测试配置
+          测试参数（并发、模式、超时等）可在创建后编辑
         </div>
         <div class="btn-group" style="margin-top:12px">
           <button class="btn btn-primary" @click="createSchedule" :disabled="createLoading">
@@ -176,15 +204,18 @@
         </div>
         <div class="form-group">
           <label class="form-label">选择模型</label>
-          <div class="combobox">
-            <div class="model-tags-input" @click.stop>
+          <div class="combobox" ref="editModelComboRef">
+            <div class="model-tags-input" @click.stop="editModelDropdownOpen = true">
               <span v-for="(m, i) in editForm.models" :key="m" class="model-tag">
                 {{ m }}
                 <button type="button" class="model-tag-remove" @click.stop="editForm.models.splice(i, 1)">&times;</button>
               </span>
-              <input class="model-tag-search" v-model="editModelSearch" :placeholder="editForm.models.length ? '' : '选择或搜索模型'" @focus.stop @keydown.enter.prevent="addEditModel()" @keydown.backspace="editForm.models.length && !editModelSearch && editForm.models.pop()" autocomplete="off">
+              <input class="model-tag-search" v-model="editModelSearch" :placeholder="editForm.models.length ? '' : '选择或搜索模型'" @focus.stop="editModelDropdownOpen = true" @keydown.enter.prevent="addEditModel()" @keydown.backspace="editForm.models.length && !editModelSearch && editForm.models.pop()" @keydown.escape="editModelDropdownOpen = false" autocomplete="off">
             </div>
-            <div class="combobox-dropdown" v-show="true" style="position:relative;display:block;border:none;box-shadow:none;max-height:160px">
+            <button class="combobox-toggle" type="button" @click.stop="editModelDropdownOpen = !editModelDropdownOpen" @mousedown.prevent>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+            </button>
+            <div class="combobox-dropdown" v-show="editModelDropdownOpen">
               <div v-for="m in filteredEditModels" :key="m" class="combobox-option" :class="{ active: editForm.models.includes(m) }" @mousedown.prevent="toggleEditModel(m)">{{ m }}</div>
               <div class="combobox-empty" v-show="!filteredEditModels.length && editModelSearch">无匹配，按回车添加「{{ editModelSearch }}」</div>
             </div>
@@ -203,7 +234,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   getSchedules,
   createScheduleApi,
@@ -254,6 +285,11 @@ function defaultCreateForm() {
     name: '',
     schedule_value: 300,
     models: [],
+    concurrency: 1,
+    mode: 'burst',
+    max_tokens: 512,
+    timeout: 120,
+    duration: 120,
   };
 }
 
@@ -272,6 +308,7 @@ function toggleCreateForm() {
   if (showCreateForm.value) {
     createForm.value = defaultCreateForm();
     frequencyPreset.value = '300';
+    createModelDropdownOpen.value = false;
   }
 }
 
@@ -288,6 +325,10 @@ const editForm = ref({
 // ---- Multi-model select ----
 const createModelSearch = ref('');
 const editModelSearch = ref('');
+const createModelDropdownOpen = ref(false);
+const editModelDropdownOpen = ref(false);
+const createModelComboRef = ref(null);
+const editModelComboRef = ref(null);
 
 const filteredCreateModels = computed(() => {
   const q = (createModelSearch.value || '').toLowerCase();
@@ -436,11 +477,11 @@ async function createSchedule() {
       name: f.name.trim(),
       profile_ids: [props.profile.name],
       configs_json: {
-        concurrency_levels: [10],
-        mode: 'burst',
-        max_tokens: 512,
-        timeout: 120,
-        duration: 120,
+        concurrency_levels: [parseInt(f.concurrency) || 1],
+        mode: f.mode || 'burst',
+        max_tokens: parseInt(f.max_tokens) || 512,
+        timeout: parseInt(f.timeout) || 120,
+        duration: parseInt(f.duration) || 120,
         models: f.models,
       },
       schedule_type: 'interval',
@@ -538,8 +579,17 @@ async function confirmDelete(id) {
 }
 
 // ---- Init ----
+function handleDocClick(e) {
+  if (createModelComboRef.value && !createModelComboRef.value.contains(e.target)) createModelDropdownOpen.value = false;
+  if (editModelComboRef.value && !editModelComboRef.value.contains(e.target)) editModelDropdownOpen.value = false;
+}
+
 onMounted(() => {
   refreshSchedules();
+  document.addEventListener('mousedown', handleDocClick);
+});
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleDocClick);
 });
 </script>
 

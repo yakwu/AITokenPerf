@@ -90,8 +90,13 @@ export const getModels = (baseUrl, apiKey) =>
   api('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base_url: baseUrl, api_key: apiKey }) });
 
 // Pricing / Model Config
+export const getVendors = () => api('/api/pricing/vendors');
 export const getModelsConfig = () => api('/api/pricing/models-config');
-export const putModelsConfig = (enabledModels) =>
-  api('/api/pricing/models-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled_models: enabledModels }) });
-export const getPricingModels = (provider = '') =>
-  api(`/api/pricing/models?provider=${encodeURIComponent(provider)}`);
+export const putModelsConfig = (data) =>
+  api('/api/pricing/models-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+export const getPricingModels = (vendor = '', enabledOnly = false) =>
+  api(`/api/pricing/models?vendor=${encodeURIComponent(vendor)}${enabledOnly ? '&enabled_only=true' : ''}`);
+export const getLibrary = ({ search = '', vendor = '', page = 1, pageSize = 50 } = {}) => {
+  const params = new URLSearchParams({ search, vendor, page, page_size: pageSize });
+  return api(`/api/pricing/library?${params}`);
+};

@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     model       TEXT NOT NULL DEFAULT '',
     provider    TEXT NOT NULL DEFAULT '',
     protocol    TEXT NOT NULL DEFAULT '',
+    custom_endpoint INTEGER NOT NULL DEFAULT 0,
     is_active   INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -382,6 +383,8 @@ def _normalize_profile_models(p: dict):
         p["models"] = []
     # 保留 model 字段为第一个模型（向后兼容）
     p["model"] = p["models"][0] if p["models"] else ""
+    # custom_endpoint: DB 存 0/1，API 返回 bool
+    p["custom_endpoint"] = bool(p.get("custom_endpoint"))
 
 
 async def get_profiles(user_id: int) -> list[dict]:
@@ -416,6 +419,7 @@ async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: s
                           api_version: str = "2023-06-01", models: list = None,
                           model: str = "",  # 向后兼容
                           provider: str = "", protocol: str = "",
+                          custom_endpoint: int = 0,
                           set_active: bool = True):
     # 向后兼容：如果传了 model 字符串，包装为列表
     if models is None and model:
@@ -437,16 +441,17 @@ async def upsert_profile(user_id: int, name: str, base_url: str = "", api_key: s
 
         active_val = 1 if _is_sqlite else True
         await conn.execute(
-            text(f"""INSERT INTO profiles (user_id, name, base_url, api_key, api_version, model, provider, protocol, is_active)
-                     VALUES (:uid, :name, :base_url, :api_key, :api_version, :model, :provider, :protocol, :active)
+            text(f"""INSERT INTO profiles (user_id, name, base_url, api_key, api_version, model, provider, protocol, custom_endpoint, is_active)
+                     VALUES (:uid, :name, :base_url, :api_key, :api_version, :model, :provider, :protocol, :custom_endpoint, :active)
                      ON CONFLICT(user_id, name) DO UPDATE SET
                        base_url=excluded.base_url, api_key=excluded.api_key,
                        api_version=excluded.api_version, model=excluded.model,
                        provider=excluded.provider, protocol=excluded.protocol,
+                       custom_endpoint=excluded.custom_endpoint,
                        is_active=excluded.is_active, updated_at={_now_sql()}"""),
             {"uid": user_id, "name": name, "base_url": base_url, "api_key": api_key,
              "api_version": api_version, "model": model_json, "provider": provider,
-             "protocol": protocol, "active": active_val},
+             "protocol": protocol, "custom_endpoint": custom_endpoint, "active": active_val},
         )
 
 

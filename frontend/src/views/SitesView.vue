@@ -112,6 +112,49 @@
       </div>
     </div>
 
+    <!-- Create Site Modal -->
+    <ModalOverlay :show="showCreateModal" title="新建站点" max-width="520px" @close="showCreateModal = false">
+      <div class="create-site-form">
+        <div class="form-group">
+          <label class="form-label">站点名称 <span class="required">*</span></label>
+          <input ref="createNameRef" class="form-input" v-model="createForm.name" placeholder="例如：生产环境 GPT-4" @keydown.enter="submitCreate">
+          <div class="form-error" v-if="createErrors.name">{{ createErrors.name }}</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">目标地址 <span class="required">*</span></label>
+          <input class="form-input" v-model="createForm.base_url" placeholder="https://api.openai.com">
+          <div class="form-error" v-if="createErrors.base_url">{{ createErrors.base_url }}</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Key <span class="required">*</span></label>
+          <div class="api-key-row">
+            <input class="form-input" :type="showApiKey ? 'text' : 'password'" v-model="createForm.api_key" placeholder="sk-...">
+            <button class="btn btn-ghost btn-sm" @click="showApiKey = !showApiKey" style="flex-shrink:0">
+              {{ showApiKey ? '隐藏' : '显示' }}
+            </button>
+          </div>
+          <div class="form-error" v-if="createErrors.api_key">{{ createErrors.api_key }}</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">模型 <span class="required">*</span></label>
+          <ModelSelector
+            v-model="createForm.models"
+            :vendor-filter="true"
+            :allow-custom="true"
+            placeholder="搜索或选择模型"
+          />
+          <div class="form-hint" v-if="!createForm.models.length && !createErrors.models" style="margin-top:4px">从列表选择或手动输入模型 ID 后回车</div>
+          <div class="form-error" v-if="createErrors.models">{{ createErrors.models }}</div>
+        </div>
+      </div>
+      <div class="btn-group" style="margin-top:20px">
+        <button class="btn btn-primary" @click="submitCreate" :disabled="createLoading">
+          {{ createLoading ? '创建中...' : '创建站点' }}
+        </button>
+        <button class="btn btn-ghost" @click="showCreateModal = false">取消</button>
+      </div>
+    </ModalOverlay>
+
     <!-- Test Confirm Modal -->
     <Teleport to="body">
       <div v-if="confirmTarget" class="modal-overlay" @click.self="confirmTarget = null">
@@ -141,6 +184,8 @@ import { api, getSitesSummary } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
+import ModalOverlay from '../components/ModalOverlay.vue';
+import ModelSelector from '../components/ModelSelector.vue';
 
 const timeRangeStore = useTimeRangeStore();
 
@@ -435,9 +480,64 @@ function goDetail(site) {
   }
 }
 
+// ---- Create Site Modal ----
+const showCreateModal = ref(false);
+const createLoading = ref(false);
+const createErrors = ref({});
+const createForm = ref({
+  name: '',
+  base_url: '',
+  api_key: '',
+  models: [],
+});
+const showApiKey = ref(false);
+
 function createSite() {
-  // 新建站点：导航到旧配置页（临时方案，后续可改为内联创建）
-  router.push('/config');
+  createForm.value = { name: '', base_url: '', api_key: '', models: [] };
+  createErrors.value = {};
+  showApiKey.value = false;
+  showCreateModal.value = true;
+}
+
+function validateCreate() {
+  const f = createForm.value;
+  const errs = {};
+  if (!f.name.trim()) errs.name = '请输入站点名称';
+  if (!f.base_url.trim()) errs.base_url = '请输入目标地址';
+  if (!f.api_key.trim()) errs.api_key = '请输入 API Key';
+  if (!f.models.length) errs.models = '请至少选择一个模型';
+  createErrors.value = errs;
+  return Object.keys(errs).length === 0;
+}
+
+async function submitCreate() {
+  if (!validateCreate()) return;
+  createLoading.value = true;
+  try {
+    const f = createForm.value;
+    const res = await api('/api/profiles/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: f.name.trim(),
+        base_url: f.base_url.trim(),
+        api_key: f.api_key.trim(),
+        api_version: '2023-06-01',
+        models: f.models,
+      }),
+    });
+    if (res.error) {
+      toast(res.error, 'error');
+      createLoading.value = false;
+      return;
+    }
+    toast('站点已创建', 'success');
+    showCreateModal.value = false;
+    router.push(`/sites/${encodeURIComponent(f.name.trim())}?tab=test`);
+  } catch (e) {
+    toast('创建失败: ' + e.message, 'error');
+  }
+  createLoading.value = false;
 }
 
 async function loadData() {
@@ -570,7 +670,6 @@ onUnmounted(() => { store.refreshFn = null; });
 
 .site-name-link:hover {
   color: var(--accent);
-  text-decoration: underline;
 }
 
 .site-status-label {
@@ -733,6 +832,40 @@ onUnmounted(() => { store.refreshFn = null; });
   .sites-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- Create Site Form ---- */
+.create-site-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.api-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-key-row .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.required {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.form-error {
+  font-size: 12px;
+  color: var(--danger);
+  margin-top: 4px;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 </style>
 

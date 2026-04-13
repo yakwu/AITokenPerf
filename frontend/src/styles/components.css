@@ -684,7 +684,7 @@ tbody tr:last-child td { border-bottom: none; }
   box-shadow: var(--shadow-md);
   max-height: 240px;
   overflow-y: auto;
-  z-index: 50;
+  z-index: 2200;
 }
 
 .combobox-option {
@@ -1722,6 +1722,8 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 /* ---- Comparison ---- */
 .compare-overlay {
   display: flex;
+  align-items: center;
+  justify-content: center;
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.4);
@@ -1742,7 +1744,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
   max-width: 1200px;
   width: 95%;
   max-height: 85vh;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
@@ -1755,7 +1757,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 
 .compare-modal > .compare-modal-body {
   padding: 20px 32px 32px;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
   min-height: 0;
 }
