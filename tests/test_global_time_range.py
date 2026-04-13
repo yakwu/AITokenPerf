@@ -72,7 +72,7 @@ async def _seed_profile_and_results(user_id: int = 1):
             test_id=f"fail-{i}",
             filename=f"fail_{i}.json",
             timestamp=_make_timestamp(hours_ago=i + 0.5),
-            config_json=_config_json(),
+            config_json=_config_json(profile_name="TestSite"),
             summary_json=_summary_json(success_count=0, total_requests=1),
             percentiles_json=_percentiles_json(ttft_p50=None, tpot_p50=None),
             errors_json=json.dumps({"HTTP 503": 1}),
@@ -85,7 +85,7 @@ async def _seed_profile_and_results(user_id: int = 1):
             test_id=f"ok-recent-{i}",
             filename=f"ok_recent_{i}.json",
             timestamp=_make_timestamp(hours_ago=5 + i),
-            config_json=_config_json(),
+            config_json=_config_json(profile_name="TestSite"),
             summary_json=_summary_json(success_count=1, total_requests=1),
             percentiles_json=_percentiles_json(ttft_p50=1.0 + i * 0.1),
         )
@@ -97,7 +97,7 @@ async def _seed_profile_and_results(user_id: int = 1):
             test_id=f"ok-old-{i}",
             filename=f"ok_old_{i}.json",
             timestamp=_make_timestamp(hours_ago=25 + i),
-            config_json=_config_json(),
+            config_json=_config_json(profile_name="TestSite"),
             summary_json=_summary_json(success_count=1, total_requests=1),
             percentiles_json=_percentiles_json(ttft_p50=2.0 + i * 0.1),
         )
@@ -260,7 +260,7 @@ async def test_sparkline_data_max_50_points():
             test_id=f"busy-{i}",
             filename=f"busy_{i}.json",
             timestamp=_make_timestamp(hours_ago=i * 0.5),
-            config_json=_config_json(base_url="https://api.busy.com", model="gpt-4o"),
+            config_json=_config_json(base_url="https://api.busy.com", model="gpt-4o", profile_name="BusySite"),
             summary_json=_summary_json(),
             percentiles_json=_percentiles_json(ttft_p50=1.0 + i * 0.01),
         )
@@ -282,7 +282,7 @@ async def test_sparkline_data_multi_model():
         await save_result(
             user_id=1, test_id=f"ma-{i}", filename=f"ma_{i}.json",
             timestamp=_make_timestamp(hours_ago=i + 1),
-            config_json=_config_json(base_url="https://api.multi.com", model="model-a"),
+            config_json=_config_json(base_url="https://api.multi.com", model="model-a", profile_name="MultiModel"),
             summary_json=_summary_json(),
             percentiles_json=_percentiles_json(ttft_p50=1.0),
         )
@@ -291,7 +291,7 @@ async def test_sparkline_data_multi_model():
         await save_result(
             user_id=1, test_id=f"mb-{i}", filename=f"mb_{i}.json",
             timestamp=_make_timestamp(hours_ago=i + 1),
-            config_json=_config_json(base_url="https://api.multi.com", model="model-b"),
+            config_json=_config_json(base_url="https://api.multi.com", model="model-b", profile_name="MultiModel"),
             summary_json=_summary_json(),
             percentiles_json=_percentiles_json(ttft_p50=2.0),
         )
