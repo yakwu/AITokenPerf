@@ -214,7 +214,6 @@
                 <button class="time-range-pill" :class="{ active: createForm.mode === 'sustained' }" @click="createForm.mode = 'sustained'">持续</button>
               </div>
             </div>
-            </div>
             <div class="form-group">
               <label class="form-label">最大 Token</label>
               <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
