@@ -136,39 +136,14 @@
           <div class="form-error" v-if="createErrors.api_key">{{ createErrors.api_key }}</div>
         </div>
         <div class="form-group">
-          <label class="form-label">模型厂商</label>
-          <div class="combobox" ref="providerComboRef">
-            <input class="form-input" :value="providerLabel" placeholder="选择厂商"
-                   @focus="providerDropdownOpen = true" @keydown.escape="providerDropdownOpen = false"
-                   readonly autocomplete="off">
-            <button class="combobox-toggle" type="button" @click.stop="providerDropdownOpen = !providerDropdownOpen" @mousedown.prevent>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-            </button>
-            <div class="combobox-dropdown" v-show="providerDropdownOpen">
-              <div v-for="p in providerOptions" :key="p.value" class="combobox-option" :class="{ active: createForm.provider === p.value }" @mousedown.prevent="createForm.provider = p.value; providerDropdownOpen = false">{{ p.label }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="form-group">
           <label class="form-label">模型 <span class="required">*</span></label>
-          <div class="combobox" ref="modelComboboxRef">
-            <div class="model-tags-input" @click.stop="modelDropdownOpen = true">
-              <span v-for="(m, i) in createForm.models" :key="m" class="model-tag">
-                {{ m }}
-                <button type="button" class="model-tag-remove" @click.stop="createForm.models.splice(i, 1)">&times;</button>
-              </span>
-              <input class="model-tag-search" v-model="modelSearch" :placeholder="createForm.models.length ? '' : (loadingModels ? '加载中...' : '搜索或选择模型')" @focus="modelDropdownOpen = true; fetchModels()" @keydown.enter.prevent="addModelManual()" @keydown.backspace="createForm.models.length && !modelSearch && createForm.models.pop()" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
-            </div>
-            <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-            </button>
-            <div class="combobox-dropdown" v-show="modelDropdownOpen">
-              <div v-for="m in filteredModels" :key="m" class="combobox-option" :class="{ active: createForm.models.includes(m) }" @mousedown.prevent="toggleModel(m)">{{ m }}</div>
-              <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">无匹配，按回车添加「{{ modelSearch }}」</div>
-              <div class="combobox-empty" v-show="!filteredModels.length && !modelSearch && !loadingModels">{{ managedModels.length ? '无匹配模型' : '暂无模型数据，请先在模型管理中添加' }}</div>
-            </div>
-          </div>
-          <div class="form-hint" v-if="!createForm.models.length && !createErrors.models" style="margin-top:4px">填写地址和 Key 后自动获取，也可手动输入后回车添加</div>
+          <ModelSelector
+            v-model="createForm.models"
+            :vendor-filter="true"
+            :allow-custom="true"
+            placeholder="搜索或选择模型"
+          />
+          <div class="form-hint" v-if="!createForm.models.length && !createErrors.models" style="margin-top:4px">从列表选择或手动输入模型 ID 后回车</div>
           <div class="form-error" v-if="createErrors.models">{{ createErrors.models }}</div>
         </div>
       </div>
@@ -202,14 +177,15 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
-import { api, getSitesSummary, getModels, getPricingModels } from '../api';
+import { api, getSitesSummary } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
 import ModalOverlay from '../components/ModalOverlay.vue';
+import ModelSelector from '../components/ModelSelector.vue';
 
 const timeRangeStore = useTimeRangeStore();
 
@@ -512,122 +488,15 @@ const createForm = ref({
   name: '',
   base_url: '',
   api_key: '',
-  provider: '',
   models: [],
 });
 const showApiKey = ref(false);
 
-const providerOptions = [
-  { value: '', label: '不选择' },
-  { value: 'anthropic', label: 'Anthropic (Claude)' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'qwen', label: 'Qwen (通义千问)' },
-  { value: 'google', label: 'Google (Gemini)' },
-  { value: 'mistral', label: 'Mistral' },
-  { value: 'cohere', label: 'Cohere' },
-  { value: 'bytedance', label: '字节 (豆包)' },
-  { value: 'zhipu', label: '智谱 (GLM)' },
-  { value: 'moonshot', label: 'Moonshot (Kimi)' },
-  { value: 'other', label: '其他' },
-];
-
-const providerLabel = computed(() => {
-  const opt = providerOptions.find(p => p.value === createForm.value.provider);
-  return opt ? opt.label : '';
-});
-
-// Provider combobox
-const providerDropdownOpen = ref(false);
-const providerComboRef = ref(null);
-
-// Model selection for create form
-const modelDropdownOpen = ref(false);
-const modelComboboxRef = ref(null);
-const modelSearch = ref('');
-const availableModels = ref([]);
-const managedModels = ref([]);
-const loadingModels = ref(false);
-
-function handleDocClick(e) {
-  if (modelComboboxRef.value && !modelComboboxRef.value.contains(e.target)) modelDropdownOpen.value = false;
-  if (providerComboRef.value && !providerComboRef.value.contains(e.target)) providerDropdownOpen.value = false;
-}
-
-const filteredModels = computed(() => {
-  // 合并模型管理数据 + 实时 API 拉取的数据，去重
-  const all = [...new Set([...managedModels.value, ...availableModels.value])];
-  const q = (modelSearch.value || '').toLowerCase();
-  const list = all.filter(m => !createForm.value.models.includes(m));
-  if (!q) return list;
-  return list.filter(m => m.toLowerCase().includes(q));
-});
-
-function toggleModel(m) {
-  const idx = createForm.value.models.indexOf(m);
-  if (idx >= 0) createForm.value.models.splice(idx, 1);
-  else createForm.value.models.push(m);
-  modelSearch.value = '';
-}
-
-function addModelManual() {
-  if (!modelSearch.value.trim()) return;
-  const n = modelSearch.value.trim();
-  if (!createForm.value.models.includes(n)) createForm.value.models.push(n);
-  modelSearch.value = '';
-}
-
-let fetchModelsTimer = null;
-
-async function fetchModels() {
-  const f = createForm.value;
-  if (!f.base_url.trim() || !f.api_key.trim()) return;
-  loadingModels.value = true;
-  try {
-    const res = await getModels(f.base_url.trim(), f.api_key.trim());
-    availableModels.value = res.models || [];
-  } catch {
-    availableModels.value = [];
-  }
-  loadingModels.value = false;
-}
-
-function debouncedFetchModels() {
-  clearTimeout(fetchModelsTimer);
-  fetchModelsTimer = setTimeout(fetchModels, 500);
-}
-
-// 监听 base_url 和 api_key 变化自动拉取模型
-watch(() => [createForm.value.base_url, createForm.value.api_key], debouncedFetchModels);
-
-// 选了厂商后重新拉取对应模型
-watch(() => createForm.value.provider, () => {
-  createForm.value.models = [];
-  loadManagedModels();
-});
-
 function createSite() {
-  createForm.value = { name: '', base_url: '', api_key: '', provider: '', models: [] };
+  createForm.value = { name: '', base_url: '', api_key: '', models: [] };
   createErrors.value = {};
   showApiKey.value = false;
-  modelSearch.value = '';
-  modelDropdownOpen.value = false;
-  providerDropdownOpen.value = false;
-  availableModels.value = [];
   showCreateModal.value = true;
-  loadManagedModels();
-}
-
-async function loadManagedModels() {
-  loadingModels.value = true;
-  try {
-    const provider = createForm.value.provider || '';
-    const res = await getPricingModels(provider, true);
-    managedModels.value = (res.models || []).map(m => m.id || m.model || m);
-  } catch {
-    managedModels.value = [];
-  }
-  loadingModels.value = false;
 }
 
 function validateCreate() {
@@ -653,7 +522,6 @@ async function submitCreate() {
         name: f.name.trim(),
         base_url: f.base_url.trim(),
         api_key: f.api_key.trim(),
-        provider: f.provider,
         api_version: '2023-06-01',
         models: f.models,
       }),
@@ -692,8 +560,7 @@ watch(() => timeRangeStore.hours, () => {
 });
 
 store.refreshFn = loadData;
-onMounted(() => document.addEventListener('mousedown', handleDocClick));
-onUnmounted(() => { store.refreshFn = null; document.removeEventListener('mousedown', handleDocClick); });
+onUnmounted(() => { store.refreshFn = null; });
 </script>
 
 <style scoped>
