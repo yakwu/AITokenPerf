@@ -426,6 +426,7 @@ async function confirmTest() {
         api_key: profile.api_key_display || '',
         model: profile.models[0],
         provider: profile.provider || '',
+        custom_endpoint: profile.custom_endpoint || false,
         concurrency_levels: [10],
         requests_per_level: 10,
         mode: 'burst',

@@ -200,6 +200,7 @@ async function dryRunTest() {
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         model: form.value.models[0] || '',
+        custom_endpoint: form.value.custom_endpoint,
         concurrency_levels: [1],
         requests_per_level: 1,
         mode: 'burst',
