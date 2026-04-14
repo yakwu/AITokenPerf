@@ -98,7 +98,7 @@
           </button>
           <div class="combobox-dropdown" v-show="libVendorDropOpen">
             <div class="combobox-option" :class="{ active: libVendor === '' }" @mousedown.prevent="selectLibVendor('')">全部厂商</div>
-            <div v-for="v in filteredLibVendors" :key="v.id" class="combobox-option" :class="{ active: libVendor === v.id }" @mousedown.prevent="selectLibVendor(v.id)">{{ v.name }}</div>
+            <div v-for="p in filteredLibVendors" :key="p" class="combobox-option" :class="{ active: libVendor === p }" @mousedown.prevent="selectLibVendor(p)">{{ p }}</div>
             <div class="combobox-empty" v-if="!filteredLibVendors.length && libVendorSearch">无匹配厂商</div>
           </div>
         </div>
@@ -149,8 +149,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { getModelsConfig, putModelsConfig, getLibrary, getVendors } from '../api';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { getModelsConfig, putModelsConfig, getLibrary, getVendors, getProviders } from '../api';
 import { toast } from '../composables/useToast';
 
 const activeTab = ref('my');
@@ -296,15 +296,18 @@ const libTotal = ref(0);
 const libPage = ref(1);
 const libPageSize = 50;
 
+// LiteLLM providers（从后端动态获取）
+const libProviders = ref([]);
+
 const filteredLibVendors = computed(() => {
   const q = libVendorSearch.value.toLowerCase().trim();
-  if (!q) return vendors.value;
-  return vendors.value.filter(v => v.name.toLowerCase().includes(q) || v.id.toLowerCase().includes(q));
+  if (!q) return libProviders.value;
+  return libProviders.value.filter(p => p.toLowerCase().includes(q));
 });
 
 function selectLibVendor(vendorId) {
   libVendor.value = vendorId;
-  libVendorSearch.value = vendorId ? (vendors.value.find(v => v.id === vendorId)?.name || vendorId) : '';
+  libVendorSearch.value = vendorId || '';
   libVendorDropOpen.value = false;
   libPage.value = 1;
   loadLibrary();
@@ -354,6 +357,8 @@ function addFromLibrary(model) {
 }
 
 // ---- Init ----
+let clickOutsideHandler = null;
+
 onMounted(async () => {
   try {
     const [configRes, vendorsRes] = await Promise.all([
@@ -366,6 +371,22 @@ onMounted(async () => {
     toast('加载失败: ' + e.message, 'error');
   }
   myLoading.value = false;
+
+  // 异步加载 LiteLLM providers（不阻塞页面）
+  getProviders().then(res => {
+    libProviders.value = res.providers || [];
+  }).catch(() => {});
+
+  clickOutsideHandler = (e) => {
+    if (libVendorRef.value && !libVendorRef.value.contains(e.target)) {
+      libVendorDropOpen.value = false;
+    }
+  };
+  document.addEventListener('click', clickOutsideHandler);
+});
+
+onUnmounted(() => {
+  if (clickOutsideHandler) document.removeEventListener('click', clickOutsideHandler);
 });
 </script>
 

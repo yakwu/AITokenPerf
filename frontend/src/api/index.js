@@ -91,6 +91,7 @@ export const getModels = (baseUrl, apiKey) =>
 
 // Pricing / Model Config
 export const getVendors = () => api('/api/pricing/vendors');
+export const getProviders = () => api('/api/pricing/providers');
 export const getModelsConfig = () => api('/api/pricing/models-config');
 export const putModelsConfig = (data) =>
   api('/api/pricing/models-config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
