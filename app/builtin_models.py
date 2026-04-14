@@ -28,7 +28,7 @@ DEFAULT_MODELS = [
     {"id": "gpt-5.3-codex", "vendor": "openai", "enabled": True},
     {"id": "gpt-5.2", "vendor": "openai", "enabled": True},
     {"id": "gemini-3-pro-preview", "vendor": "google", "enabled": True},
-    {"id": "gemini-3-flash-lite-preview", "vendor": "google", "enabled": True},
+    {"id": "gemini-3.1-flash-lite-preview", "vendor": "google", "enabled": True},
 ]
 
 _JSON_FILENAME = "builtin_models.json"
