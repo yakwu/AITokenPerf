@@ -331,7 +331,10 @@ function renderLatencyChart() {
   const canvas = latencyCanvas.value;
   if (!canvas) return;
 
-  const { labels, items } = aggregateToFixedPoints(trend, 144, timeRangeStore.hours);
+  // 桶数随时间范围缩放，保持 ~10 min/桶 的密度（与 24h 一致）
+  const hours = timeRangeStore.hours;
+  const targetPts = hours ? Math.min(144, Math.max(36, hours * 6)) : 144;
+  const { labels, items } = aggregateToFixedPoints(trend, targetPts, hours);
 
   latencyChart = new Chart(canvas, {
     type: 'line',
@@ -345,7 +348,7 @@ function renderLatencyChart() {
           borderColor: '#3B7DD6',
           backgroundColor: '#3B7DD618',
           borderWidth: 2,
-          pointRadius: trend.length <= 50 ? 3 : 0,
+          pointRadius: 0,
           tension: 0.3,
           fill: true,
           spanGaps: false,
@@ -356,7 +359,7 @@ function renderLatencyChart() {
           borderColor: '#E85D26',
           backgroundColor: '#E85D2618',
           borderWidth: 2,
-          pointRadius: trend.length <= 50 ? 3 : 0,
+          pointRadius: 0,
           tension: 0.3,
           fill: true,
           spanGaps: false,
@@ -401,7 +404,9 @@ function renderQualityChart() {
   const canvas = qualityCanvas.value;
   if (!canvas) return;
 
-  const { labels, items } = aggregateToFixedPoints(trend, 144, timeRangeStore.hours);
+  const hours = timeRangeStore.hours;
+  const targetPts = hours ? Math.min(144, Math.max(36, hours * 6)) : 144;
+  const { labels, items } = aggregateToFixedPoints(trend, targetPts, hours);
   const failureData = items.map(r => r?.avg_success_rate != null ? (100 - r.avg_success_rate) : null);
 
   qualityChart = new Chart(canvas, {
@@ -416,7 +421,7 @@ function renderQualityChart() {
           borderColor: '#2D8B55',
           backgroundColor: '#2D8B5518',
           borderWidth: 2,
-          pointRadius: trend.length <= 50 ? 3 : 0,
+          pointRadius: 0,
           tension: 0.3,
           fill: true,
           yAxisID: 'y',
@@ -428,7 +433,7 @@ function renderQualityChart() {
           borderColor: '#E85D26',
           backgroundColor: '#E85D2618',
           borderWidth: 2,
-          pointRadius: trend.length <= 50 ? 3 : 0,
+          pointRadius: 0,
           tension: 0.3,
           fill: true,
           yAxisID: 'y1',
