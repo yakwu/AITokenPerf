@@ -26,48 +26,22 @@
       </div>
     </div>
   </div>
-
-  <!-- 右上角完成通知 -->
-  <Teleport to="body">
-    <div class="done-toast-stack" v-if="doneNotifications.length > 0">
-      <div
-        v-for="n in doneNotifications"
-        :key="n.id"
-        class="done-toast"
-        @click="onNotifyClick(n)"
-      >
-        <div class="done-toast-left" :class="{ 'has-fail': n.hasFail }">
-          <svg v-if="!n.hasFail" class="done-toast-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          <svg v-else class="done-toast-warn" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </div>
-        <div class="done-toast-content">
-          <div class="done-toast-title">{{ n.title }}</div>
-          <div class="done-toast-models">{{ n.modelsText }}</div>
-          <div class="done-toast-meta">{{ n.subtitle }}</div>
-        </div>
-        <button class="done-toast-dismiss" @click.stop="dismissNotify(n.id)">&times;</button>
-      </div>
-    </div>
-  </Teleport>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { getRunningTasks } from '../api/index.js';
+import { useNotifications } from '../composables/useNotifications.js';
 
-const router = useRouter();
+const { upsert: pushNotification } = useNotifications();
 
 const panelOpen = ref(false);
 const runningTasks = ref([]);
 const indicatorRef = ref(null);
 
-// 完成通知 — 按 profile_name 聚合（同站点只保留一条，持续更新）
-const doneNotifications = ref([]);
+// 完成通知 — 委托给 useNotifications composable
 let prevTaskIds = new Set();
-let prevTaskMeta = new Map(); // task_id -> { model, profile_name, elapsed }
-let notifyIdCounter = 0;
-const MAX_NOTIFICATIONS = 5;
+let prevTaskMeta = new Map();
 
 function togglePanel() {
   panelOpen.value = !panelOpen.value;
@@ -76,67 +50,6 @@ function togglePanel() {
 function progressPct(t) {
   if (!t.total || t.total === 0) return 0;
   return Math.min(100, Math.round(t.done / t.total * 100));
-}
-
-function upsertNotification(profileName, models, maxElapsed, isScheduled, success, failed) {
-  const existing = doneNotifications.value.find(n => n.profileName === profileName && n.isScheduled === isScheduled);
-  const totalRuns = (existing?.runCount || 0) + 1;
-  const allModels = existing ? [...new Set([...existing.models, ...models])] : [...new Set(models)];
-  const modelsText = allModels.length > 2
-    ? `${allModels.slice(0, 2).join(', ')} 等 ${allModels.length} 个模型`
-    : allModels.join(', ');
-  const prefix = isScheduled ? '定时任务' : '单次测试';
-
-  const total = success + failed;
-  let resultText;
-  if (total === 0) {
-    resultText = `用时 ${maxElapsed}s`;
-  } else if (failed === 0) {
-    resultText = `全部成功 · 用时 ${maxElapsed}s`;
-  } else {
-    resultText = `${success}/${total} 成功 · 用时 ${maxElapsed}s`;
-  }
-  const subtitle = totalRuns > 1
-    ? `已完成 ${totalRuns} 次 · ${resultText}`
-    : resultText;
-  const hasFail = failed > 0;
-
-  if (existing) {
-    existing.models = allModels;
-    existing.modelsText = modelsText;
-    existing.subtitle = subtitle;
-    existing.runCount = totalRuns;
-    existing.hasFail = hasFail;
-    existing.time = Date.now();
-  } else {
-    notifyIdCounter++;
-    doneNotifications.value.push({
-      id: notifyIdCounter,
-      title: `${prefix}：${profileName || '测试'} 完成`,
-      models: allModels,
-      modelsText,
-      subtitle,
-      profileName,
-      isScheduled,
-      hasFail,
-      runCount: totalRuns,
-      time: Date.now(),
-    });
-    while (doneNotifications.value.length > MAX_NOTIFICATIONS) {
-      doneNotifications.value.shift();
-    }
-  }
-}
-
-function dismissNotify(id) {
-  doneNotifications.value = doneNotifications.value.filter(n => n.id !== id);
-}
-
-function onNotifyClick(n) {
-  if (n.profileName) {
-    router.push(`/sites/${encodeURIComponent(n.profileName)}?tab=trends`);
-  }
-  dismissNotify(n.id);
 }
 
 function detectCompleted(currentTasks) {
@@ -172,7 +85,7 @@ function detectCompleted(currentTasks) {
 
   // 对每个站点 upsert 通知（同站点同类型多次完成会聚合到同一条）
   for (const [, g] of Object.entries(grouped)) {
-    upsertNotification(g.profile_name, g.models, g.elapsed, g.scheduled, g.success, g.failed);
+    pushNotification(g.profile_name, g.models, g.elapsed, g.scheduled, g.success, g.failed);
   }
 
   for (const id of completedIds) {
@@ -370,113 +283,5 @@ onUnmounted(() => {
   font-family: var(--font-mono);
   color: var(--text-tertiary);
   white-space: nowrap;
-}
-</style>
-
-<style>
-/* 右上角完成通知栈 */
-.done-toast-stack {
-  position: fixed;
-  top: 56px;
-  right: 20px;
-  z-index: 2000;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 300px;
-}
-
-.done-toast {
-  display: flex;
-  align-items: stretch;
-  background: var(--surface-raised, #fff);
-  border: 1px solid var(--border, #E8E6E1);
-  border-radius: var(--radius, 10px);
-  box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,0.06));
-  cursor: pointer;
-  overflow: hidden;
-  animation: doneToastIn 0.2s ease;
-  transition: box-shadow 0.15s, transform 0.15s;
-}
-
-.done-toast:hover {
-  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.08));
-  transform: translateY(-1px);
-}
-
-@keyframes doneToastIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.done-toast-left {
-  width: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--success-light, #e6f4ec);
-}
-
-.done-toast-check {
-  stroke: var(--success, #2D8B55);
-}
-
-.done-toast-left.has-fail {
-  background: var(--danger-light, #fef0f0);
-}
-
-.done-toast-warn {
-  stroke: var(--danger, #D63B3B);
-}
-
-.done-toast-content {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 0 10px 10px;
-}
-
-.done-toast-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary, #1A1A18);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-}
-
-.done-toast-models {
-  font-size: 11px;
-  font-family: var(--font-mono, monospace);
-  color: var(--text-secondary, #6B6B65);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 2px;
-}
-
-.done-toast-meta {
-  font-size: 11px;
-  color: var(--text-tertiary, #9C9C96);
-  margin-top: 2px;
-  white-space: nowrap;
-}
-
-.done-toast-dismiss {
-  background: none;
-  border: none;
-  font-size: 16px;
-  color: var(--text-tertiary, #9C9C96);
-  cursor: pointer;
-  padding: 8px 10px;
-  line-height: 1;
-  flex-shrink: 0;
-  align-self: flex-start;
-  transition: color 0.15s;
-}
-
-.done-toast-dismiss:hover {
-  color: var(--text-primary, #1A1A18);
 }
 </style>

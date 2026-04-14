@@ -10,6 +10,7 @@
     </div>
     <div class="header-right" v-if="store.user">
       <ScheduleIndicator />
+      <NotificationCenter />
       <div class="user-menu" v-click-outside="() => userMenuOpen = false">
         <button class="user-avatar" @click="userMenuOpen = !userMenuOpen">
           {{ (store.user?.email || '?')[0].toUpperCase() }}
@@ -79,6 +80,7 @@ import { useAppStore } from './stores/app';
 import { useTimeRangeStore } from './stores/timeRange';
 import { useRouter, useRoute } from 'vue-router';
 import ScheduleIndicator from './components/ScheduleIndicator.vue';
+import NotificationCenter from './components/NotificationCenter.vue';
 
 const store = useAppStore();
 const timeRangeStore = useTimeRangeStore();

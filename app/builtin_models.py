@@ -21,24 +21,14 @@ DEFAULT_VENDORS = [
 ]
 
 DEFAULT_MODELS = [
-    {"id": "claude-opus-4-20250514", "vendor": "anthropic", "enabled": True},
-    {"id": "claude-sonnet-4-20250514", "vendor": "anthropic", "enabled": True},
-    {"id": "claude-haiku-4-20250514", "vendor": "anthropic", "enabled": True},
-    {"id": "gpt-4o", "vendor": "openai", "enabled": True},
-    {"id": "gpt-4o-mini", "vendor": "openai", "enabled": True},
-    {"id": "o3", "vendor": "openai", "enabled": True},
-    {"id": "o4-mini", "vendor": "openai", "enabled": True},
-    {"id": "deepseek-chat", "vendor": "deepseek", "enabled": True},
-    {"id": "deepseek-reasoner", "vendor": "deepseek", "enabled": True},
-    {"id": "qwen-max", "vendor": "qwen", "enabled": True},
-    {"id": "qwen-plus", "vendor": "qwen", "enabled": True},
-    {"id": "gemini-2.5-pro", "vendor": "google", "enabled": True},
-    {"id": "gemini-2.5-flash", "vendor": "google", "enabled": True},
-    {"id": "mistral-large-latest", "vendor": "mistral", "enabled": True},
-    {"id": "glm-4-plus", "vendor": "zhipu", "enabled": True},
-    {"id": "moonshot-v1-auto", "vendor": "moonshot", "enabled": True},
-    {"id": "doubao-pro-32k", "vendor": "bytedance", "enabled": True},
-    {"id": "command-r-plus", "vendor": "cohere", "enabled": True},
+    {"id": "claude-opus-4-6", "vendor": "anthropic", "enabled": True},
+    {"id": "claude-sonnet-4-6", "vendor": "anthropic", "enabled": True},
+    {"id": "claude-haiku-4-5-20251001", "vendor": "anthropic", "enabled": True},
+    {"id": "gpt-5.4", "vendor": "openai", "enabled": True},
+    {"id": "gpt-5.3-codex", "vendor": "openai", "enabled": True},
+    {"id": "gpt-5.2", "vendor": "openai", "enabled": True},
+    {"id": "gemini-3-pro-preview", "vendor": "google", "enabled": True},
+    {"id": "gemini-3-flash-lite-preview", "vendor": "google", "enabled": True},
 ]
 
 _JSON_FILENAME = "builtin_models.json"
