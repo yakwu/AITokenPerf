@@ -90,8 +90,17 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input class="form-input" v-model="libSearch" placeholder="搜索模型名…" @input="debouncedLoadLibrary" autocomplete="off">
         </div>
-        <div class="search-input-wrap" style="max-width:200px">
-          <input class="form-input" v-model="libVendor" placeholder="按厂商过滤…" @input="debouncedLoadLibrary" autocomplete="off">
+        <div class="combobox" style="max-width:200px" ref="libVendorRef">
+          <svg class="combobox-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+          <input class="form-input" v-model="libVendorSearch" placeholder="按厂商过滤…" @focus="libVendorDropOpen = true" @input="libVendorDropOpen = true" autocomplete="off" style="padding-left:32px">
+          <button class="combobox-toggle" @click="libVendorDropOpen = !libVendorDropOpen">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+          </button>
+          <div class="combobox-dropdown" v-show="libVendorDropOpen">
+            <div class="combobox-option" :class="{ active: libVendor === '' }" @mousedown.prevent="selectLibVendor('')">全部厂商</div>
+            <div v-for="v in filteredLibVendors" :key="v.id" class="combobox-option" :class="{ active: libVendor === v.id }" @mousedown.prevent="selectLibVendor(v.id)">{{ v.name }}</div>
+            <div class="combobox-empty" v-if="!filteredLibVendors.length && libVendorSearch">无匹配厂商</div>
+          </div>
         </div>
         <span class="models-count" style="margin-left:auto">共 {{ libTotal }} 个模型</span>
       </div>
@@ -279,10 +288,27 @@ async function saveMyModels() {
 const libLoading = ref(false);
 const libSearch = ref('');
 const libVendor = ref('');
+const libVendorSearch = ref('');
+const libVendorDropOpen = ref(false);
+const libVendorRef = ref(null);
 const libModels = ref([]);
 const libTotal = ref(0);
 const libPage = ref(1);
 const libPageSize = 50;
+
+const filteredLibVendors = computed(() => {
+  const q = libVendorSearch.value.toLowerCase().trim();
+  if (!q) return vendors.value;
+  return vendors.value.filter(v => v.name.toLowerCase().includes(q) || v.id.toLowerCase().includes(q));
+});
+
+function selectLibVendor(vendorId) {
+  libVendor.value = vendorId;
+  libVendorSearch.value = vendorId ? (vendors.value.find(v => v.id === vendorId)?.name || vendorId) : '';
+  libVendorDropOpen.value = false;
+  libPage.value = 1;
+  loadLibrary();
+}
 
 let libTimer = null;
 function debouncedLoadLibrary() {
@@ -375,6 +401,15 @@ onMounted(async () => {
 
 .models-panel {
   animation: fadeIn 0.15s ease;
+}
+
+.combobox-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
 }
 
 @keyframes fadeIn {

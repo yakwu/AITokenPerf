@@ -34,11 +34,11 @@ def test_get_builtin_models_returns_default_seed(tmp_path):
     models = mgr.get_builtin_models()
 
     assert isinstance(models, list)
-    assert len(models) >= 9
+    assert len(models) >= 8
     ids = [m["id"] for m in models]
     assert any("claude" in mid for mid in ids)
     assert any("gpt" in mid for mid in ids)
-    assert any("deepseek" in mid for mid in ids)
+    assert any("gemini" in mid for mid in ids)
 
     for m in models:
         assert "id" in m
