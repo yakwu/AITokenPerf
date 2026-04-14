@@ -115,11 +115,19 @@
           <button class="btn btn-primary" @click="saveProfile()">
             {{ profileMode === 'new' ? '保存配置' : '更新配置' }}
           </button>
-          <button class="btn btn-ghost" @click="dryRunTest()" v-if="profileMode === 'selected' && form.base_url && form.api_key && form.models.length">
+          <button class="btn btn-ghost" @click="runConnTest()" :disabled="connTest.running.value" v-if="profileMode === 'selected' && form.base_url && form.api_key && form.models.length">
             连通性验证
           </button>
         </div>
       </div>
+      <ConnectivityProgress
+        :running="connTest.running.value"
+        :progress="connTest.progress.value"
+        :logs="connTest.logs.value"
+        :result="connTest.result.value"
+        :error="connTest.error.value"
+        @dismiss="connTest.reset()"
+      />
 
       <div v-if="profiles.length === 0 && profileMode !== 'new'" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">
         <div style="font-size:14px;margin-bottom:8px">还没有连接配置</div>
@@ -132,10 +140,21 @@
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { api } from '../api/index.js';
-import { useAppStore } from '../stores/app.js';
 import { toast } from '../composables/useToast.js';
+import ConnectivityProgress from '../components/ConnectivityProgress.vue';
+import { useConnectivityTest } from '../composables/useConnectivityTest.js';
 
-const store = useAppStore();
+const connTest = useConnectivityTest();
+
+function runConnTest() {
+  connTest.start({
+    base_url: form.value.base_url,
+    api_key: form.value.api_key,
+    model: form.value.models[0] || '',
+    provider: form.value.provider,
+    custom_endpoint: form.value.custom_endpoint || false,
+  });
+}
 
 // ---- Template refs ----
 const renameInputRef = ref(null);
@@ -537,34 +556,6 @@ function profileHost(baseUrl) {
   }
 }
 
-async function dryRunTest() {
-  const token = localStorage.getItem('token');
-  if (!token) return;
-  try {
-    const res = await api('/api/bench/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base_url: form.value.base_url,
-        api_key: form.value.api_key,
-        model: form.value.models[0] || '',
-        provider: form.value.provider,
-        custom_endpoint: form.value.custom_endpoint || false,
-        concurrency_levels: [1],
-        requests_per_level: 1,
-        mode: 'burst',
-        max_tokens: 512,
-        timeout: 120,
-        duration: 120,
-        system_prompt: 'You are a helpful assistant.',
-        user_prompt: 'Say hello.',
-      }),
-    });
-    if (res.error) { toast(res.error, 'error'); return; }
-    toast('连通性验证已启动', 'info');
-    store.switchTab('bench');
-  } catch (e) { toast('失败: ' + e.message, 'error'); }
-}
 
 // ---- Lifecycle ----
 onMounted(() => {
