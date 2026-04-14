@@ -401,6 +401,7 @@ function buildConfig(model) {
     api_key: props.profile.api_key_display || props.profile.api_key,
     model,
     provider: props.profile.provider || '',
+    custom_endpoint: props.profile.custom_endpoint || false,
     concurrency_levels: [conc],
     mode: form.value.mode,
     max_tokens: parseInt(form.value.max_tokens) || 512,

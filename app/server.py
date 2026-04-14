@@ -759,6 +759,7 @@ async def update_profile(name: str, request: Request, user: dict = Depends(get_c
         model=model,
         provider=data.get("provider", ""),
         protocol=data.get("protocol", ""),
+        custom_endpoint=1 if data.get("custom_endpoint") else 0,
         set_active=data.get("set_active", False),
     )
     return {"status": "ok"}
