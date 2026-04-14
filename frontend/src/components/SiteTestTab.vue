@@ -120,10 +120,19 @@
           <span v-if="selectedModels.length > 1" style="font-weight:400;color:rgba(255,255,255,0.8)">({{ selectedModels.length }} 个模型)</span>
         </button>
         <button class="btn btn-danger" v-show="running" @click="stopBench()">停止</button>
-        <button class="btn btn-ghost" v-show="!running" @click="dryRun()" :disabled="!selectedModels.length">
+        <button class="btn btn-ghost" v-show="!running && !connTest.running.value" @click="runConnTest()" :disabled="!selectedModels.length">
           连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span>
         </button>
       </div>
+
+      <ConnectivityProgress
+        :running="connTest.running.value"
+        :progress="connTest.progress.value"
+        :logs="connTest.logs.value"
+        :result="connTest.result.value"
+        :error="connTest.error.value"
+        @dismiss="connTest.reset()"
+      />
 
       <!-- Progress Panel -->
       <div class="progress-panel" :class="{ active: running }" v-show="running">
@@ -266,6 +275,8 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { api } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { useBenchSSE } from '../composables/useBenchSSE.js';
+import ConnectivityProgress from './ConnectivityProgress.vue';
+import { useConnectivityTest } from '../composables/useConnectivityTest.js';
 import { renderResultDetail } from '../utils/resultDetail.js';
 import { fmtTime, fmtPct, fmtNum, escHtml } from '../utils/formatters.js';
 
@@ -365,6 +376,7 @@ const running = ref(false);
 const progress = ref({ done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' });
 const logs = ref([]);
 const benchSSE = useBenchSSE();
+const connTest = useConnectivityTest();
 const elapsedTimer = ref(null);
 let benchStartTime = 0;
 
@@ -475,46 +487,18 @@ async function startBench() {
   }
 }
 
-async function dryRun() {
+function runConnTest() {
   if (!selectedModels.value.length) {
     toast('请至少选择一个模型', 'info');
     return;
   }
-  // Use first selected model
-  const model = selectedModels.value[0];
-  const config = buildConfig(model);
-  config.concurrency_levels = [1];
-  config.requests_per_level = 1;
-  config.mode = 'burst';
-
-  running.value = true;
-  logs.value = [];
-  modelResults.value = [{ model, result: null, running: true }];
-  currentModelIndex.value = 0;
-
-  logLine(`<span class="info">连通性验证: ${escHtml(model)}</span>`);
-
-  try {
-    const res = await api('/api/bench/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
-    });
-    if (res.error) {
-      toast(res.error, 'error');
-      logLine(`<span class="fail">${escHtml(res.error)}</span>`);
-      running.value = false;
-      modelResults.value[0].running = false;
-      return;
-    }
-    await runWithSSE(model);
-  } catch (e) {
-    toast('失败: ' + e.message, 'error');
-    logLine(`<span class="fail">${escHtml(e.message)}</span>`);
-  }
-  running.value = false;
-  modelResults.value[0].running = false;
-  currentModelIndex.value = -1;
+  connTest.start({
+    base_url: props.profile.base_url,
+    api_key: props.profile.api_key_display || props.profile.api_key,
+    model: selectedModels.value[0],
+    provider: props.profile.provider || '',
+    custom_endpoint: props.profile.custom_endpoint || false,
+  });
 }
 
 function runWithSSE(modelName) {
