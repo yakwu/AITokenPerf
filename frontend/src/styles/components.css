@@ -974,6 +974,18 @@ tbody tr:last-child td { border-bottom: none; }
   color: var(--accent);
   font-weight: 600;
 }
+.time-range-pill.refresh-pill {
+  font-family: inherit;
+  padding: 5px 8px;
+  font-size: 13px;
+  line-height: 1;
+}
+.time-range-pill.refresh-pill .ph { display: block; }
+.time-range-pill.refresh-pill.disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
 
 .filter-dropdown {
   position: relative;

@@ -27,7 +27,7 @@
     </div>
   </div>
 
-  <!-- 右下角完成通知 -->
+  <!-- 右上角完成通知 -->
   <Teleport to="body">
     <div class="done-toast-stack" v-if="doneNotifications.length > 0">
       <div
@@ -374,14 +374,14 @@ onUnmounted(() => {
 </style>
 
 <style>
-/* 右下角完成通知栈 */
+/* 右上角完成通知栈 */
 .done-toast-stack {
   position: fixed;
-  bottom: 20px;
+  top: 56px;
   right: 20px;
   z-index: 2000;
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   gap: 8px;
   width: 300px;
 }
@@ -405,8 +405,8 @@ onUnmounted(() => {
 }
 
 @keyframes doneToastIn {
-  from { opacity: 0; transform: translateX(30px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .done-toast-left {

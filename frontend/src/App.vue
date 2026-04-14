@@ -9,7 +9,6 @@
       </div>
     </div>
     <div class="header-right" v-if="store.user">
-      <button v-if="store.refreshFn" class="btn btn-ghost btn-sm header-refresh" @click="store.refreshFn()" title="刷新"><i class="ph ph-arrows-clockwise"></i></button>
       <ScheduleIndicator />
       <div class="user-menu" v-click-outside="() => userMenuOpen = false">
         <button class="user-avatar" @click="userMenuOpen = !userMenuOpen">
@@ -46,6 +45,7 @@
   <nav class="tab-bar" v-if="store.user && !store.user.must_change_password">
     <router-link v-for="tab in tabs" :key="tab.path" :to="tab.path" class="tab-btn" :class="{ active: tab.activeMatch ? tab.activeMatch($route.path) : $route.path === tab.path }" @click="userMenuOpen = false">{{ tab.name }}</router-link>
     <div class="time-range-pills global-time-range">
+      <button class="time-range-pill refresh-pill" :class="{ disabled: !store.refreshFn }" @click="store.refreshFn && store.refreshFn()" title="刷新"><i class="ph ph-arrows-clockwise"></i></button>
       <button v-for="opt in timeRangeStore.options" :key="opt.label" class="time-range-pill" :class="{ active: timeRangeStore.hours === opt.value }" @click="timeRangeStore.setHours(opt.value)">{{ opt.label }}</button>
     </div>
   </nav>
