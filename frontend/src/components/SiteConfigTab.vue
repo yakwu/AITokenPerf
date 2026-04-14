@@ -54,8 +54,8 @@
           <button class="btn btn-primary" @click="saveProfile()" :disabled="!canSave()">
             {{ formDirty ? '更新配置' : '保存配置' }}
           </button>
-          <button class="btn btn-ghost" @click="dryRunTest()" :disabled="!canTest()" v-if="form.base_url && form.api_key && form.models.length">
-            连通性测试
+          <button class="btn btn-ghost" @click="runConnTest()" :disabled="!canTest()" v-if="form.base_url && form.api_key && form.models.length">
+            连通性验证
           </button>
         </div>
         <div class="site-config-actions-right">
@@ -70,6 +70,15 @@
           </button>
         </div>
       </div>
+
+      <ConnectivityProgress
+        :running="connTest.running.value"
+        :progress="connTest.progress.value"
+        :logs="connTest.logs.value"
+        :result="connTest.result.value"
+        :error="connTest.error.value"
+        @dismiss="connTest.reset()"
+      />
     </div>
   </div>
 </template>
@@ -79,6 +88,8 @@ import { ref, watch } from 'vue';
 import { api } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import ModelSelector from './ModelSelector.vue';
+import ConnectivityProgress from './ConnectivityProgress.vue';
+import { useConnectivityTest } from '../composables/useConnectivityTest.js';
 
 const props = defineProps({
   profile: { type: Object, required: true },
@@ -96,9 +107,6 @@ const showApiKey = ref(false);
 const confirmDelete = ref(false);
 const formDirty = ref(false);
 const savedConfig = ref(null);
-
-// ---- Connectivity test ----
-const testing = ref(false);
 
 // ---- Init form from profile ----
 function initForm() {
@@ -149,13 +157,25 @@ function canSave() {
   );
 }
 
+const connTest = useConnectivityTest();
+
 function canTest() {
   return Boolean(
     form.value.base_url.trim() &&
     form.value.api_key.trim() &&
     form.value.models.length > 0 &&
-    !testing.value
+    !connTest.running.value
   );
+}
+
+function runConnTest() {
+  if (!canTest()) return;
+  connTest.start({
+    base_url: form.value.base_url,
+    api_key: form.value.api_key,
+    model: form.value.models[0] || '',
+    custom_endpoint: form.value.custom_endpoint,
+  });
 }
 
 // ---- Actions ----
@@ -186,37 +206,6 @@ async function saveProfile() {
     snapshotConfig();
   } catch (e) {
     toast('保存失败: ' + e.message, 'error');
-  }
-}
-
-async function dryRunTest() {
-  if (!canTest()) return;
-  testing.value = true;
-  try {
-    const res = await api('/api/bench/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base_url: form.value.base_url,
-        api_key: form.value.api_key,
-        model: form.value.models[0] || '',
-        custom_endpoint: form.value.custom_endpoint,
-        concurrency_levels: [1],
-        requests_per_level: 1,
-        mode: 'burst',
-        max_tokens: 512,
-        timeout: 120,
-        duration: 120,
-        system_prompt: 'You are a helpful assistant.',
-        user_prompt: 'Say hello.',
-      }),
-    });
-    if (res.error) { toast(res.error, 'error'); return; }
-    toast('连通性测试已启动', 'info');
-  } catch (e) {
-    toast('测试失败: ' + e.message, 'error');
-  } finally {
-    testing.value = false;
   }
 }
 
