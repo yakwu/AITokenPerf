@@ -80,6 +80,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getProfiles, getSitesSummary } from '../api';
 import { toast } from '../composables/useToast';
+import { useAppStore } from '../stores/app';
 import SiteConfigTab from '../components/SiteConfigTab.vue';
 import SiteTestTab from '../components/SiteTestTab.vue';
 import SiteSchedulesTab from '../components/SiteSchedulesTab.vue';
@@ -89,6 +90,7 @@ const route = useRoute();
 const router = useRouter();
 
 const props = defineProps({ id: { type: String, required: true } });
+const store = useAppStore();
 
 const siteName = computed(() => decodeURIComponent(props.id));
 const loading = ref(false);
@@ -163,10 +165,12 @@ watch(() => route.params.id, () => {
 }, { immediate: true });
 
 onMounted(() => {
+  store.refreshFn = loadSiteData;
   document.addEventListener('click', onClickOutside);
 });
 
 onUnmounted(() => {
+  store.refreshFn = null;
   document.removeEventListener('click', onClickOutside);
 });
 </script>
