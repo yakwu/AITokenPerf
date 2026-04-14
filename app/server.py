@@ -1527,6 +1527,13 @@ async def pricing_library(
     return pricing_service.get_library(search=search, vendor=vendor, page=page, page_size=page_size)
 
 
+@app.get("/api/pricing/providers")
+async def pricing_providers(user: dict = Depends(get_current_user)):
+    """返回 LiteLLM 中所有去重的 provider 列表"""
+    from app.pricing import pricing_service
+    return {"providers": pricing_service.get_providers()}
+
+
 @app.post("/api/pricing/refresh")
 async def pricing_refresh(user: dict = Depends(require_admin)):
     """管理员手动刷新价格数据"""

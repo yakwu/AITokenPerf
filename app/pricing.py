@@ -186,6 +186,17 @@ class PricingService:
             "page_size": page_size,
         }
 
+    def get_providers(self) -> list[str]:
+        """从 LiteLLM 缓存中提取所有去重的 provider 列表"""
+        if not self._cache:
+            return []
+        providers = set()
+        for info in self._cache.values():
+            p = info.get("litellm_provider", "")
+            if p:
+                providers.add(p)
+        return sorted(providers)
+
     @staticmethod
     def _format_model_list(items: list) -> list[dict]:
         """格式化模型列表，用于 API 返回"""
