@@ -821,9 +821,9 @@ async def delete_result_handler(filename: str, user: dict = Depends(get_current_
 async def start_bench(request: Request, user: dict = Depends(get_current_user)):
     user_id = user["user_id"]
 
-    existing = manager.get_user_running_task(user_id)
-    if existing:
-        return JSONResponse({"error": "Benchmark already running"}, status_code=409)
+    user_running = manager.get_user_task_count(user_id)
+    if user_running >= BenchTaskManager.MAX_PER_USER:
+        return JSONResponse({"error": f"用户并发任务数已达上限 ({BenchTaskManager.MAX_PER_USER})"}, status_code=429)
 
     body = await request.json() if (await request.body()) else {}
 
