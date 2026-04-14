@@ -32,7 +32,6 @@ export const deleteProfileApi = (name) => api(`/api/profiles/${encodeURIComponen
 export const startBenchApi = (data) => api('/api/bench/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const stopBenchApi = () => api('/api/bench/stop', { method: 'POST' });
 export const getBenchStatus = () => api('/api/bench/status');
-export const dryRunApi = (data) => api('/api/bench/dry-run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const startMultiBenchApi = (data) => api('/api/bench/start-multi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const getMultiBenchStatus = (groupId) => api(`/api/bench/status-multi/${encodeURIComponent(groupId)}`);
 export const getRunningTasks = () => api('/api/bench/running');

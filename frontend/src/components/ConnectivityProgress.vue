@@ -1,7 +1,7 @@
 <template>
-  <div class="connectivity-progress" v-if="running || result">
+  <div class="connectivity-progress" v-if="running || result || error">
     <!-- 运行中：进度面板 -->
-    <div class="progress-panel" :class="{ active: running }" v-show="running">
+    <div class="progress-panel" :class="{ active: running }">
       <div class="card">
         <div class="card-header">
           <div class="card-title">连通性验证中...</div>
@@ -34,7 +34,7 @@
     </div>
 
     <!-- 完成后：结果指标卡片 -->
-    <div class="connectivity-result" v-if="!running && result">
+    <div class="connectivity-result" v-if="!running && (result || error)">
       <div class="card">
         <div class="card-header">
           <div class="card-title">
@@ -44,7 +44,7 @@
           </div>
           <button class="btn btn-ghost btn-sm" @click="$emit('dismiss')">关闭</button>
         </div>
-        <div class="connectivity-metrics" v-if="result.percentiles || result.summary">
+        <div class="connectivity-metrics" v-if="result && (result.percentiles || result.summary)">
           <div class="connectivity-metric">
             <span class="connectivity-metric-label">TTFT</span>
             <span class="connectivity-metric-value">{{ fmtTime(result.percentiles?.TTFT?.P50) }}</span>

@@ -120,7 +120,7 @@ export function useConnectivityTest() {
             break;
           case 'bench:error':
             cleanup();
-            error.value = d.error;
+            error.value = String(d.error);
             logLine(`<span class="fail">错误: ${escHtml(d.error)}</span>`);
             resolve();
             break;
@@ -129,7 +129,7 @@ export function useConnectivityTest() {
 
       elapsedTimer = setInterval(() => {
         if (running.value && startTime) {
-          progress.value.elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          progress.value.elapsed = Math.round((Date.now() - startTime) / 100) / 10;
         }
       }, 1000);
     });
