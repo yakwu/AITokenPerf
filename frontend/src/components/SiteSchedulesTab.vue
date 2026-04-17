@@ -232,6 +232,41 @@
           </div>
         </div>
       </div>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="form-group">
+          <label class="form-label">并发数</label>
+          <input class="form-input" type="number" v-model.number="editForm.concurrency" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">测试模式</label>
+          <div class="time-range-pills">
+            <button class="time-range-pill" :class="{ active: editForm.mode === 'burst' }" @click="editForm.mode = 'burst'">突发</button>
+            <button class="time-range-pill" :class="{ active: editForm.mode === 'sustained' }" @click="editForm.mode = 'sustained'">持续</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">超时 (秒)</label>
+          <input class="form-input" type="number" v-model.number="editForm.timeout" min="10">
+        </div>
+        <div class="form-group">
+          <label class="form-label">持续时长 (秒)</label>
+          <input class="form-input" type="number" v-model.number="editForm.duration" min="10">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最大 Token</label>
+          <input class="form-input" type="number" v-model.number="editForm.max_tokens" min="1">
+        </div>
+      </div>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="form-group full">
+          <label class="form-label">System Prompt</label>
+          <textarea class="form-input" v-model="editForm.system_prompt" rows="2" placeholder="You are a helpful assistant." maxlength="2000"></textarea>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">User Prompt</label>
+          <textarea class="form-input" v-model="editForm.user_prompt" rows="3" placeholder="Write a short essay..." maxlength="2000"></textarea>
+        </div>
+      </div>
       <div class="btn-group" style="margin-top:20px">
         <button class="btn btn-primary" @click="saveEdit" :disabled="editLoading">
           <span v-if="!editLoading">保存</span>
@@ -332,6 +367,13 @@ const editForm = ref({
   name: '',
   schedule_value: 300,
   models: [],
+  concurrency: 1,
+  mode: 'burst',
+  max_tokens: 512,
+  timeout: 120,
+  duration: 120,
+  system_prompt: '',
+  user_prompt: '',
 });
 
 // ---- Multi-model select ----
@@ -399,6 +441,13 @@ function startEdit(s) {
     name: s.name || '',
     schedule_value: parseInt(s.schedule_value) || 300,
     models: configs.models || (configs.model ? [configs.model] : []),
+    concurrency: (configs.concurrency_levels && configs.concurrency_levels[0]) || 1,
+    mode: configs.mode || 'burst',
+    max_tokens: configs.max_tokens || 512,
+    timeout: configs.timeout || 120,
+    duration: configs.duration || 120,
+    system_prompt: configs.system_prompt || '',
+    user_prompt: configs.user_prompt || '',
   };
   // Detect preset or custom
   const sv = String(s.schedule_value);
@@ -526,11 +575,17 @@ async function saveEdit() {
 
   editLoading.value = true;
   try {
-    // Fetch original schedule to preserve configs
     const original = schedules.value.find(s => s.id === f.id);
-    const configs = { ...(original?.configs_json || original?.configs || {}) };
-    delete configs.model;
-    configs.models = f.models;
+    const configs = {
+      concurrency_levels: [parseInt(f.concurrency) || 1],
+      mode: f.mode || 'burst',
+      max_tokens: parseInt(f.max_tokens) || 512,
+      timeout: parseInt(f.timeout) || 120,
+      duration: parseInt(f.duration) || 120,
+      models: f.models,
+      system_prompt: f.system_prompt || '',
+      user_prompt: f.user_prompt || '',
+    };
 
     const res = await updateScheduleApi(f.id, {
       name: f.name.trim(),
