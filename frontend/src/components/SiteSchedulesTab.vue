@@ -82,6 +82,16 @@
             <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
           </div>
         </div>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="form-group full">
+            <label class="form-label">System Prompt</label>
+            <textarea class="form-input" v-model="createForm.system_prompt" rows="2" placeholder="You are a helpful assistant." maxlength="2000"></textarea>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">User Prompt</label>
+            <textarea class="form-input" v-model="createForm.user_prompt" rows="3" placeholder="Write a short essay about the future of artificial intelligence in exactly 200 words." maxlength="2000"></textarea>
+          </div>
+        </div>
         <div class="create-form-notice">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           测试参数（并发、模式、超时等）可在创建后编辑
@@ -290,6 +300,8 @@ function defaultCreateForm() {
     max_tokens: 512,
     timeout: 120,
     duration: 120,
+    system_prompt: 'You are a helpful assistant.',
+    user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
   };
 }
 
@@ -483,6 +495,8 @@ async function createSchedule() {
         timeout: parseInt(f.timeout) || 120,
         duration: parseInt(f.duration) || 120,
         models: f.models,
+        system_prompt: f.system_prompt || '',
+        user_prompt: f.user_prompt || '',
       },
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
