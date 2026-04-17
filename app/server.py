@@ -1218,10 +1218,32 @@ _RUN_NOW_COOLDOWN = 30
 
 # configs_json 允许覆盖的字段白名单
 _SCHEDULE_CONFIG_WHITELIST = {
-    "model", "max_tokens", "temperature", "top_p", "stream",
-    "concurrency_levels", "num_requests", "request_timeout",
+    # 模型
+    "model", "models",
+    # 生成参数
+    "max_tokens", "temperature", "top_p", "stream",
+    # Benchmark 参数
+    "concurrency_levels", "num_requests",
+    "mode", "duration",
+    "timeout",
+    # 连接参数
     "api_base", "api_key", "custom_api_base",
+    # 提示词
+    "system_prompt", "user_prompt",
 }
+
+def _sanitize_schedule_config(configs_json: dict) -> dict:
+    """白名单过滤 + 字段校验"""
+    result = {k: v for k, v in configs_json.items() if k in _SCHEDULE_CONFIG_WHITELIST}
+    # 提示词长度限制
+    for key in ("system_prompt", "user_prompt"):
+        if key in result and isinstance(result[key], str):
+            result[key] = result[key][:2000]
+    # models 必须是非空列表
+    if "models" in result:
+        if not isinstance(result["models"], list) or not result["models"]:
+            del result["models"]
+    return result
 
 @app.get("/api/schedules")
 async def list_schedules(user: dict = Depends(get_current_user)):
@@ -1252,9 +1274,9 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
         return JSONResponse({"error": f"定时任务数量已达上限（{MAX_SCHEDULES_PER_USER}个）"}, status_code=400)
 
     configs_json = body.get("configs_json", {})
-    # 白名单过滤，防止覆盖内部关键字段
+    # 白名单过滤 + 校验
     if isinstance(configs_json, dict):
-        configs_json = {k: v for k, v in configs_json.items() if k in _SCHEDULE_CONFIG_WHITELIST}
+        configs_json = _sanitize_schedule_config(configs_json)
     else:
         configs_json = {}
     schedule_type = body.get("schedule_type", "interval")
@@ -1287,9 +1309,9 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
     allowed = {"name", "profile_ids", "configs_json", "schedule_type", "schedule_value", "status"}
     fields = {k: v for k, v in body.items() if k in allowed}
 
-    # configs_json 白名单过滤
+    # configs_json 白名单过滤 + 校验
     if "configs_json" in fields and isinstance(fields["configs_json"], dict):
-        fields["configs_json"] = {k: v for k, v in fields["configs_json"].items() if k in _SCHEDULE_CONFIG_WHITELIST}
+        fields["configs_json"] = _sanitize_schedule_config(fields["configs_json"])
 
     # 最小间隔限制
     if "schedule_value" in fields:
