@@ -38,3 +38,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# npm lock files (project uses bun)
+package-lock.json
+frontend/package-lock.json
