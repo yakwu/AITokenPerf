@@ -230,6 +230,16 @@ async def init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_sched_status_next ON scheduled_tasks (status, next_run_at)"
         ))
+        # results 表查询优化索引
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_results_user_time ON results (user_id, created_at DESC)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_results_user_sched_time ON results (user_id, scheduled_task_id, created_at DESC)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_results_filename ON results (user_id, filename)"
+        ))
 
     # 修复定时任务结果缺失 profile_name 的历史数据
     await _migrate_schedule_results_profile_name()
