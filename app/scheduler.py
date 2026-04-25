@@ -266,7 +266,7 @@ async def _run_scheduled_task(task_id: int):
             if val is not None:
                 config[key] = val
 
-        cl = config.get("concurrency_levels", [100])
+        cl = config.get("concurrency_levels", [1])
         try:
             if isinstance(cl, str):
                 cl = json.loads(cl)
@@ -275,9 +275,9 @@ async def _run_scheduled_task(task_id: int):
             elif isinstance(cl, (int, float)):
                 config["concurrency_levels"] = [int(cl)]
             else:
-                config["concurrency_levels"] = [100]
+                config["concurrency_levels"] = [1]
         except (ValueError, TypeError, json.JSONDecodeError):
-            config["concurrency_levels"] = [100]
+            config["concurrency_levels"] = [1]
 
         # 为每个模型创建独立 task
         for model_name in models:

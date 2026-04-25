@@ -4,7 +4,7 @@ export async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const token = localStorage.getItem('token');
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  const apiBase = window.__API_BASE__ || (import.meta.env.DEV ? 'http://localhost:8080' : '');
+  const apiBase = window.__API_BASE__ || '';
   const res = await fetch(apiBase + path, { ...opts, headers });
   if (res.status === 401) {
     localStorage.removeItem('token');

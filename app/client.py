@@ -64,6 +64,12 @@ async def send_streaming_request(
     根据 config 中的 protocol（或 model 名自动检测）选择对应的协议适配器。
     """
 
+    # E2E 测试模式：跳过真实请求
+    from app.config import E2E_TEST_MODE
+    if E2E_TEST_MODE:
+        from app.test_mode import mock_send_streaming_request
+        return await mock_send_streaming_request(config, request_id)
+
     metrics = RequestMetrics(request_id=request_id)
 
     # 确定协议
