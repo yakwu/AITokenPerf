@@ -271,6 +271,8 @@ async def init_db():
 
     # 修复定时任务结果缺失 profile_name 的历史数据
     await _migrate_schedule_results_profile_name()
+    # 回填冗余列历史数据
+    await _backfill_redundant_columns()
 
 
 async def _migrate_schedule_results_profile_name():
@@ -303,6 +305,25 @@ async def _migrate_schedule_results_profile_name():
                 WHERE scheduled_task_id IS NOT NULL
                   AND (config_json::jsonb->>'profile_name' IS NULL
                        OR config_json::jsonb->>'profile_name' = '')
+            """))
+
+
+async def _backfill_redundant_columns():
+    """将 config_json 中的 profile_name/base_url 回填到冗余列（一次性迁移）"""
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            await conn.execute(text("""
+                UPDATE results
+                SET profile_name = COALESCE(json_extract(config_json, '$.profile_name'), ''),
+                    base_url = COALESCE(json_extract(config_json, '$.base_url'), '')
+                WHERE profile_name = '' OR base_url = ''
+            """))
+        else:
+            await conn.execute(text("""
+                UPDATE results
+                SET profile_name = COALESCE(config_json::jsonb->>'profile_name', ''),
+                    base_url = COALESCE(config_json::jsonb->>'base_url', '')
+                WHERE profile_name = '' OR base_url = ''
             """))
 
 
