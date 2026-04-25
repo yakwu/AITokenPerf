@@ -31,6 +31,16 @@
 
 .logo span { color: var(--accent); }
 
+.version-badge {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.3px;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;

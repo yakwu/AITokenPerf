@@ -447,6 +447,13 @@ async def security_middleware(request: Request, call_next):
     return response
 
 
+# ---- Version ----
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": os.environ.get("APP_VERSION", "dev")}
+
+
 # ---- Auth Routes ----
 
 @app.post("/api/auth/register")
