@@ -69,3 +69,24 @@ async def test_backfill_redundant_columns():
         row = cur.fetchone()
     assert row[0] == "OldSite", f"profile_name 应回填为 OldSite，实际为 {row[0]}"
     assert row[1] == "https://old.example.com", f"base_url 应回填，实际为 {row[1]}"
+
+
+@pytest.mark.asyncio
+async def test_save_result_populates_redundant_columns():
+    """save_result 应从 config_json 提取 profile_name/base_url 写入冗余列"""
+    import json
+    from app.db import save_result
+    config = json.dumps({"profile_name": "NewSite", "base_url": "https://new.example.com", "model": "gpt-4o"})
+    await save_result(
+        user_id=1, test_id="rc-test", filename="rc_test.json",
+        timestamp="20260425_140000",
+        config_json=config, summary_json="{}", percentiles_json="{}",
+    )
+
+    async with engine.connect() as conn:
+        cur = await conn.execute(text(
+            "SELECT profile_name, base_url FROM results WHERE test_id='rc-test'"
+        ))
+        row = cur.fetchone()
+    assert row[0] == "NewSite", f"profile_name 应为 NewSite，实际为 {row[0]}"
+    assert row[1] == "https://new.example.com", f"base_url 应为 https://new.example.com，实际为 {row[1]}"

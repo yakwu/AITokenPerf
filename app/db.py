@@ -551,19 +551,28 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
                        config_json: str, summary_json: str, percentiles_json: str,
                        errors_json: str = "{}", error_details_json: str = "[]",
                        group_id: str = "", scheduled_task_id: int = 0):
+    # 从 config_json 提取冗余字段
+    try:
+        _cfg = json.loads(config_json)
+    except (json.JSONDecodeError, TypeError):
+        _cfg = {}
+    _profile_name = _cfg.get("profile_name", "")
+    _base_url = _cfg.get("base_url", "")
+
     async with engine.begin() as conn:
         await conn.execute(
             text("""INSERT INTO results (user_id, test_id, filename, timestamp, config_json,
                     summary_json, percentiles_json, errors_json, error_details_json, group_id,
-                    scheduled_task_id)
+                    scheduled_task_id, profile_name, base_url)
                    VALUES (:uid, :test_id, :filename, :timestamp, :config_json,
                     :summary_json, :percentiles_json, :errors_json, :error_details_json, :group_id,
-                    :scheduled_task_id)"""),
+                    :scheduled_task_id, :profile_name, :base_url)"""),
             {"uid": user_id, "test_id": test_id, "filename": filename, "timestamp": timestamp,
              "config_json": config_json, "summary_json": summary_json,
              "percentiles_json": percentiles_json, "errors_json": errors_json,
              "error_details_json": error_details_json, "group_id": group_id,
-             "scheduled_task_id": scheduled_task_id},
+             "scheduled_task_id": scheduled_task_id,
+             "profile_name": _profile_name, "base_url": _base_url},
         )
 
 
