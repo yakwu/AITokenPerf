@@ -5,6 +5,8 @@ export default defineConfig({
   timeout: 30000,
   retries: 0,
   reporter: 'list',
+  fullyParallel: false,
+  workers: 1,
   use: {
     baseURL: 'http://localhost:5181',
     headless: true,
@@ -19,7 +21,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'python -m uvicorn app.server:app --host 127.0.0.1 --port 8081',
+      command: '.venv/bin/python -m uvicorn app.server:app --host 127.0.0.1 --port 8081',
       port: 8081,
       reuseExistingServer: !process.env.CI,
       timeout: 15000,

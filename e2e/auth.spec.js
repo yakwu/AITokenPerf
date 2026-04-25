@@ -1,6 +1,10 @@
-import { test, expect, login, register, ADMIN_EMAIL, ADMIN_PASSWORD } from './fixtures/auth';
+import { test, expect, login, register, resetDb, ADMIN_EMAIL, ADMIN_PASSWORD } from './fixtures/auth';
 
 test.describe('认证与用户生命周期', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetDb(page);
+  });
+
   test('首次登录强制改密', async ({ page }) => {
     await page.goto('/auth');
     await page.waitForSelector('.auth-card');

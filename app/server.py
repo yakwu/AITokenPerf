@@ -555,6 +555,37 @@ async def user_change_password(request: Request, user: dict = Depends(get_curren
     return await auth_change_password(request, user)
 
 
+# ---- E2E Test Reset Endpoint ----
+
+_test_reset_lock = asyncio.Lock()
+
+@app.post("/api/test/reset")
+async def test_reset():
+    """仅在 E2E_TEST_MODE 下可用，重置数据库到初始状态。"""
+    from app.config import E2E_TEST_MODE
+    if not E2E_TEST_MODE:
+        return JSONResponse({"error": "Not available"}, status_code=404)
+
+    async with _test_reset_lock:
+        from sqlalchemy import text
+        from app.db import engine, init_db
+        from app.migrate import migrate
+
+        async with engine.begin() as conn:
+            for table in ["scheduled_tasks", "user_settings", "results", "profiles", "sessions", "users"]:
+                await conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+        await init_db()
+        # 直接创建 admin 用户，跳过 migrate 的复杂逻辑
+        from app.auth import hash_password
+        from app.db import create_user
+        try:
+            await create_user("admin@example.com", hash_password("AITokenPerf#123"), "Admin", "admin", must_change_password=True)
+        except Exception:
+            pass  # 用户可能已存在
+
+    return {"status": "ok"}
+
+
 # ---- Admin Routes ----
 
 @app.get("/api/admin/users")

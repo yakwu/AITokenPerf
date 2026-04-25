@@ -1,7 +1,8 @@
-import { test, expect, login } from './fixtures/auth';
+import { test, expect, login, resetDb } from './fixtures/auth';
 
 test.describe('配置管理', () => {
   test.beforeEach(async ({ page }) => {
+    await resetDb(page);
     await login(page);
   });
 

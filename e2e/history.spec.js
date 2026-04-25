@@ -1,7 +1,8 @@
-import { test, expect, login } from './fixtures/auth';
+import { test, expect, login, resetDb } from './fixtures/auth';
 
 test.describe('历史与对比', () => {
   test.beforeEach(async ({ page }) => {
+    await resetDb(page);
     await login(page);
     await page.goto('/history');
   });
