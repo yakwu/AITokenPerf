@@ -1244,11 +1244,19 @@ async def count_user_scheduled_tasks(user_id: int) -> int:
 # ---- Sites Summary ----
 
 async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict]:
-    """获取用户所有站点的最新测试摘要。hours 可选，仅使用最近 N 小时内的数据。"""
+    """获取用户所有站点的最新测试摘要。使用 SQL 查询避免全量加载。"""
     profiles = await get_profiles(user_id)
-    results = await get_results(user_id, hours=hours)
+    if not profiles:
+        return []
 
-    # 按 profile name 分组，聚合最新结果
+    params: dict = {"uid": user_id}
+    time_filter = ""
+    if hours is not None:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y%m%d_%H%M%S")
+        time_filter = "AND r.timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+
     summary = {}
     for p in profiles:
         key = p["name"]
@@ -1257,6 +1265,7 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
             "latest_results": [],
             "health": "unknown",
             "last_test_at": None,
+            "sparkline_data": {},
         }
 
     # 构建 scheduled_task_id → profile name 查找表
@@ -1267,72 +1276,101 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
         if pids:
             task_to_profile[st["id"]] = pids[0]
 
-    for r in results:
-        config = r.get("config", {})
-        profile_name = config.get("profile_name", "")
+    # 收集所有 profile_name 列表用于 SQL IN 子句
+    profile_names = [p["name"] for p in profiles]
+    if not profile_names:
+        return list(summary.values())
 
-        # 优先通过 profile_name 匹配
-        if profile_name and profile_name in summary:
-            summary[profile_name]["latest_results"].append(r)
+    # SQL：获取每个 profile 的最近结果（用于健康计算 + sparkline）
+    placeholders = ", ".join([f":pn_{i}" for i in range(len(profile_names))])
+    pn_params = {f"pn_{i}": name for i, name in enumerate(profile_names)}
+    all_params = {**params, **pn_params}
+
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text(f"""
+                SELECT r.id, r.profile_name, r.timestamp, r.summary_json,
+                       r.percentiles_json, r.config_json, r.scheduled_task_id
+                FROM results r
+                WHERE r.user_id=:uid
+                  AND r.profile_name IN ({placeholders})
+                  {time_filter}
+                ORDER BY r.profile_name, r.created_at DESC
+            """),
+            all_params,
+        )
+        rows = cur.fetchall()
+
+    # 分桶：每个 profile 最多保留最近 50 条（用于 sparkline），最近 5 条用于健康计算
+    profile_rows: dict[str, list] = {}
+    for row in rows:
+        pn = row[1]  # profile_name
+        if pn not in profile_rows:
+            profile_rows[pn] = []
+        if len(profile_rows[pn]) < 50:
+            profile_rows[pn].append(row)
+
+    for pn, prows in profile_rows.items():
+        if pn not in summary:
             continue
 
-        # 回退：通过 scheduled_task_id 匹配（定时任务结果通常有此字段）
-        stid = r.get("scheduled_task_id") or 0
-        if stid and stid in task_to_profile:
-            matched = task_to_profile[stid]
-            if matched in summary:
-                summary[matched]["latest_results"].append(r)
-                continue
+        # 解析最近 5 条用于健康判断
+        latest_results = []
+        for r in prows[:5]:
+            try:
+                s = json.loads(r[3])  # summary_json
+            except (json.JSONDecodeError, TypeError):
+                s = {}
+            latest_results.append({
+                "timestamp": r[2],
+                "summary": s,
+                "config": json.loads(r[5]) if r[5] else {},
+                "scheduled_task_id": r[6],
+            })
 
-    # 计算 sparkline_data 和健康状态
-    for key, val in summary.items():
-        all_results = val["latest_results"]  # 全部匹配结果（时间窗口内）
+        summary[pn]["latest_results"] = latest_results
+        summary[pn]["last_test_at"] = prows[0][2] if prows else None
 
-        # ---- sparkline_data：按 model 分组提取 TTFT P50 ----
-        model_ttfts: dict[str, list[tuple[str, float]]] = {}  # model → [(timestamp, ttft)]
-        for r in all_results:
-            model = r.get("config", {}).get("model", "-")
-            ttft = None
-            p = r.get("percentiles", {})
-            if p and isinstance(p, dict):
-                ttft_obj = p.get("TTFT")
-                if ttft_obj and isinstance(ttft_obj, dict):
-                    ttft = ttft_obj.get("P50")
+        # 健康计算：最近 5 条的成功率均值
+        success_rates = []
+        for lr in latest_results:
+            s = lr["summary"]
+            total = s.get("total_requests", 0)
+            if total > 0:
+                success = s.get("success_count", s.get("successful_requests", 0))
+                success_rates.append(success / total)
+
+        if not success_rates:
+            summary[pn]["health"] = "unknown"
+        else:
+            avg_rate = sum(success_rates) / len(success_rates)
+            summary[pn]["health"] = "healthy" if avg_rate >= 0.95 else "error"
+
+        # sparkline：按 model 分组提取 TTFT P50
+        model_ttfts: dict[str, list[tuple[str, float]]] = {}
+        for r in prows:
+            try:
+                cfg = json.loads(r[5])  # config_json
+                model = cfg.get("model", "-")
+            except (json.JSONDecodeError, TypeError):
+                model = "-"
+            try:
+                p_json = json.loads(r[4])  # percentiles_json
+                ttft = p_json.get("TTFT", {}).get("P50")
+            except (json.JSONDecodeError, TypeError):
+                ttft = None
             if ttft is not None:
-                ts = r.get("timestamp", "")
+                ts = r[2]  # timestamp
                 model_ttfts.setdefault(model, []).append((ts, float(ttft)))
 
         sparkline_data: dict[str, list[float]] = {}
         for model, pairs in model_ttfts.items():
-            # 按 timestamp 正序排列（旧→新）
             pairs.sort(key=lambda x: x[0])
             values = [v for _, v in pairs]
-            # 采样到最多 50 个点
             if len(values) > 50:
                 step = len(values) / 50
                 values = [values[int(i * step)] for i in range(50)]
             sparkline_data[model] = values
-        val["sparkline_data"] = sparkline_data
-
-        # 截断 latest_results 到最近 10 条，防止内存膨胀
-        val["latest_results"] = all_results[:10]
-
-        latest = val["latest_results"][:5]  # 最近 5 次用于健康计算
-        if not latest:
-            val["health"] = "untested"
-            continue
-
-        val["last_test_at"] = latest[0].get("timestamp", "")
-        success_rates = []
-        for r in latest:
-            s = r.get("summary", {})
-            if s.get("total_requests", 0) > 0:
-                success_rates.append(s.get("success_count", s.get("successful_requests", 0)) / s["total_requests"])
-
-        if not success_rates:
-            val["health"] = "unknown"
-        else:
-            avg_rate = sum(success_rates) / len(success_rates)
-            val["health"] = "healthy" if avg_rate >= 0.95 else "error"
+        summary[pn]["sparkline_data"] = sparkline_data
 
     return list(summary.values())

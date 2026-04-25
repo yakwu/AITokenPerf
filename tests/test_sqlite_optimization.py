@@ -1,9 +1,11 @@
 """TDD 测试：SQLite 高负载查询优化"""
 
+import json
+
 import pytest
 from sqlalchemy import text
 
-from app.db import engine, get_site_trend
+from app.db import engine, get_site_trend, get_sites_summary, upsert_profile, save_result
 
 
 async def _get_indexes(table_name: str) -> set[str]:
@@ -144,3 +146,66 @@ async def test_site_trend_filter_by_profile_name():
     # SiteA 有 5 条数据，应全部出现在趋势中
     total_runs = sum(p["run_count"] for p in trend)
     assert total_runs == 5, f"SiteA 趋势应有 5 次运行，实际为 {total_runs}"
+
+
+@pytest.mark.asyncio
+async def test_sites_summary_returns_correct_health():
+    """get_sites_summary 应正确计算每个站点的健康状态"""
+    await upsert_profile(
+        user_id=1, name="HealthySite", base_url="https://healthy.com",
+        api_key="sk-test", model="gpt-4o", provider="openai",
+    )
+    await upsert_profile(
+        user_id=1, name="ErrorSite", base_url="https://error.com",
+        api_key="sk-test", model="gpt-4o", provider="openai",
+    )
+
+    # HealthySite: 5 条 100% 成功率
+    for i in range(5):
+        await save_result(
+            user_id=1, test_id=f"hs-{i}", filename=f"hs_{i}.json",
+            timestamp=f"20260425_{14+i:02d}0000",
+            config_json=json.dumps({"profile_name": "HealthySite", "base_url": "https://healthy.com"}),
+            summary_json=json.dumps({"success_count": 10, "total_requests": 10, "success_rate": 100.0}),
+            percentiles_json=json.dumps({"TTFT": {"P50": 0.5}}),
+        )
+
+    # ErrorSite: 5 条 50% 成功率
+    for i in range(5):
+        await save_result(
+            user_id=1, test_id=f"es-{i}", filename=f"es_{i}.json",
+            timestamp=f"20260425_{14+i:02d}0000",
+            config_json=json.dumps({"profile_name": "ErrorSite", "base_url": "https://error.com"}),
+            summary_json=json.dumps({"success_count": 5, "total_requests": 10, "success_rate": 50.0}),
+            percentiles_json=json.dumps({"TTFT": {"P50": 1.5}}),
+        )
+
+    summary = await get_sites_summary(user_id=1)
+    by_name = {s["profile"]["name"]: s for s in summary}
+
+    assert by_name["HealthySite"]["health"] == "healthy"
+    assert by_name["ErrorSite"]["health"] == "error"
+    assert by_name["HealthySite"]["last_test_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_sites_summary_sparkline_data():
+    """get_sites_summary 应返回 sparkline_data"""
+    await upsert_profile(
+        user_id=1, name="SparkSite", base_url="https://spark.com",
+        api_key="sk-test", model="gpt-4o", provider="openai",
+    )
+    for i in range(10):
+        await save_result(
+            user_id=1, test_id=f"sp-{i}", filename=f"sp_{i}.json",
+            timestamp=f"20260425_{10+i:02d}0000",
+            config_json=json.dumps({"profile_name": "SparkSite", "base_url": "https://spark.com", "model": "gpt-4o"}),
+            summary_json=json.dumps({"success_count": 10, "total_requests": 10, "success_rate": 100.0}),
+            percentiles_json=json.dumps({"TTFT": {"P50": 0.3 + i * 0.05}}),
+        )
+
+    summary = await get_sites_summary(user_id=1)
+    by_name = {s["profile"]["name"]: s for s in summary}
+    spark = by_name["SparkSite"]["sparkline_data"]
+    assert "gpt-4o" in spark, "sparkline 应按 model 分组"
+    assert len(spark["gpt-4o"]) == 10, f"应有 10 个点，实际为 {len(spark['gpt-4o'])}"
