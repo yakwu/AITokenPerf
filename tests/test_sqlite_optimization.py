@@ -3,7 +3,7 @@
 import pytest
 from sqlalchemy import text
 
-from app.db import engine
+from app.db import engine, get_site_trend
 
 
 async def _get_indexes(table_name: str) -> set[str]:
@@ -134,3 +134,13 @@ async def test_aggregated_filter_by_base_url():
     for item in result["items"]:
         assert item["config"].get("profile_name") == "SiteB"
     assert result["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_site_trend_filter_by_profile_name():
+    """get_site_trend 按 profile_name 过滤应只返回匹配站点的趋势"""
+    await _seed_optimization_data()
+    trend = await get_site_trend(user_id=1, base_url="", profile_name="SiteA")
+    # SiteA 有 5 条数据，应全部出现在趋势中
+    total_runs = sum(p["run_count"] for p in trend)
+    assert total_runs == 5, f"SiteA 趋势应有 5 次运行，实际为 {total_runs}"

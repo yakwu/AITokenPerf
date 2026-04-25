@@ -893,13 +893,13 @@ async def get_site_trend(user_id: int, base_url: str, hours: int | None = None, 
         params["cutoff"] = cutoff
 
     if profile_name:
-        site_filter = "AND json_extract(config_json, '$.profile_name')=:profile_name"
+        site_filter = "AND profile_name=:profile_name"
         params["profile_name"] = profile_name
     else:
         base_clean = base_url.rstrip("/")
         base_with_slash = base_clean + "/"
-        site_filter = ("AND (json_extract(config_json, '$.base_url')=:base_url"
-                       " OR json_extract(config_json, '$.base_url')=:base_with_slash)")
+        site_filter = ("AND (base_url=:base_url"
+                       " OR base_url=:base_with_slash)")
         params["base_url"] = base_clean
         params["base_with_slash"] = base_with_slash
 
