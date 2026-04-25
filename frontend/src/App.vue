@@ -3,6 +3,7 @@
   <header class="header" v-if="!store.user?.must_change_password">
     <div class="header-left">
       <div class="logo">AIToken<span>Perf</span></div>
+      <div class="version-badge" v-if="appVersion">{{ appVersion }}</div>
       <div class="status-badge" :class="store.status" v-if="store.user && store.status !== 'idle'">
         <div class="status-dot"></div>
         <span>{{ store.statusLabels[store.status] || store.status }}</span>
@@ -110,6 +111,9 @@ window.showDetailOverlay = function(detailHtml) {
 const userMenuOpen = ref(false);
 const router = useRouter();
 const route = useRoute();
+const appVersion = ref('');
+
+fetch('/api/version').then(r => r.json()).then(d => { appVersion.value = d.version; }).catch(() => {});
 
 // 未登录时跳转到 /auth
 watch(
