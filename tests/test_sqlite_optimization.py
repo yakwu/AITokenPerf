@@ -90,3 +90,47 @@ async def test_save_result_populates_redundant_columns():
         row = cur.fetchone()
     assert row[0] == "NewSite", f"profile_name 应为 NewSite，实际为 {row[0]}"
     assert row[1] == "https://new.example.com", f"base_url 应为 https://new.example.com，实际为 {row[1]}"
+
+
+async def _seed_optimization_data():
+    """为优化测试插入数据"""
+    from app.db import save_result
+    import json
+    for i in range(5):
+        await save_result(
+            user_id=1, test_id=f"opt-a-{i}", filename=f"opt_a_{i}.json",
+            timestamp=f"20260425_{10+i:02d}0000",
+            config_json=json.dumps({"profile_name": "SiteA", "base_url": "https://a.com", "model": "gpt-4o"}),
+            summary_json=json.dumps({"success_rate": 99.5, "token_throughput_tps": 100}),
+            percentiles_json=json.dumps({"TTFT": {"P50": 0.5}}),
+        )
+    for i in range(3):
+        await save_result(
+            user_id=1, test_id=f"opt-b-{i}", filename=f"opt_b_{i}.json",
+            timestamp=f"20260425_{12+i:02d}0000",
+            config_json=json.dumps({"profile_name": "SiteB", "base_url": "https://b.com", "model": "claude-opus-4-6"}),
+            summary_json=json.dumps({"success_rate": 95.0, "token_throughput_tps": 80}),
+            percentiles_json=json.dumps({"TTFT": {"P50": 0.8}}),
+        )
+
+
+@pytest.mark.asyncio
+async def test_aggregated_filter_by_profile_name():
+    """get_results_aggregated 按 profile_name 过滤应只返回匹配数据"""
+    from app.db import get_results_aggregated
+    await _seed_optimization_data()
+    result = await get_results_aggregated(user_id=1, limit=100, profile_name="SiteA")
+    for item in result["items"]:
+        assert item["config"].get("profile_name") == "SiteA", f"应只返回 SiteA，实际为 {item['config'].get('profile_name')}"
+    assert result["total"] == 5, f"应有 5 条 SiteA 数据，实际为 {result['total']}"
+
+
+@pytest.mark.asyncio
+async def test_aggregated_filter_by_base_url():
+    """get_results_aggregated 按 base_url 过滤应只返回匹配数据"""
+    from app.db import get_results_aggregated
+    await _seed_optimization_data()
+    result = await get_results_aggregated(user_id=1, limit=100, base_url="https://b.com")
+    for item in result["items"]:
+        assert item["config"].get("profile_name") == "SiteB"
+    assert result["total"] == 3

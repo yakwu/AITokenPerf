@@ -629,13 +629,13 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
 
     site_filter = ""
     if profile_name:
-        site_filter = "AND json_extract(r.config_json, '$.profile_name')=:profile_name"
+        site_filter = "AND r.profile_name=:profile_name"
         params["profile_name"] = profile_name
     elif base_url:
         base_clean = base_url.rstrip("/")
         base_with_slash = base_clean + "/"
-        site_filter = ("AND (json_extract(r.config_json, '$.base_url')=:base_url"
-                       " OR json_extract(r.config_json, '$.base_url')=:base_url_slash)")
+        site_filter = ("AND (r.base_url=:base_url"
+                       " OR r.base_url=:base_url_slash)")
         params["base_url"] = base_clean
         params["base_url_slash"] = base_with_slash
 
