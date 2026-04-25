@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS results (
     error_details_json TEXT NOT NULL DEFAULT '[]',
     group_id           TEXT NOT NULL DEFAULT '',
     scheduled_task_id  INTEGER NOT NULL DEFAULT 0,
+    profile_name       TEXT NOT NULL DEFAULT '',
+    base_url           TEXT NOT NULL DEFAULT '',
     created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -167,6 +169,8 @@ CREATE TABLE IF NOT EXISTS results (
     error_details_json TEXT NOT NULL DEFAULT '[]',
     group_id           TEXT NOT NULL DEFAULT '',
     scheduled_task_id  INTEGER NOT NULL DEFAULT 0,
+    profile_name       TEXT NOT NULL DEFAULT '',
+    base_url           TEXT NOT NULL DEFAULT '',
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -239,6 +243,30 @@ async def init_db():
         ))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_results_filename ON results (user_id, filename)"
+        ))
+        # 冗余列：对已有表 ALTER TABLE
+        if _is_sqlite:
+            for col_def in [
+                "ALTER TABLE results ADD COLUMN profile_name TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN base_url TEXT NOT NULL DEFAULT ''",
+            ]:
+                try:
+                    await conn.execute(text(col_def))
+                except Exception:
+                    pass  # 列已存在则忽略
+        else:
+            for col_def in [
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS profile_name TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS base_url TEXT NOT NULL DEFAULT ''",
+            ]:
+                await conn.execute(text(col_def))
+
+        # 冗余列索引
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_results_user_profile_time ON results (user_id, profile_name, created_at DESC)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_results_user_url_time ON results (user_id, base_url, created_at DESC)"
         ))
 
     # 修复定时任务结果缺失 profile_name 的历史数据
