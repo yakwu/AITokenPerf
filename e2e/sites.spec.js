@@ -16,7 +16,7 @@ test.describe('目标站点', () => {
     const addBtn = page.locator('button', { hasText: /添加|新建|\+/ }).first();
     if (await addBtn.isVisible()) {
       await addBtn.click();
-      await expect(page.locator('.form-input, .modal, dialog')).toBeVisible();
+      await expect(page.locator('.create-site-form')).toBeVisible();
     }
   });
 

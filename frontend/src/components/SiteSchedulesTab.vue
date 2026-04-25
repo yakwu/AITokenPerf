@@ -435,7 +435,7 @@ function onEditFrequencyPresetChange() {
 }
 
 function startEdit(s) {
-  const configs = s.configs_json || s.configs || {};
+  const configs = s.configs || (typeof s.configs_json === 'string' ? JSON.parse(s.configs_json) : s.configs_json) || {};
   editForm.value = {
     id: s.id,
     name: s.name || '',
@@ -489,7 +489,7 @@ function formatTime(iso) {
 }
 
 function getModelFromSchedule(s) {
-  const configs = s.configs_json || s.configs || {};
+  const configs = s.configs || (typeof s.configs_json === 'string' ? JSON.parse(s.configs_json) : s.configs_json) || {};
   const models = configs.models || (configs.model ? [configs.model] : []);
   if (!models.length) return '-';
   if (models.length <= 2) return models.join(', ');
@@ -497,7 +497,7 @@ function getModelFromSchedule(s) {
 }
 
 function getConcurrencyFromSchedule(s) {
-  const configs = s.configs_json || s.configs || {};
+  const configs = s.configs || (typeof s.configs_json === 'string' ? JSON.parse(s.configs_json) : s.configs_json) || {};
   const levels = configs.concurrency_levels || [];
   return levels.length ? levels.join(', ') : '-';
 }

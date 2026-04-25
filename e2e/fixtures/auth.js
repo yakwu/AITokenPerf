@@ -35,7 +35,13 @@ export async function login(page, email = ADMIN_EMAIL, password = ADMIN_PASSWORD
   await page.click('.btn-primary');
 
   // 处理强制改密（首次登录时 must_change_password=true）
-  const forceChangeVisible = await page.locator('text=首次登录，请修改默认密码').isVisible({ timeout: 3000 }).catch(() => false);
+  // 等待页面响应：强制改密表单或跳转到仪表盘
+  await Promise.race([
+    page.locator('text=首次登录').waitFor({ timeout: 5000 }).catch(() => null),
+    page.waitForURL(/\/$/, { timeout: 5000 }).catch(() => null),
+  ]);
+
+  const forceChangeVisible = await page.locator('text=首次登录').isVisible().catch(() => false);
   if (forceChangeVisible) {
     const passwordInputs = page.locator('input[type="password"]');
     await passwordInputs.nth(0).fill(ADMIN_NEW_PASSWORD);
