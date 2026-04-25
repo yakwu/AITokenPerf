@@ -82,6 +82,16 @@
             <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
           </div>
         </div>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="form-group full">
+            <label class="form-label">System Prompt</label>
+            <textarea class="form-input" v-model="createForm.system_prompt" rows="2" placeholder="You are a helpful assistant." maxlength="2000"></textarea>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">User Prompt</label>
+            <textarea class="form-input" v-model="createForm.user_prompt" rows="3" placeholder="Write a short essay about the future of artificial intelligence in exactly 200 words." maxlength="2000"></textarea>
+          </div>
+        </div>
         <div class="create-form-notice">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           测试参数（并发、模式、超时等）可在创建后编辑
@@ -222,6 +232,41 @@
           </div>
         </div>
       </div>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="form-group">
+          <label class="form-label">并发数</label>
+          <input class="form-input" type="number" v-model.number="editForm.concurrency" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">测试模式</label>
+          <div class="time-range-pills">
+            <button class="time-range-pill" :class="{ active: editForm.mode === 'burst' }" @click="editForm.mode = 'burst'">突发</button>
+            <button class="time-range-pill" :class="{ active: editForm.mode === 'sustained' }" @click="editForm.mode = 'sustained'">持续</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">超时 (秒)</label>
+          <input class="form-input" type="number" v-model.number="editForm.timeout" min="10">
+        </div>
+        <div class="form-group">
+          <label class="form-label">持续时长 (秒)</label>
+          <input class="form-input" type="number" v-model.number="editForm.duration" min="10">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最大 Token</label>
+          <input class="form-input" type="number" v-model.number="editForm.max_tokens" min="1">
+        </div>
+      </div>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="form-group full">
+          <label class="form-label">System Prompt</label>
+          <textarea class="form-input" v-model="editForm.system_prompt" rows="2" placeholder="You are a helpful assistant." maxlength="2000"></textarea>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">User Prompt</label>
+          <textarea class="form-input" v-model="editForm.user_prompt" rows="3" placeholder="Write a short essay..." maxlength="2000"></textarea>
+        </div>
+      </div>
       <div class="btn-group" style="margin-top:20px">
         <button class="btn btn-primary" @click="saveEdit" :disabled="editLoading">
           <span v-if="!editLoading">保存</span>
@@ -290,6 +335,8 @@ function defaultCreateForm() {
     max_tokens: 512,
     timeout: 120,
     duration: 120,
+    system_prompt: 'You are a helpful assistant.',
+    user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
   };
 }
 
@@ -320,6 +367,13 @@ const editForm = ref({
   name: '',
   schedule_value: 300,
   models: [],
+  concurrency: 1,
+  mode: 'burst',
+  max_tokens: 512,
+  timeout: 120,
+  duration: 120,
+  system_prompt: '',
+  user_prompt: '',
 });
 
 // ---- Multi-model select ----
@@ -387,6 +441,13 @@ function startEdit(s) {
     name: s.name || '',
     schedule_value: parseInt(s.schedule_value) || 300,
     models: configs.models || (configs.model ? [configs.model] : []),
+    concurrency: (configs.concurrency_levels && configs.concurrency_levels[0]) || 1,
+    mode: configs.mode || 'burst',
+    max_tokens: configs.max_tokens || 512,
+    timeout: configs.timeout || 120,
+    duration: configs.duration || 120,
+    system_prompt: configs.system_prompt || '',
+    user_prompt: configs.user_prompt || '',
   };
   // Detect preset or custom
   const sv = String(s.schedule_value);
@@ -483,6 +544,8 @@ async function createSchedule() {
         timeout: parseInt(f.timeout) || 120,
         duration: parseInt(f.duration) || 120,
         models: f.models,
+        system_prompt: f.system_prompt || '',
+        user_prompt: f.user_prompt || '',
       },
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
@@ -512,11 +575,17 @@ async function saveEdit() {
 
   editLoading.value = true;
   try {
-    // Fetch original schedule to preserve configs
     const original = schedules.value.find(s => s.id === f.id);
-    const configs = { ...(original?.configs_json || original?.configs || {}) };
-    delete configs.model;
-    configs.models = f.models;
+    const configs = {
+      concurrency_levels: [parseInt(f.concurrency) || 1],
+      mode: f.mode || 'burst',
+      max_tokens: parseInt(f.max_tokens) || 512,
+      timeout: parseInt(f.timeout) || 120,
+      duration: parseInt(f.duration) || 120,
+      models: f.models,
+      system_prompt: f.system_prompt || '',
+      user_prompt: f.user_prompt || '',
+    };
 
     const res = await updateScheduleApi(f.id, {
       name: f.name.trim(),
