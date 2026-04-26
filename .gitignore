@@ -8,6 +8,8 @@ aitokenperf.db
 
 # Runtime data
 data/
+tmp/
+test-results/
 
 # Node
 node_modules/
