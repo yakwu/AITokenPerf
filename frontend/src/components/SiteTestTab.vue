@@ -500,6 +500,7 @@ function runWithSSE(runId) {
   return new Promise((resolve) => {
     benchStartTime = Date.now();
     progress.value = { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' };
+    const completedModels = new Set();
 
     benchSSE.connect(runId, (type, d) => {
       switch (type) {
@@ -523,21 +524,40 @@ function runWithSSE(runId) {
           }
           break;
         }
-        case 'bench:complete':
-          stopSSE();
-          logLine('<span class="ok">测试完成！</span>');
-          resolve();
+        case 'bench:complete': {
+          // 多模型并行时，每个模型都会发 bench:complete，需等全部完成才关闭
+          if (d.model) completedModels.add(d.model);
+          const doneCount = completedModels.size;
+          const totalCount = modelResults.value.length;
+          logLine(`<span class="ok">模型 ${d.model || ''} 测试完成 (${doneCount}/${totalCount})</span>`);
+          if (doneCount >= totalCount) {
+            stopSSE();
+            logLine('<span class="ok">所有模型测试完成！</span>');
+            resolve();
+          }
           break;
+        }
         case 'bench:stopped':
           stopSSE();
           logLine('<span class="fail">测试已被用户停止</span>');
           resolve();
           break;
-        case 'bench:error':
-          stopSSE();
-          logLine(`<span class="fail">错误: ${escHtml(d.error)}</span>`);
-          resolve();
+        case 'bench:error': {
+          // 多模型并行时，某个模型出错不应中断其他模型
+          if (d.model) {
+            completedModels.add(d.model);
+            const idx = modelResults.value.findIndex(mr => mr.model === d.model);
+            if (idx >= 0) modelResults.value[idx].running = false;
+          }
+          logLine(`<span class="fail">模型 ${d.model || ''} 错误: ${escHtml(d.error)}</span>`);
+          const doneCount = completedModels.size;
+          const totalCount = modelResults.value.length;
+          if (doneCount >= totalCount) {
+            stopSSE();
+            resolve();
+          }
           break;
+        }
       }
     });
 
