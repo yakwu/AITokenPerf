@@ -366,7 +366,7 @@ const form = ref({
   user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
 });
 const concurrencyPresets = ref([1, 5, 10, 20, 50, 100]);
-const selectedConcurrency = ref(10);
+const selectedConcurrency = ref(1);
 const customConcurrency = ref('');
 const requestsPerLevel = ref('');
 const showAdvanced = ref(false);
@@ -407,7 +407,7 @@ function successRateClass(value) {
 
 // ---- Build config for API call ----
 function buildConfig(models) {
-  const conc = selectedConcurrency.value || 10;
+  const conc = selectedConcurrency.value || 1;
   const requests = parseInt(requestsPerLevel.value);
   const config = {
     profile_name: props.profile.name,
