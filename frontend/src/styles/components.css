@@ -2111,7 +2111,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 
 /* 列宽 */
 .models-th-check { width: 36px; text-align: center !important; padding: 8px 0 !important; }
-.models-th-name { max-width: 320px; }
+.models-th-name { width: 220px; }
 .models-th-provider { width: 120px; }
 .models-th-price { width: 120px; text-align: right !important; }
 .models-th-action { width: 32px; }
@@ -2131,7 +2131,7 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 .models-td-name {
   font-family: var(--font-mono);
   font-size: 12px;
-  max-width: 320px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
