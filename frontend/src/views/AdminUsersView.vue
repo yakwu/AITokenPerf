@@ -1,5 +1,41 @@
 <template>
   <section class="tab-content active">
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:20px">
+      <div class="card-header" style="padding:20px 24px 0">
+        <div class="card-title">运行监控</div>
+        <span class="admin-user-count">{{ runningRuns.length }} 个 Run</span>
+      </div>
+      <div class="table-wrap" style="border:none;border-radius:0;margin-top:12px">
+        <table>
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>用户</th>
+              <th>站点</th>
+              <th>模型</th>
+              <th>Slots</th>
+              <th>状态</th>
+              <th style="width:80px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in runningRuns" :key="r.run_id">
+              <td style="font-family:var(--font-mono);font-size:12px">{{ r.run_id }}</td>
+              <td>{{ r.owner_id || '-' }}</td>
+              <td>{{ r.profile_name || '-' }}</td>
+              <td>{{ runModels(r) }}</td>
+              <td>{{ r.requested_slots }}</td>
+              <td>{{ r.status }}</td>
+              <td><button class="btn btn-ghost btn-sm" @click="stopAdminRun(r.run_id)">停止</button></td>
+            </tr>
+            <tr v-if="!runsLoading && runningRuns.length === 0">
+              <td colspan="7" style="text-align:center;color:var(--text-tertiary);padding:24px">暂无运行中的测试</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card" style="padding:0;overflow:hidden">
       <div class="card-header" style="padding:20px 24px 0">
         <div class="card-title">注册用户</div>
@@ -64,12 +100,14 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted } from 'vue';
-import { getUsers, deleteUserApi, updateUserRoleApi } from '../api';
+import { adminStopRunApi, getAdminRuns, getUsers, deleteUserApi, updateUserRoleApi } from '../api';
 import { toast } from '../composables/useToast';
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
 
 const users = ref([]);
+const runningRuns = ref([]);
 const loading = ref(false);
+const runsLoading = ref(false);
 const deleteCandidate = ref(null);
 const roleMenuOpen = ref(null);
 const roleMenuPos = ref({ top: 0, left: 0 });
@@ -111,6 +149,32 @@ async function load() {
   loading.value = false;
 }
 
+async function loadRuns() {
+  runsLoading.value = true;
+  try {
+    const res = await getAdminRuns();
+    runningRuns.value = res.runs || [];
+  } catch (e) {
+    toast('加载运行监控失败: ' + e.message, 'error');
+  }
+  runsLoading.value = false;
+}
+
+function runModels(r) {
+  const names = (r.tasks || []).map(t => t.model).filter(Boolean);
+  return names.length > 2 ? `${names.slice(0, 2).join(', ')} 等 ${names.length} 个` : (names.join(', ') || '-');
+}
+
+async function stopAdminRun(id) {
+  try {
+    await adminStopRunApi(id);
+    toast('已发送停止信号', 'info');
+    await loadRuns();
+  } catch (e) {
+    toast('停止失败: ' + e.message, 'error');
+  }
+}
+
 async function confirmDelete(id) {
   try {
     await deleteUserApi(id);
@@ -134,5 +198,13 @@ async function changeRole(u, newRole) {
   roleMenuOpen.value = null;
 }
 
-onMounted(load);
+let runsTimer = null;
+onMounted(() => {
+  load();
+  loadRuns();
+  runsTimer = setInterval(loadRuns, 5000);
+});
+onUnmounted(() => {
+  if (runsTimer) clearInterval(runsTimer);
+});
 </script>

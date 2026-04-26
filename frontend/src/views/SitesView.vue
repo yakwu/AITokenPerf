@@ -418,15 +418,13 @@ async function confirmTest() {
 
   const profile = site.profile;
   try {
-    const res = await api('/api/bench/start', {
+    const res = await api('/api/runs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        base_url: profile.base_url,
-        api_key: profile.api_key_display || '',
-        model: profile.models[0],
-        provider: profile.provider || '',
-        custom_endpoint: profile.custom_endpoint || false,
+        profile_name: profile.name,
+        models: [profile.models[0]],
+        source: 'quick_test',
         concurrency_levels: [10],
         requests_per_level: 10,
         mode: 'burst',
@@ -444,17 +442,17 @@ async function confirmTest() {
     }
 
     toast('测试已启动', 'success');
-    pollTestCompletion(res.task_id, site);
+    pollTestCompletion(res.run_id, site);
   } catch (e) {
     toast('启动测试失败: ' + e.message, 'error');
   }
 }
 
-async function pollTestCompletion(taskId, site) {
+async function pollTestCompletion(runId, site) {
   const siteName = site?.profile?.name || '';
   const poll = async () => {
     try {
-      const status = await api('/api/bench/status');
+      const status = await api(`/api/runs/${encodeURIComponent(runId)}`);
       if (status.status === 'running') {
         setTimeout(poll, 2000);
       } else {
@@ -523,6 +521,7 @@ async function submitCreate() {
         name: f.name.trim(),
         base_url: f.base_url.trim(),
         api_key: f.api_key.trim(),
+        api_key_action: 'replace',
         api_version: '2023-06-01',
         models: f.models,
       }),

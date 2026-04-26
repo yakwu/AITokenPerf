@@ -150,6 +150,15 @@ async def _migrate_schema():
             await conn.execute(text("ALTER TABLE results ADD COLUMN scheduled_task_id INTEGER NOT NULL DEFAULT 0"))
             log.info("schema 迁移: results 表添加 scheduled_task_id 列")
 
+        for col_name, ddl in [
+            ("run_id", "ALTER TABLE results ADD COLUMN run_id TEXT NOT NULL DEFAULT ''"),
+            ("task_id", "ALTER TABLE results ADD COLUMN task_id TEXT NOT NULL DEFAULT ''"),
+            ("source", "ALTER TABLE results ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"),
+        ]:
+            if col_name not in columns:
+                await conn.execute(text(ddl))
+                log.info("schema 迁移: results 表添加 %s 列", col_name)
+
     # profiles 表新增 provider + protocol 列
     async with engine.begin() as conn:
         if _is_sqlite:

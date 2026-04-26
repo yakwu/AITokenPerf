@@ -1,4 +1,4 @@
-"""TDD 测试：概览页及多页面优化 — raw 模式 + /api/bench/running 端点"""
+"""TDD 测试：概览页及多页面优化 — raw 模式 + /api/runs/running 端点"""
 
 import json
 import pytest
@@ -197,27 +197,29 @@ async def test_api_results_raw_with_fields_summary(client):
 
 
 # ==========================================
-# 第三部分: /api/bench/running 端点测试
+# 第三部分: /api/runs/running 端点测试
 # ==========================================
 
 @pytest.mark.asyncio
-async def test_bench_running_empty(client):
-    """/api/bench/running 无执行中任务时返回空列表"""
+async def test_run_running_empty(client):
+    """/api/runs/running 无执行中任务时返回空列表"""
     headers = await auth_headers(client)
-    resp = await client.get("/api/bench/running", headers=headers)
+    resp = await client.get("/api/runs/running", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     assert data["tasks"] == []
 
 
 @pytest.mark.asyncio
-async def test_bench_running_shows_running_tasks(client):
-    """/api/bench/running 应返回当前 running 的 BenchTask"""
+async def test_run_running_shows_running_tasks(client):
+    """/api/runs/running 应返回当前 running 的 BenchTask"""
     headers = await auth_headers(client)
 
     from app.server import manager
     # 手动创建一个 running task
-    task = manager.create_task("test-task-1", owner_id=1, profile_name="TestSite")
+    manager.create_run("run-test-1", owner_id=1, profile_name="TestSite", requested_slots=1)
+    task = manager.create_task("test-task-1", owner_id=1, profile_name="TestSite",
+                               group_id="run-test-1", run_id="run-test-1")
     task.status = "running"
     task.model_name = "gpt-4"
     task.done_count = 5
@@ -225,7 +227,7 @@ async def test_bench_running_shows_running_tasks(client):
     task.success_count = 4
     task.failed_count = 1
 
-    resp = await client.get("/api/bench/running", headers=headers)
+    resp = await client.get("/api/runs/running", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["tasks"]) == 1
@@ -238,31 +240,35 @@ async def test_bench_running_shows_running_tasks(client):
 
 
 @pytest.mark.asyncio
-async def test_bench_running_excludes_idle_tasks(client):
-    """/api/bench/running 不应返回 idle 状态的任务"""
+async def test_run_running_excludes_idle_tasks(client):
+    """/api/runs/running 不应返回 idle 状态的任务"""
     headers = await auth_headers(client)
 
     from app.server import manager
-    task = manager.create_task("test-idle", owner_id=1, profile_name="TestSite")
+    manager.create_run("run-idle", owner_id=1, profile_name="TestSite", requested_slots=1)
+    task = manager.create_task("test-idle", owner_id=1, profile_name="TestSite",
+                               group_id="run-idle", run_id="run-idle")
     task.status = "idle"
 
-    resp = await client.get("/api/bench/running", headers=headers)
+    resp = await client.get("/api/runs/running", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["tasks"]) == 0
 
 
 @pytest.mark.asyncio
-async def test_bench_running_only_own_tasks(client):
-    """/api/bench/running 只返回当前用户的任务"""
+async def test_run_running_only_own_tasks(client):
+    """/api/runs/running 只返回当前用户的任务"""
     headers = await auth_headers(client)
 
     from app.server import manager
     # 创建属于其他用户的 running task
-    task = manager.create_task("other-user-task", owner_id=999, profile_name="Other")
+    manager.create_run("run-other", owner_id=999, profile_name="Other", requested_slots=1)
+    task = manager.create_task("other-user-task", owner_id=999, profile_name="Other",
+                               group_id="run-other", run_id="run-other")
     task.status = "running"
 
-    resp = await client.get("/api/bench/running", headers=headers)
+    resp = await client.get("/api/runs/running", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["tasks"]) == 0, "不应返回其他用户的任务"

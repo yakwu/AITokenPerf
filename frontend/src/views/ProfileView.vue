@@ -147,12 +147,13 @@ import { useConnectivityTest } from '../composables/useConnectivityTest.js';
 const connTest = useConnectivityTest();
 
 function runConnTest() {
+  if (!currentProfileName.value || profileDirty.value) {
+    toast('请先保存配置后再验证连通性', 'info');
+    return;
+  }
   connTest.start({
-    base_url: form.value.base_url,
-    api_key: form.value.api_key,
+    profile_name: currentProfileName.value || profileDraftName.value,
     model: form.value.models[0] || '',
-    provider: form.value.provider,
-    custom_endpoint: form.value.custom_endpoint || false,
   });
 }
 
@@ -394,6 +395,13 @@ function snapshotProfileConfig() {
   profileDirty.value = false;
 }
 
+function apiKeyAction() {
+  const value = (form.value.api_key || '').trim();
+  if (!value) return 'clear';
+  if (value.startsWith('...')) return 'keep';
+  return 'replace';
+}
+
 function startRenameProfile() {
   editingProfileName.value = true;
   nextTick(() => {
@@ -423,6 +431,7 @@ async function finishRenameProfile() {
         name: newName,
         base_url: form.value.base_url,
         api_key: form.value.api_key,
+        api_key_action: apiKeyAction(),
         models: form.value.models,
         provider: form.value.provider,
         api_version: '2023-06-01',
@@ -462,6 +471,7 @@ async function saveProfile() {
         name: trimmed,
         base_url: form.value.base_url,
         api_key: form.value.api_key,
+        api_key_action: apiKeyAction(),
         models: form.value.models,
         provider: form.value.provider,
         api_version: '2023-06-01',

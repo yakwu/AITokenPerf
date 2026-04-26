@@ -20,3 +20,11 @@ SCHEDULER_TASK_TIMEOUT = int(os.environ.get("SCHEDULER_TASK_TIMEOUT", "1800"))
 
 # E2E 测试模式：拦截出站 AI API 请求，返回模拟响应
 E2E_TEST_MODE = os.environ.get("E2E_TEST_MODE", "") == "1"
+
+# Run Center 并发准入控制。slot 表示一次正在执行的上游并发请求/长连接。
+RUN_MAX_USER_SLOTS = int(os.environ.get("RUN_MAX_USER_SLOTS", "5000"))
+RUN_MAX_GLOBAL_SLOTS = int(os.environ.get("RUN_MAX_GLOBAL_SLOTS", "20000"))
+RUN_MAX_CHILDREN_PER_RUN = int(os.environ.get("RUN_MAX_CHILDREN_PER_RUN", "10"))
+
+# 多用户模式默认禁止环境变量覆盖用户 Profile。单租户部署需要时可显式开启。
+ALLOW_PROFILE_ENV_OVERRIDES = os.environ.get("ALLOW_PROFILE_ENV_OVERRIDES", "") == "1"

@@ -97,9 +97,10 @@ python3 main.py [--port PORT] [--host HOST] [--workers N]
 | `DATABASE_URL` | 数据库连接 URL，默认 SQLite，设为 PG 则使用 PostgreSQL |
 | `LOG_MODE` | 日志模式：`file`（默认）或 `stdout` |
 | `HOST` | 默认绑定地址（`--host` 参数优先） |
-| `API_KEY` | 环境变量覆盖 Profile 中的 API Key |
-| `BASE_URL` | 环境变量覆盖 Profile 中的 Base URL |
-| `MODEL` | 环境变量覆盖 Profile 中的 Model |
+| `RUN_MAX_USER_SLOTS` | 单用户最大并发请求/长连接槽位，默认 5000 |
+| `RUN_MAX_GLOBAL_SLOTS` | 全局最大并发请求/长连接槽位，默认 20000 |
+| `RUN_MAX_CHILDREN_PER_RUN` | 单次 Run 最多并行模型/子任务数，默认 10 |
+| `ALLOW_PROFILE_ENV_OVERRIDES` | 设为 `1` 时允许 `API_KEY`/`BASE_URL`/`MODEL` 覆盖 Profile（仅建议单租户部署使用） |
 
 ## 输出指标
 
