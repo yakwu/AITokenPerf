@@ -120,6 +120,18 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS channel_diagnostics (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_name  TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'not_run',
+    overall_risk  TEXT NOT NULL DEFAULT 'unknown',
+    confidence    REAL NOT NULL DEFAULT 0.0,
+    report_json   TEXT NOT NULL DEFAULT '{}',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 # PostgreSQL schema
@@ -202,6 +214,18 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     run_count       INTEGER NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS channel_diagnostics (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_name  TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'not_run',
+    overall_risk  TEXT NOT NULL DEFAULT 'unknown',
+    confidence    REAL NOT NULL DEFAULT 0.0,
+    report_json   TEXT NOT NULL DEFAULT '{}',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 """
 
@@ -1391,3 +1415,79 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
         summary[pn]["sparkline_data"] = sparkline_data
 
     return list(summary.values())
+
+
+# ---- Channel Diagnostics CRUD ----
+
+def _diag_row_to_dict(row) -> dict:
+    """将 channel_diagnostics 行转为 dict，自动解析 report_json"""
+    d = dict(row._mapping)
+    if "report_json" in d and isinstance(d["report_json"], str):
+        try:
+            d["report_json"] = json.loads(d["report_json"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return d
+
+
+async def save_channel_diagnostic(
+    user_id: int,
+    profile_name: str,
+    model: str,
+    status: str,
+    overall_risk: str,
+    confidence: float,
+    report_json: dict,
+) -> int:
+    """保存诊断记录，返回 ID"""
+    async with engine.begin() as conn:
+        result = await conn.execute(
+            text("""
+                INSERT INTO channel_diagnostics (user_id, profile_name, model, status, overall_risk, confidence, report_json)
+                VALUES (:user_id, :profile_name, :model, :status, :overall_risk, :confidence, :report_json)
+            """),
+            {
+                "user_id": user_id,
+                "profile_name": profile_name,
+                "model": model,
+                "status": status,
+                "overall_risk": overall_risk,
+                "confidence": confidence,
+                "report_json": json.dumps(report_json),
+            },
+        )
+        if _is_sqlite:
+            return result.lastrowid
+        else:
+            row = await conn.execute(
+                text("SELECT currval(pg_get_serial_sequence('channel_diagnostics', 'id'))")
+            )
+            return row.fetchone()[0]
+
+
+async def get_channel_diagnostic(diag_id: int, user_id: int) -> dict | None:
+    """按 ID 获取诊断记录（校验用户归属）"""
+    async with engine.begin() as conn:
+        row = await conn.execute(
+            text("SELECT * FROM channel_diagnostics WHERE id = :id AND user_id = :uid"),
+            {"id": diag_id, "uid": user_id},
+        )
+        r = row.fetchone()
+        if not r:
+            return None
+        return _diag_row_to_dict(r)
+
+
+async def list_channel_diagnostics(user_id: int, limit: int = 20, offset: int = 0) -> list[dict]:
+    """按用户列出诊断记录，最新在前"""
+    async with engine.begin() as conn:
+        rows = await conn.execute(
+            text("""
+                SELECT * FROM channel_diagnostics
+                WHERE user_id = :uid
+                ORDER BY id DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {"uid": user_id, "limit": limit, "offset": offset},
+        )
+        return [_diag_row_to_dict(r) for r in rows.fetchall()]

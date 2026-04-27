@@ -32,7 +32,7 @@ async def setup_db():
     """每个测试前重新初始化数据库"""
     async with engine.begin() as conn:
         from sqlalchemy import text
-        for table in ["scheduled_tasks", "user_settings", "results", "profiles", "sessions", "users"]:
+        for table in ["channel_diagnostics", "scheduled_tasks", "user_settings", "results", "profiles", "sessions", "users"]:
             await conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
     await init_db()
     await migrate()
