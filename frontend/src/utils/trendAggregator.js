@@ -24,6 +24,44 @@ function roundTo(val, decimals) {
 }
 
 /**
+ * 根据数据密度计算自适应桶数
+ * @param {Array} trend - 后端返回的分钟桶数据（至少 2 个点）
+ * @param {number} rangeHours - 时间范围（小时）
+ * @returns {{ targetPoints: number, medianInterval: number, bucketWidth: number }}
+ */
+export function computeAdaptiveBucketCount(trend, rangeHours) {
+  // 计算数据点之间的间隔（毫秒）
+  const intervals = [];
+  for (let i = 1; i < trend.length; i++) {
+    intervals.push(parseMinuteToTs(trend[i].minute) - parseMinuteToTs(trend[i - 1].minute));
+  }
+
+  // 中位间隔
+  let medianInterval;
+  if (intervals.length === 0) {
+    medianInterval = 60_000; // 单点 fallback: 1 分钟
+  } else {
+    const sorted = intervals.slice().sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    medianInterval = sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+  }
+
+  // 防止中位间隔为 0（所有点在同一分钟）
+  if (medianInterval <= 0) medianInterval = 60_000;
+
+  const rangeMs = rangeHours * 3600_000;
+  const targetPoints = Math.round(rangeMs / medianInterval);
+
+  return {
+    targetPoints: Math.max(12, Math.min(200, targetPoints)),
+    medianInterval,
+    bucketWidth: medianInterval,
+  };
+}
+
+/**
  * 将分钟级趋势数据聚合为固定数量的展示点
  * @param {Array} trend - 后端返回的分钟桶数据
  * @param {number} targetPoints - 目标展示点数（默认 144）
@@ -57,19 +95,32 @@ export function aggregateToFixedPoints(trend, targetPoints = 144, rangeHours = n
   const totalRange = lastTs - firstTs;
   if (totalRange <= 0) return fillGaps(trend);
 
-  const bucketWidth = totalRange / targetPoints;
-  const buckets = Array.from({ length: targetPoints }, () => []);
+  // 自适应桶数：当 targetPts 为 null 时根据数据密度计算
+  let actualTargetPoints = targetPoints;
+  let actualBucketWidth;
+
+  if (targetPoints == null && trend.length >= 2) {
+    const adaptive = computeAdaptiveBucketCount(trend, rangeHours || (totalRange / 3600_000));
+    actualTargetPoints = adaptive.targetPoints;
+    actualBucketWidth = adaptive.bucketWidth;
+  } else {
+    actualTargetPoints = targetPoints || 144;
+    actualBucketWidth = totalRange / actualTargetPoints;
+  }
+
+  const bucketWidth = actualBucketWidth;
+  const buckets = Array.from({ length: actualTargetPoints }, () => []);
 
   for (const point of trend) {
     const ts = parseMinuteToTs(point.minute);
-    const idx = Math.min(Math.floor((ts - firstTs) / bucketWidth), targetPoints - 1);
+    const idx = Math.min(Math.floor((ts - firstTs) / bucketWidth), actualTargetPoints - 1);
     if (idx >= 0) buckets[idx].push(point);
   }
 
   const labels = [];
   const items = [];
 
-  for (let i = 0; i < targetPoints; i++) {
+  for (let i = 0; i < actualTargetPoints; i++) {
     const midTs = firstTs + (i + 0.5) * bucketWidth;
     if (buckets[i].length === 0) {
       labels.push(formatLabel(midTs));

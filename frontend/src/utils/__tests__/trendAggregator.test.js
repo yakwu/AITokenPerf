@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseMinuteToTs, aggregateToFixedPoints } from '../trendAggregator.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { parseMinuteToTs, aggregateToFixedPoints, computeAdaptiveBucketCount } from '../trendAggregator.js';
 
 // 辅助：生成连续的分钟级测试数据
 function makeMinuteData(startMinute, count, { intervalMin = 1, fields = {} } = {}) {
@@ -147,5 +147,93 @@ describe('aggregateToFixedPoints', () => {
     for (const label of nonNullLabels) {
       expect(label).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
     }
+  });
+});
+
+describe('medianInterval', () => {
+  it('计算连续 15 分钟间隔的中位数', () => {
+    // 5 个点，间隔 15 分钟
+    const data = makeMinuteData('20260410_0800', 5, { intervalMin: 15 });
+    const { medianInterval } = computeAdaptiveBucketCount(data, 6);
+    expect(medianInterval).toBe(15 * 60_000); // 15 min in ms
+  });
+
+  it('计算混合间隔的中位数', () => {
+    // 构造间隔: 5, 5, 10, 10, 10 分钟
+    const data = [];
+    const baseTs = parseMinuteToTs('20260410_0800');
+    const offsets = [0, 5, 10, 20, 30]; // 分钟偏移 → 间隔 5,5,10,10
+    for (const off of offsets) {
+      const ts = baseTs + off * 60_000;
+      const d = new Date(ts);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      data.push({
+        minute: `${d.getFullYear()}${mm}${dd}_${hh}${mi}`,
+        run_count: 1, avg_success_rate: 99, avg_ttft_p50: 0.5, avg_tpot_p50: 0.05,
+      });
+    }
+    const { medianInterval } = computeAdaptiveBucketCount(data, 6);
+    // 间隔: 5,5,10,10 → 排序后 [5,5,10,10] → 中位 = (5+10)/2 = 7.5 min
+    expect(medianInterval).toBeCloseTo(7.5 * 60_000, -3);
+  });
+
+  it('单个数据点时返回默认 1 分钟', () => {
+    const data = makeMinuteData('20260410_0800', 1);
+    const { medianInterval } = computeAdaptiveBucketCount(data, 6);
+    expect(medianInterval).toBe(60_000); // fallback 1 min
+  });
+});
+
+describe('自适应桶数', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('15 分钟间隔 + 6h 范围 → 约 24 个桶', () => {
+    // 数据范围: 0800 ~ 1400（24 个点 × 15min = 6h）
+    // mock Date.now 为数据末尾之后，让 rangeHours=6 窗口覆盖所有数据
+    const dataEndTs = parseMinuteToTs('20260410_0800') + 23 * 15 * 60_000; // 最后一个数据点
+    const fakeNow = dataEndTs + 60_000; // 比最后数据点晚 1 分钟
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+
+    const data = makeMinuteData('20260410_0800', 24, { intervalMin: 15 });
+    const { items } = aggregateToFixedPoints(data, null, 6);
+    const nonNull = items.filter(i => i !== null);
+    expect(items.length).toBeGreaterThanOrEqual(12);
+    expect(items.length).toBeLessThanOrEqual(30);
+    expect(nonNull.length).toBe(items.length);
+  });
+
+  it('5 分钟间隔 + 6h 范围 → 约 72 个桶', () => {
+    // 数据范围: 0800 ~ 1400（72 个点 × 5min = 6h）
+    const dataEndTs = parseMinuteToTs('20260410_0800') + 71 * 5 * 60_000;
+    const fakeNow = dataEndTs + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+
+    const data = makeMinuteData('20260410_0800', 72, { intervalMin: 5 });
+    const { items } = aggregateToFixedPoints(data, null, 6);
+    expect(items.length).toBeGreaterThanOrEqual(60);
+    expect(items.length).toBeLessThanOrEqual(80);
+  });
+
+  it('targetPts 参数为 null 时走自适应逻辑', () => {
+    const dataEndTs = parseMinuteToTs('20260410_0800') + 23 * 15 * 60_000;
+    const fakeNow = dataEndTs + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+
+    const data = makeMinuteData('20260410_0800', 24, { intervalMin: 15 });
+    const { labels, items } = aggregateToFixedPoints(data, null, 6);
+    expect(labels.length).toBe(items.length);
+    expect(labels.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('targetPts 参数非 null 时保持原有行为', () => {
+    const data = makeMinuteData('20260410_0800', 288);
+    const { labels, items } = aggregateToFixedPoints(data, 144);
+    expect(labels).toHaveLength(144);
+    expect(items).toHaveLength(144);
   });
 });
