@@ -85,7 +85,7 @@ if [[ "$BACKEND_CHANGED" == "1" ]]; then
 
   CHANGED_TESTS=()
   while IFS= read -r line; do
-    [[ -n "$line" ]] && CHANGED_TESTS+=("$line")
+    [[ -n "$line" && -f "$line" ]] && CHANGED_TESTS+=("$line")
   done < <(printf "%s\n" "$CHANGED_FILES" | grep -E '^tests/.*\.py$' || true)
   if [[ "${#CHANGED_TESTS[@]}" -gt 0 ]]; then
     echo "🧪 Running changed pytest files"
