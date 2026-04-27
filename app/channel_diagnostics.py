@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""渠道诊断核心模块 — 缓存命中率检测"""
+"""渠道诊断核心模块 — 缓存命中率检测
+
+Probe 策略：
+- cold_prefix: 首次请求，建立缓存（应 miss）
+- warm_prefix x3: 相同前缀不同问题，应命中缓存
+- warm_append x2: system prompt 尾部追加内容，前缀仍应命中
+- breaker_prefix: 修改前缀开头，应 miss
+- repeat_identical: 完全相同请求，检测 response cache
+"""
 
 import asyncio
 import json
@@ -14,31 +22,9 @@ from app.protocols import get_adapter
 
 log = logging.getLogger("channel_diagnostics")
 
-
-@dataclass
-class ProbeResult:
-    """单个 probe 的结果"""
-    name: str = ""
-    status: str = "pending"  # pending | passed | error | timeout | inconclusive
-    latency_ms: float = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_creation_tokens: int = 0
-    identical_request: bool = False
-    error: Optional[str] = None
-    response_preview: str = ""  # 前 1000 字符
-
-
-@dataclass
-class CacheDiagnosticResult:
-    """缓存诊断整体结果"""
-    status: str = "not_run"
-    overall_risk: str = "unknown"
-    confidence: float = 0.0
-    probes: list[ProbeResult] = field(default_factory=list)
-    report: dict = field(default_factory=dict)
-
+# 采样次数
+WARM_SAMPLE_COUNT = 3
+APPEND_SAMPLE_COUNT = 2
 
 # 长前缀：约 2000+ tokens，用于建立缓存候选
 _LONG_PREFIX = """You are an expert software engineer with deep knowledge of distributed systems, databases, and API design. You have been working on a large-scale microservices architecture that handles millions of requests per day. The system uses a combination of PostgreSQL for persistent storage, Redis for caching, and Kafka for event streaming.
@@ -67,24 +53,84 @@ You also need to consider the operational aspects:
 
 The team is using Python 3.12 with asyncio for the event processing, and they've recently migrated from Celery to a custom task queue built on top of Redis Streams. The codebase follows a clean architecture pattern with clear separation between domain logic and infrastructure concerns."""
 
+# 追加到 system prompt 尾部的内容（不影响前缀缓存）
+_APPEND_TEXT = """
 
-def _build_cold_prefix_prompt(question: str) -> str:
-    return f"{_LONG_PREFIX}\n\nNow, please answer the following question concisely:\n{question}"
+Additional context: You should always respond in a concise, direct manner. Focus on the most important points and avoid unnecessary elaboration. When providing technical recommendations, prioritize practical solutions over theoretical perfection."""
+
+# warm_prefix 采样问题列表
+_WARM_QUESTIONS = [
+    "What is 2+2? Answer in one word.",
+    "What color is the sky? Answer in one word.",
+    "What is the boiling point of water in Celsius? Answer with just the number.",
+]
+
+# warm_append 采样问题列表
+_APPEND_QUESTIONS = [
+    "What is the largest planet in our solar system? Answer in one word.",
+    "What programming language is known for its coffee logo? Answer in one word.",
+]
 
 
-def _build_warm_prefix_prompt(question: str) -> str:
-    return f"{_LONG_PREFIX}\n\nNow, please answer the following question concisely:\n{question}"
+@dataclass
+class ProbeResult:
+    """单个 probe 的结果"""
+    name: str = ""
+    status: str = "pending"  # pending | passed | error | timeout | inconclusive
+    latency_ms: float = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    identical_request: bool = False
+    error: Optional[str] = None
+    response_preview: str = ""  # 前 1000 字符
 
 
-def _build_breaker_prefix_prompt(question: str) -> str:
-    broken_prefix = "You are a junior developer working on a simple todo list application." + _LONG_PREFIX[50:]
-    return f"{broken_prefix}\n\nNow, please answer the following question concisely:\n{question}"
+@dataclass
+class CacheDiagnosticResult:
+    """缓存诊断整体结果"""
+    status: str = "not_run"
+    overall_risk: str = "unknown"
+    confidence: float = 0.0
+    probes: list[ProbeResult] = field(default_factory=list)
+    report: dict = field(default_factory=dict)
 
+
+# --- Prompt 构建 ---
+
+def _build_prefix_prompt(system_prompt: str, question: str) -> dict:
+    """构建 probe 的 system + user prompt 配置"""
+    return {
+        "system_prompt": system_prompt,
+        "user_prompt": question,
+    }
+
+
+def cold_prefix_prompts(question: str) -> dict:
+    return _build_prefix_prompt(_LONG_PREFIX, question)
+
+
+def warm_prefix_prompts(question: str) -> dict:
+    return _build_prefix_prompt(_LONG_PREFIX, question)
+
+
+def warm_append_prompts(question: str) -> dict:
+    return _build_prefix_prompt(_LONG_PREFIX + _APPEND_TEXT, question)
+
+
+def breaker_prefix_prompts(question: str) -> dict:
+    broken = "You are a junior developer working on a simple todo list application." + _LONG_PREFIX[50:]
+    return _build_prefix_prompt(broken, question)
+
+
+# --- 单个 probe 执行 ---
 
 async def _run_single_probe(
     session: aiohttp.ClientSession,
     config: dict,
-    prompt: str,
+    system_prompt: str,
+    user_prompt: str,
     probe_name: str,
     timeout_seconds: int = 60,
 ) -> ProbeResult:
@@ -92,7 +138,8 @@ async def _run_single_probe(
     adapter = get_adapter(config.get("protocol", "anthropic"))
 
     probe_config = dict(config)
-    probe_config["user_prompt"] = prompt
+    probe_config["system_prompt"] = system_prompt
+    probe_config["user_prompt"] = user_prompt
     probe_config["max_tokens"] = 100
     probe_config["timeout"] = timeout_seconds
 
@@ -179,73 +226,186 @@ async def _run_single_probe(
     return result
 
 
-def classify_cache_type(probe: ProbeResult) -> str:
-    """根据 probe 结果判断缓存类型"""
-    if probe.identical_request and probe.latency_ms < 100 and probe.cache_read_tokens == 0:
-        return "response_cache"
-    if probe.cache_read_tokens > 0:
-        return "prompt_cache"
-    return "unknown_cache"
+# --- 缓存命中判定 ---
 
+def _is_cache_hit(probe: ProbeResult) -> bool:
+    """判断单个 probe 是否命中了 prompt cache"""
+    # 方式1：usage 字段明确显示 cache_read > 0
+    if probe.cache_read_tokens > 0:
+        return True
+    # 方式2：无 usage 字段时，用延迟判断（warm 请求比 cold 快 30%+）
+    # 这个需要外部传入 cold 延迟做基准，这里只用 usage 判断
+    return False
+
+
+def _compute_hit_rate(probes: list[ProbeResult]) -> tuple[float, str]:
+    """计算一组 probe 的缓存命中率
+
+    Returns: (hit_rate, evidence_type)
+    """
+    valid = [p for p in probes if p.status == "passed"]
+    if not valid:
+        return 0.0, "none"
+
+    # 优先用 usage 字段
+    has_usage = any(p.cache_read_tokens > 0 or p.cache_creation_tokens > 0 for p in valid)
+    if has_usage:
+        hits = sum(1 for p in valid if _is_cache_hit(p))
+        return hits / len(valid), "usage_fields"
+
+    # 无 usage 字段时，返回 0（延迟估算需要 cold 基准，在外层处理）
+    return 0.0, "no_usage_fields"
+
+
+def _compute_avg_latency(probes: list[ProbeResult]) -> float:
+    """计算平均延迟"""
+    valid = [p for p in probes if p.status == "passed"]
+    if not valid:
+        return 0
+    return sum(p.latency_ms for p in valid) / len(valid)
+
+
+# --- 报告生成 ---
 
 def build_cache_report(probes: list[ProbeResult]) -> dict:
     """根据所有 probe 结果构建缓存诊断报告"""
 
-    cold = next((p for p in probes if p.name == "cold_prefix"), None)
-    warm = next((p for p in probes if p.name == "warm_prefix"), None)
-    breaker = next((p for p in probes if p.name == "breaker_prefix"), None)
-    identical = next((p for p in probes if p.name == "repeat_identical"), None)
+    cold = [p for p in probes if p.name == "cold_prefix"]
+    warm = [p for p in probes if p.name == "warm_prefix"]
+    append = [p for p in probes if p.name == "warm_append"]
+    breaker = [p for p in probes if p.name == "breaker_prefix"]
+    identical = [p for p in probes if p.name == "repeat_identical"]
 
     report = {
-        "prompt_cache": {"status": "inconclusive", "hit_rate": 0, "evidence": "none", "confidence": 0},
+        "prompt_cache": {
+            "status": "inconclusive",
+            "hit_rate": 0,
+            "sample_count": len(warm) + len(append),
+            "evidence": "none",
+            "confidence": 0,
+            "warm_samples": [],
+            "append_samples": [],
+            "append_consistent": None,
+        },
         "response_cache": {"status": "not_detected", "confidence": 0, "evidence": []},
     }
 
-    # --- Prompt Cache ---
-    if warm and warm.status == "passed" and cold and cold.status == "passed":
-        if warm.input_tokens > 0 and (warm.cache_read_tokens > 0 or warm.cache_creation_tokens > 0):
-            hit_rate = warm.cache_read_tokens / warm.input_tokens if warm.input_tokens > 0 else 0
+    cold_latency = _compute_avg_latency(cold) if cold else 0
+
+    # --- Warm prefix 命中率 ---
+    if warm and cold:
+        warm_hit_rate, warm_evidence = _compute_hit_rate(warm)
+        warm_avg_latency = _compute_avg_latency(warm)
+
+        # 每个样本的详情
+        warm_sample_details = []
+        for p in warm:
+            warm_sample_details.append({
+                "status": p.status,
+                "cache_read_tokens": p.cache_read_tokens,
+                "input_tokens": p.input_tokens,
+                "latency_ms": round(p.latency_ms, 1),
+                "hit": _is_cache_hit(p),
+            })
+
+        # 无 usage 时用延迟估算
+        if warm_evidence == "no_usage_fields" and cold_latency > 0 and warm_avg_latency > 0:
+            speedup = 1 - (warm_avg_latency / cold_latency)
+            if speedup > 0.1:
+                warm_hit_rate = min(speedup * 1.2, 1.0)
+                warm_evidence = "latency_estimation"
+
+        report["prompt_cache"]["warm_samples"] = warm_sample_details
+
+    else:
+        warm_hit_rate, warm_evidence = 0, "no_samples"
+        warm_avg_latency = 0
+
+    # --- Append 命中率（前缀缓存验证）---
+    append_hit_rate = 0
+    if append and cold:
+        append_hit_rate, _ = _compute_hit_rate(append)
+        append_sample_details = []
+        for p in append:
+            append_sample_details.append({
+                "status": p.status,
+                "cache_read_tokens": p.cache_read_tokens,
+                "input_tokens": p.input_tokens,
+                "latency_ms": round(p.latency_ms, 1),
+                "hit": _is_cache_hit(p),
+            })
+        report["prompt_cache"]["append_samples"] = append_sample_details
+
+        # append 一致性：warm 命中但 append 不命中，可能是渠道切换、缓存过期、或非真实前缀缓存
+        if warm_hit_rate > 0.5 and append_hit_rate < 0.3:
+            report["prompt_cache"]["append_consistent"] = False
+        elif warm_hit_rate > 0.5 and append_hit_rate > 0.3:
+            report["prompt_cache"]["append_consistent"] = True
+
+    # --- 综合 prompt cache 结果 ---
+    total_samples = len(warm) + len(append)
+    if total_samples > 0:
+        total_valid_warm = len([p for p in warm if p.status == "passed"])
+        total_valid_append = len([p for p in append if p.status == "passed"])
+        total_valid = total_valid_warm + total_valid_append
+
+        if total_valid > 0:
+            # 综合命中率 = 总命中数 / 总请求数
+            warm_hits = sum(1 for p in warm if p.status == "passed" and _is_cache_hit(p))
+            append_hits = sum(1 for p in append if p.status == "passed" and _is_cache_hit(p))
+            combined_hit_rate = (warm_hits + append_hits) / total_valid
+
+            # Breaker 验证
             breaker_confirms = True
-            if breaker and breaker.status == "passed" and breaker.input_tokens > 0:
-                breaker_hit = breaker.cache_read_tokens / breaker.input_tokens
-                if breaker_hit > 0.5:
+            if breaker:
+                breaker_hit_rate, _ = _compute_hit_rate(breaker)
+                if breaker_hit_rate > 0.5:
                     breaker_confirms = False
 
-            cost_saving = hit_rate * 0.9
-            report["prompt_cache"] = {
-                "status": "supported" if breaker_confirms else "warning",
-                "hit_rate": round(hit_rate, 4),
-                "estimated_cost_saving": round(cost_saving, 4),
-                "evidence": "usage_fields",
-                "confidence": 0.9 if breaker_confirms else 0.5,
-            }
+            # Append 一致性检查
+            append_ok = report["prompt_cache"]["append_consistent"]
+            if append_ok is False:
+                # warm 命中但 append 不命中 → 可能是渠道切换、缓存过期、或非真实前缀缓存
+                status = "warning"
+                confidence = 0.4
+            elif breaker_confirms and combined_hit_rate > 0.5:
+                status = "supported"
+                confidence = 0.9
+            elif breaker_confirms and combined_hit_rate > 0:
+                status = "partial"
+                confidence = 0.7
+            elif warm_evidence == "latency_estimation":
+                status = "estimated"
+                confidence = 0.4
+            else:
+                status = "inconclusive"
+                confidence = 0.3
 
-        elif warm.latency_ms > 0 and cold.latency_ms > 0:
-            speedup = 1 - (warm.latency_ms / cold.latency_ms)
-            if speedup > 0:
-                hit_rate = min(speedup * 1.2, 1.0)
-                report["prompt_cache"] = {
-                    "status": "estimated",
-                    "hit_rate": round(hit_rate, 4),
-                    "estimated_cost_saving": round(hit_rate * 0.9, 4),
-                    "evidence": "latency_estimation",
-                    "confidence": 0.4,
-                }
+            cost_saving = combined_hit_rate * 0.9
+            report["prompt_cache"].update({
+                "status": status,
+                "hit_rate": round(combined_hit_rate, 4),
+                "estimated_cost_saving": round(cost_saving, 4),
+                "evidence": warm_evidence,
+                "confidence": confidence,
+            })
 
     # --- Response Cache ---
-    if identical and identical.status == "passed" and identical.identical_request:
-        if identical.latency_ms < 100:
-            report["response_cache"] = {
-                "status": "suspected",
-                "confidence": 0.7 + max(0, (100 - identical.latency_ms) / 100) * 0.25,
-                "evidence": [f"identical_request_sub_{int(identical.latency_ms)}ms"],
-            }
-        elif identical.latency_ms < 300:
-            report["response_cache"] = {
-                "status": "possible",
-                "confidence": 0.4,
-                "evidence": ["identical_request_sub_300ms"],
-            }
+    if identical:
+        identical_probe = identical[0]
+        if identical_probe.status == "passed" and identical_probe.identical_request:
+            if identical_probe.latency_ms < 100:
+                report["response_cache"] = {
+                    "status": "suspected",
+                    "confidence": 0.7 + max(0, (100 - identical_probe.latency_ms) / 100) * 0.25,
+                    "evidence": [f"identical_request_sub_{int(identical_probe.latency_ms)}ms"],
+                }
+            elif identical_probe.latency_ms < 300:
+                report["response_cache"] = {
+                    "status": "possible",
+                    "confidence": 0.4,
+                    "evidence": ["identical_request_sub_300ms"],
+                }
 
     return report
 
@@ -255,13 +415,18 @@ def compute_overall_status(report: dict) -> tuple[str, str, float]:
     prompt_status = report.get("prompt_cache", {}).get("status", "inconclusive")
     response_status = report.get("response_cache", {}).get("status", "not_detected")
     prompt_confidence = report.get("prompt_cache", {}).get("confidence", 0)
+    append_consistent = report.get("prompt_cache", {}).get("append_consistent")
+
+    # append 不一致是风险信号
+    if append_consistent is False:
+        return "warning", "medium", 0.5
 
     if response_status == "suspected":
         return "warning", "medium", 0.7
 
     if prompt_status == "supported":
         return "passed", "low", prompt_confidence
-    elif prompt_status == "estimated":
+    elif prompt_status in ("partial", "estimated"):
         return "passed", "low", prompt_confidence
     elif prompt_status == "warning":
         return "warning", "medium", prompt_confidence
@@ -269,19 +434,32 @@ def compute_overall_status(report: dict) -> tuple[str, str, float]:
         return "inconclusive", "unknown", 0.3
 
 
+# --- 主入口 ---
+
 async def run_cache_diagnostics(
     config: dict,
     timeout_seconds: int = 60,
 ) -> CacheDiagnosticResult:
-    """运行完整的缓存诊断流程"""
+    """运行完整的缓存诊断流程
+
+    流程：
+    1. cold_prefix — 建立缓存基准
+    2. warm_prefix x3 — 多次采样缓存命中
+    3. warm_append x2 — system prompt 追加内容，验证前缀缓存
+    4. breaker_prefix — 修改前缀，验证缓存失效
+    5. repeat_identical — 完全相同请求，检测 response cache
+    """
     result = CacheDiagnosticResult()
 
     connector = aiohttp.TCPConnector(limit=1)
     async with aiohttp.ClientSession(connector=connector) as session:
+
         # 1. cold_prefix
+        prompts = cold_prefix_prompts("What is the capital of France? Answer in one word.")
         cold_probe = await _run_single_probe(
             session, config,
-            prompt=_build_cold_prefix_prompt("What is the capital of France? Answer in one word."),
+            system_prompt=prompts["system_prompt"],
+            user_prompt=prompts["user_prompt"],
             probe_name="cold_prefix",
             timeout_seconds=timeout_seconds,
         )
@@ -292,28 +470,47 @@ async def run_cache_diagnostics(
             result.report = {"error": cold_probe.error}
             return result
 
-        # 2. warm_prefix
-        warm_probe = await _run_single_probe(
-            session, config,
-            prompt=_build_warm_prefix_prompt("What is 2+2? Answer in one word."),
-            probe_name="warm_prefix",
-            timeout_seconds=timeout_seconds,
-        )
-        result.probes.append(warm_probe)
+        # 2. warm_prefix x3
+        for i, question in enumerate(_WARM_QUESTIONS[:WARM_SAMPLE_COUNT]):
+            prompts = warm_prefix_prompts(question)
+            probe = await _run_single_probe(
+                session, config,
+                system_prompt=prompts["system_prompt"],
+                user_prompt=prompts["user_prompt"],
+                probe_name="warm_prefix",
+                timeout_seconds=timeout_seconds,
+            )
+            result.probes.append(probe)
 
-        # 3. breaker_prefix
+        # 3. warm_append x2
+        for i, question in enumerate(_APPEND_QUESTIONS[:APPEND_SAMPLE_COUNT]):
+            prompts = warm_append_prompts(question)
+            probe = await _run_single_probe(
+                session, config,
+                system_prompt=prompts["system_prompt"],
+                user_prompt=prompts["user_prompt"],
+                probe_name="warm_append",
+                timeout_seconds=timeout_seconds,
+            )
+            result.probes.append(probe)
+
+        # 4. breaker_prefix
+        prompts = breaker_prefix_prompts("What is the capital of France? Answer in one word.")
         breaker_probe = await _run_single_probe(
             session, config,
-            prompt=_build_breaker_prefix_prompt("What is the capital of France? Answer in one word."),
+            system_prompt=prompts["system_prompt"],
+            user_prompt=prompts["user_prompt"],
             probe_name="breaker_prefix",
             timeout_seconds=timeout_seconds,
         )
         result.probes.append(breaker_probe)
 
-        # 4. repeat_identical
+        # 5. repeat_identical
+        prompts = cold_prefix_prompts("What is the capital of France? Answer in one word.")
         identical_probe = await _run_single_probe(
             session, config,
-            prompt=_build_cold_prefix_prompt("What is the capital of France? Answer in one word."),
+            system_prompt=prompts["system_prompt"],
+            user_prompt=prompts["user_prompt"],
             probe_name="repeat_identical",
             timeout_seconds=timeout_seconds,
         )
