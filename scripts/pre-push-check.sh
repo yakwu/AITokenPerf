@@ -83,7 +83,10 @@ if [[ "$BACKEND_CHANGED" == "1" ]]; then
   echo "🐍 Backend changed: compiling Python files"
   "$PYTHON_BIN" -m py_compile app/*.py
 
-  mapfile -t CHANGED_TESTS < <(printf "%s\n" "$CHANGED_FILES" | grep -E '^tests/.*\.py$' || true)
+  CHANGED_TESTS=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && CHANGED_TESTS+=("$line")
+  done < <(printf "%s\n" "$CHANGED_FILES" | grep -E '^tests/.*\.py$' || true)
   if [[ "${#CHANGED_TESTS[@]}" -gt 0 ]]; then
     echo "🧪 Running changed pytest files"
     "$PYTHON_BIN" -m pytest -q "${CHANGED_TESTS[@]}"
