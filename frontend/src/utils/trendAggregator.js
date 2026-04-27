@@ -23,6 +23,11 @@ function roundTo(val, decimals) {
   return Math.round(val * f) / f;
 }
 
+function lerp(a, b, ratio) {
+  if (a == null || b == null) return null;
+  return roundTo(a + (b - a) * ratio, 2);
+}
+
 /**
  * 根据数据密度计算自适应桶数
  * @param {Array} trend - 后端返回的分钟桶数据（至少 2 个点）
@@ -132,42 +137,102 @@ export function aggregateToFixedPoints(trend, targetPoints = 144, rangeHours = n
     if (idx >= 0) buckets[idx].push(point);
   }
 
+  // 预计算：前后最近的非空桶索引
+  const nonEmptyIndices = [];
+  for (let i = 0; i < actualTargetPoints; i++) {
+    if (buckets[i].length > 0) nonEmptyIndices.push(i);
+  }
+
   const labels = [];
   const items = [];
 
   for (let i = 0; i < actualTargetPoints; i++) {
     const midTs = firstTs + (i + 0.5) * bucketWidth;
-    if (buckets[i].length === 0) {
-      labels.push(formatLabel(midTs));
-      items.push(null);
-      continue;
-    }
 
-    const totalWeight = buckets[i].reduce((s, p) => s + (p.run_count || 1), 0);
+    if (buckets[i].length > 0) {
+      // 有数据的桶：加权平均
+      const totalWeight = buckets[i].reduce((s, p) => s + (p.run_count || 1), 0);
 
-    function weightedAvg(field) {
-      let sum = 0, wSum = 0;
-      for (const p of buckets[i]) {
-        const val = p[field];
-        if (val != null) {
-          const w = p.run_count || 1;
-          sum += val * w;
-          wSum += w;
+      function weightedAvg(field) {
+        let sum = 0, wSum = 0;
+        for (const p of buckets[i]) {
+          const val = p[field];
+          if (val != null) {
+            const w = p.run_count || 1;
+            sum += val * w;
+            wSum += w;
+          }
         }
+        return wSum > 0 ? roundTo(sum / wSum, 2) : null;
       }
-      return wSum > 0 ? roundTo(sum / wSum, 2) : null;
-    }
 
-    labels.push(formatLabel(midTs));
-    items.push({
-      avg_success_rate: weightedAvg('avg_success_rate'),
-      avg_throughput: weightedAvg('avg_throughput'),
-      avg_tps: weightedAvg('avg_tps'),
-      avg_ttft_p50: weightedAvg('avg_ttft_p50'),
-      avg_tpot_p50: weightedAvg('avg_tpot_p50'),
-      avg_e2e_p50: weightedAvg('avg_e2e_p50'),
-      run_count: totalWeight,
-    });
+      labels.push(formatLabel(midTs));
+      items.push({
+        avg_success_rate: weightedAvg('avg_success_rate'),
+        avg_throughput: weightedAvg('avg_throughput'),
+        avg_tps: weightedAvg('avg_tps'),
+        avg_ttft_p50: weightedAvg('avg_ttft_p50'),
+        avg_tpot_p50: weightedAvg('avg_tpot_p50'),
+        avg_e2e_p50: weightedAvg('avg_e2e_p50'),
+        run_count: totalWeight,
+        interpolated: false,
+      });
+    } else {
+      // 空桶：检查是否可以插值
+      let prevIdx = -1, nextIdx = -1;
+      for (let j = nonEmptyIndices.length - 1; j >= 0; j--) {
+        if (nonEmptyIndices[j] < i) { prevIdx = nonEmptyIndices[j]; break; }
+      }
+      for (let j = 0; j < nonEmptyIndices.length; j++) {
+        if (nonEmptyIndices[j] > i) { nextIdx = nonEmptyIndices[j]; break; }
+      }
+
+      const gapFromPrev = prevIdx >= 0 ? (i - prevIdx) * bucketWidth : Infinity;
+      const gapFromNext = nextIdx >= 0 ? (nextIdx - i) * bucketWidth : Infinity;
+
+      if (prevIdx >= 0 && nextIdx >= 0 && Math.max(gapFromPrev, gapFromNext) < gapThreshold) {
+        // 线性插值
+        const ratio = (i - prevIdx) / (nextIdx - prevIdx);
+        const prevItem = items[prevIdx];
+        const nextBucket = buckets[nextIdx];
+
+        function nextWeightedAvg(field) {
+          let sum = 0, wSum = 0;
+          for (const p of nextBucket) {
+            const val = p[field];
+            if (val != null) {
+              const w = p.run_count || 1;
+              sum += val * w;
+              wSum += w;
+            }
+          }
+          return wSum > 0 ? roundTo(sum / wSum, 2) : null;
+        }
+
+        function interpolateField(field) {
+          const pv = prevItem[field];
+          const nv = nextWeightedAvg(field);
+          if (pv == null || nv == null) return null;
+          return roundTo(pv + (nv - pv) * ratio, 2);
+        }
+
+        labels.push(formatLabel(midTs));
+        items.push({
+          avg_success_rate: interpolateField('avg_success_rate'),
+          avg_throughput: interpolateField('avg_throughput'),
+          avg_tps: interpolateField('avg_tps'),
+          avg_ttft_p50: interpolateField('avg_ttft_p50'),
+          avg_tpot_p50: interpolateField('avg_tpot_p50'),
+          avg_e2e_p50: interpolateField('avg_e2e_p50'),
+          run_count: 0,
+          interpolated: true,
+        });
+      } else {
+        // 大间隔：断线
+        labels.push(formatLabel(midTs));
+        items.push(null);
+      }
+    }
   }
 
   return { labels, items };
@@ -190,7 +255,7 @@ function emptyRange(rangeHours, targetPoints) {
 }
 
 /**
- * 少量数据时检测间隔，插入 null 断开连线
+ * 少量数据时检测间隔，小间隔插值填充，大间隔插入 null 断开连线
  */
 function fillGaps(trend) {
   if (trend.length < 2) {
@@ -205,7 +270,10 @@ function fillGaps(trend) {
     intervals.push(parseMinuteToTs(trend[i].minute) - parseMinuteToTs(trend[i - 1].minute));
   }
   const sorted = intervals.slice().sort((a, b) => a - b);
-  const medianInterval = sorted[Math.floor(sorted.length / 2)];
+  const mid = Math.floor(sorted.length / 2);
+  const medianInterval = sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
   const gapThreshold = medianInterval * 2;
 
   const labels = [];
@@ -214,13 +282,32 @@ function fillGaps(trend) {
   for (let i = 0; i < trend.length; i++) {
     if (i > 0) {
       const gap = parseMinuteToTs(trend[i].minute) - parseMinuteToTs(trend[i - 1].minute);
-      if (gap > gapThreshold) {
+      if (gap >= gapThreshold) {
         labels.push(null);
         items.push(null);
+      } else if (gap > medianInterval * 1.01) {
+        const gapBuckets = Math.round(gap / medianInterval) - 1;
+        const prevItem = trend[i - 1];
+        const nextItem = trend[i];
+        for (let j = 1; j <= gapBuckets; j++) {
+          const ratio = j / (gapBuckets + 1);
+          const ts = parseMinuteToTs(prevItem.minute) + gap * ratio;
+          labels.push(formatLabel(ts));
+          items.push({
+            avg_success_rate: lerp(prevItem.avg_success_rate, nextItem.avg_success_rate, ratio),
+            avg_throughput: lerp(prevItem.avg_throughput, nextItem.avg_throughput, ratio),
+            avg_tps: lerp(prevItem.avg_tps, nextItem.avg_tps, ratio),
+            avg_ttft_p50: lerp(prevItem.avg_ttft_p50, nextItem.avg_ttft_p50, ratio),
+            avg_tpot_p50: lerp(prevItem.avg_tpot_p50, nextItem.avg_tpot_p50, ratio),
+            avg_e2e_p50: lerp(prevItem.avg_e2e_p50, nextItem.avg_e2e_p50, ratio),
+            run_count: 0,
+            interpolated: true,
+          });
+        }
       }
     }
     labels.push(formatLabel(parseMinuteToTs(trend[i].minute)));
-    items.push(trend[i]);
+    items.push({ ...trend[i], interpolated: false });
   }
 
   return { labels, items };
