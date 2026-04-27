@@ -110,6 +110,13 @@
             <label class="form-label">用户提示词</label>
             <textarea class="form-textarea" v-model="form.user_prompt" rows="2"></textarea>
           </div>
+          <div class="form-group form-group--full">
+            <label class="form-label">渠道诊断 <span class="info-tip" data-tip="运行缓存命中率检测，验证 prompt cache 是否真实生效。预计额外消耗 ~10 个请求和 ~25K tokens">?</span></label>
+            <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" v-model="enableDiagnostics">
+              <span>启用缓存诊断（运行测试前先检测缓存命中率）</span>
+            </label>
+          </div>
         </template>
       </div>
 
@@ -123,6 +130,12 @@
         <button class="btn btn-ghost" v-show="!running && !connTest.running.value" @click="runConnTest()" :disabled="!selectedModels.length">
           连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span>
         </button>
+        <button class="btn btn-ghost" v-show="!running && !diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length" style="color:var(--accent)">
+          缓存诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型)</span>
+        </button>
+        <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
+          诊断中...
+        </button>
       </div>
 
       <ConnectivityProgress
@@ -133,6 +146,23 @@
         :error="connTest.error.value"
         @dismiss="connTest.reset()"
       />
+
+      <!-- Diagnostic Results -->
+      <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
+        <div v-for="(result, model) in diagResults" :key="model" style="padding:12px 16px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--accent)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
+            <span :style="'background:' + diagStatusColor(result.status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
+              {{ diagStatusLabel(result.status) }}
+            </span>
+          </div>
+          <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary)">
+            <span v-if="result.cache_hit_rate != null">缓存命中率: <strong>{{ (result.cache_hit_rate * 100).toFixed(1) }}%</strong></span>
+            <span v-if="result.overall_risk">风险: <strong>{{ result.overall_risk }}</strong></span>
+            <span v-if="result.confidence != null">置信度: <strong>{{ (result.confidence * 100).toFixed(0) }}%</strong></span>
+          </div>
+        </div>
+      </div>
 
       <!-- Progress Panel -->
       <div class="progress-panel" :class="{ active: running }" v-show="running">
@@ -272,7 +302,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { api } from '../api/index.js';
+import { api, createChannelDiagnostic } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { useBenchSSE } from '../composables/useBenchSSE.js';
 import ConnectivityProgress from './ConnectivityProgress.vue';
@@ -370,6 +400,11 @@ const selectedConcurrency = ref(1);
 const customConcurrency = ref('');
 const requestsPerLevel = ref('');
 const showAdvanced = ref(false);
+const enableDiagnostics = ref(false);
+
+// ---- Diagnostics state ----
+const diagRunning = ref(false);
+const diagResults = ref({}); // { modelName: result }
 
 // ---- Running state ----
 const running = ref(false);
@@ -494,6 +529,46 @@ function runConnTest() {
     profile_name: props.profile.name,
     model: selectedModels.value[0],
   });
+}
+
+// ---- Diagnostics ----
+async function runDiagnostics() {
+  if (!selectedModels.value.length) {
+    toast('请至少选择一个模型', 'info');
+    return;
+  }
+  diagRunning.value = true;
+  diagResults.value = {};
+  toast('开始缓存诊断...', 'info');
+
+  for (const model of selectedModels.value) {
+    try {
+      const result = await createChannelDiagnostic({
+        profile_name: props.profile.name,
+        model,
+      });
+      if (result.error) {
+        diagResults.value[model] = { status: 'error', error: result.error };
+      } else {
+        diagResults.value[model] = result;
+      }
+    } catch (e) {
+      diagResults.value[model] = { status: 'error', error: e.message };
+    }
+  }
+
+  diagRunning.value = false;
+  toast('缓存诊断完成', 'success');
+}
+
+function diagStatusColor(status) {
+  const map = { passed: 'var(--success)', warning: 'var(--warning)', critical: 'var(--danger)', inconclusive: 'var(--text-tertiary)', error: 'var(--danger)' };
+  return map[status] || 'var(--text-tertiary)';
+}
+
+function diagStatusLabel(status) {
+  const map = { passed: '缓存正常', warning: '需关注', critical: '高风险', inconclusive: '无法判断', error: '诊断失败' };
+  return map[status] || status;
 }
 
 function runWithSSE(runId) {
