@@ -27,7 +27,7 @@ clamp(targetPoints, 12, 200)
 当无固定范围时：
 - `firstTs / lastTs` 取自数据首尾
 
-**注意：** `targetPts` 参数仍然保留作为上限约束，但实际桶数由数据密度决定。
+**注意：** 当调用方传入 `null` 时，函数内部根据数据密度自适应计算桶数。`targetPts` 参数保留用于向后兼容（如未来需要固定桶数的场景）。
 
 ### 2. 插值填充小间隔
 
@@ -87,7 +87,7 @@ plugins: {
       return item != null && !item.interpolated;
     },
     callbacks: {
-      // 对非插值点显示完整信息
+      // title/label/body 回调保持现有逻辑，因 filter 已排除插值点
     }
   }
 }
@@ -114,7 +114,14 @@ const { labels, items } = aggregateToFixedPoints(trend, null, hours);
 - 后端 API（`/api/sites/trend`、`/api/schedules/{id}/trend`）不变
 - 数据库 schema 不变
 - HistoryView 的 bar chart 不受影响（不用 line chart）
-- `fillGaps()` 路径保留（无 rangeHours 且数据少时仍走此路径）
+- `fillGaps()` 路径保留（无 rangeHours 且数据少时仍走此路径），但同样加入插值逻辑以保持一致
+
+## 边界情况
+
+1. **单个数据点**：直接返回该点，不插值（无法插值）
+2. **所有桶为空**：走 `emptyRange()` 逻辑，生成空时间轴
+3. **中位间隔为 0**（所有点同一分钟）：使用 1 分钟作为 fallback 桶宽
+4. **数据点时间范围极短**（< 2 个桶宽）：强制至少 12 个桶
 
 ## 文件清单
 
