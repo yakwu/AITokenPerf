@@ -104,7 +104,10 @@
                 <td><input type="checkbox" class="compare-check" :checked="compareSet.has(idx)" @change="toggleCompare(idx)" @click.stop></td>
                 <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ r.test_id || '-' }}</td>
                 <td>{{ fmtTimestamp(r.timestamp) }}</td>
-                <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.model || ''">{{ r.config?.model || '-' }}</td>
+                <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.model || ''">
+                  {{ r.config?.model || '-' }}
+                  <span v-if="r.channel_diagnostic_status" class="diag-icon" :class="'diag-' + r.channel_diagnostic_status" :title="diagTooltip(r)" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:4px;vertical-align:middle"></span>
+                </td>
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.base_url || ''">{{ r.config?.base_url || '-' }}</td>
                 <td>{{ r.config?.concurrency || '-' }}</td>
                 <td>{{ r.config?.mode || '-' }}</td>
@@ -311,6 +314,21 @@ const compareData = computed(() => {
 function successRateStyle(rate) {
   if (rate == null) return '';
   return rate >= 95 ? 'color:var(--success)' : rate >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
+}
+
+function diagTooltip(r) {
+  const statusMap = {
+    passed: '缓存正常',
+    warning: '需关注',
+    critical: '高风险',
+    inconclusive: '无法判断',
+    error: '诊断失败',
+  };
+  const s = statusMap[r.channel_diagnostic_status] || '未知';
+  const rate = r.channel_diagnostic_cache_hit_rate;
+  const parts = [`诊断: ${s}`];
+  if (rate != null) parts.push(`缓存命中率: ${(rate * 100).toFixed(1)}%`);
+  return parts.join(' | ');
 }
 
 // ---- Actions ----
@@ -691,3 +709,11 @@ watch(() => timeRangeStore.hours, () => {
 });
 
 </script>
+
+<style scoped>
+.diag-icon.diag-passed { background: var(--success); }
+.diag-icon.diag-warning { background: var(--warning); }
+.diag-icon.diag-critical { background: var(--danger); }
+.diag-icon.diag-inconclusive { background: var(--text-tertiary); }
+.diag-icon.diag-error { background: var(--danger); }
+</style>
