@@ -1,7 +1,12 @@
 /**
  * 时序趋势数据聚合工具
- * 将分钟级数据聚合为固定数量的展示点，空时间段插入 null 实现断线
+ * 将分钟级数据聚合为固定数量的展示点，空时间段插值连线或断线
  */
+
+const METRIC_FIELDS = [
+  'avg_success_rate', 'avg_throughput', 'avg_tps',
+  'avg_ttft_p50', 'avg_tpot_p50', 'avg_e2e_p50',
+];
 
 export function parseMinuteToTs(m) {
   return new Date(
@@ -143,6 +148,19 @@ export function aggregateToFixedPoints(trend, targetPoints = 144, rangeHours = n
     if (buckets[i].length > 0) nonEmptyIndices.push(i);
   }
 
+  function computeWeightedAvg(bucket, field) {
+    let sum = 0, wSum = 0;
+    for (const p of bucket) {
+      const val = p[field];
+      if (val != null) {
+        const w = p.run_count || 1;
+        sum += val * w;
+        wSum += w;
+      }
+    }
+    return wSum > 0 ? roundTo(sum / wSum, 2) : null;
+  }
+
   const labels = [];
   const items = [];
 
@@ -153,27 +171,11 @@ export function aggregateToFixedPoints(trend, targetPoints = 144, rangeHours = n
       // 有数据的桶：加权平均
       const totalWeight = buckets[i].reduce((s, p) => s + (p.run_count || 1), 0);
 
-      function weightedAvg(field) {
-        let sum = 0, wSum = 0;
-        for (const p of buckets[i]) {
-          const val = p[field];
-          if (val != null) {
-            const w = p.run_count || 1;
-            sum += val * w;
-            wSum += w;
-          }
-        }
-        return wSum > 0 ? roundTo(sum / wSum, 2) : null;
-      }
-
       labels.push(formatLabel(midTs));
+      const metrics = {};
+      for (const f of METRIC_FIELDS) metrics[f] = computeWeightedAvg(buckets[i], f);
       items.push({
-        avg_success_rate: weightedAvg('avg_success_rate'),
-        avg_throughput: weightedAvg('avg_throughput'),
-        avg_tps: weightedAvg('avg_tps'),
-        avg_ttft_p50: weightedAvg('avg_ttft_p50'),
-        avg_tpot_p50: weightedAvg('avg_tpot_p50'),
-        avg_e2e_p50: weightedAvg('avg_e2e_p50'),
+        ...metrics,
         run_count: totalWeight,
         interpolated: false,
       });
@@ -196,34 +198,18 @@ export function aggregateToFixedPoints(trend, targetPoints = 144, rangeHours = n
         const prevItem = items[prevIdx];
         const nextBucket = buckets[nextIdx];
 
-        function nextWeightedAvg(field) {
-          let sum = 0, wSum = 0;
-          for (const p of nextBucket) {
-            const val = p[field];
-            if (val != null) {
-              const w = p.run_count || 1;
-              sum += val * w;
-              wSum += w;
-            }
-          }
-          return wSum > 0 ? roundTo(sum / wSum, 2) : null;
-        }
-
         function interpolateField(field) {
           const pv = prevItem[field];
-          const nv = nextWeightedAvg(field);
+          const nv = computeWeightedAvg(nextBucket, field);
           if (pv == null || nv == null) return null;
           return roundTo(pv + (nv - pv) * ratio, 2);
         }
 
         labels.push(formatLabel(midTs));
+        const metrics = {};
+        for (const f of METRIC_FIELDS) metrics[f] = interpolateField(f);
         items.push({
-          avg_success_rate: interpolateField('avg_success_rate'),
-          avg_throughput: interpolateField('avg_throughput'),
-          avg_tps: interpolateField('avg_tps'),
-          avg_ttft_p50: interpolateField('avg_ttft_p50'),
-          avg_tpot_p50: interpolateField('avg_tpot_p50'),
-          avg_e2e_p50: interpolateField('avg_e2e_p50'),
+          ...metrics,
           run_count: 0,
           interpolated: true,
         });
@@ -293,13 +279,10 @@ function fillGaps(trend) {
           const ratio = j / (gapBuckets + 1);
           const ts = parseMinuteToTs(prevItem.minute) + gap * ratio;
           labels.push(formatLabel(ts));
+          const metrics = {};
+          for (const f of METRIC_FIELDS) metrics[f] = lerp(prevItem[f], nextItem[f], ratio);
           items.push({
-            avg_success_rate: lerp(prevItem.avg_success_rate, nextItem.avg_success_rate, ratio),
-            avg_throughput: lerp(prevItem.avg_throughput, nextItem.avg_throughput, ratio),
-            avg_tps: lerp(prevItem.avg_tps, nextItem.avg_tps, ratio),
-            avg_ttft_p50: lerp(prevItem.avg_ttft_p50, nextItem.avg_ttft_p50, ratio),
-            avg_tpot_p50: lerp(prevItem.avg_tpot_p50, nextItem.avg_tpot_p50, ratio),
-            avg_e2e_p50: lerp(prevItem.avg_e2e_p50, nextItem.avg_e2e_p50, ratio),
+            ...metrics,
             run_count: 0,
             interpolated: true,
           });
