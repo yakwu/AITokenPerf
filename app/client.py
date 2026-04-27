@@ -22,6 +22,8 @@ class RequestMetrics:
     token_timestamps: list = field(default_factory=list)
     output_tokens: int = 0
     input_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
     success: bool = False
     error: Optional[str] = None
     status_code: int = 0

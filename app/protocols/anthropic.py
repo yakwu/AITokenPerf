@@ -82,6 +82,10 @@ class AnthropicAdapter(ProtocolAdapter):
                         usage = msg.get("usage", {})
                         if "input_tokens" in usage:
                             metrics.input_tokens = usage["input_tokens"]
+                        if "cache_read_input_tokens" in usage:
+                            metrics.cache_read_tokens = usage["cache_read_input_tokens"]
+                        if "cache_creation_input_tokens" in usage:
+                            metrics.cache_creation_tokens = usage["cache_creation_input_tokens"]
 
                     elif event_type == "message_stop":
                         metrics.end_time = time.monotonic()
