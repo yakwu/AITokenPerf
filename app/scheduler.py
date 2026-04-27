@@ -190,7 +190,13 @@ class TaskScheduler:
 
 async def _run_scheduled_task(task_id: int):
     """执行一个定时任务：为每个 profile 并行跑 benchmark"""
-    from app.server import manager, _run_benchmark_task, BenchTaskManager, CONNECTION_KEYS, _apply_env_overrides
+    from app.config import RUN_MAX_GLOBAL_SLOTS, RUN_MAX_USER_SLOTS
+    from app.server import (
+        RunCapacityError,
+        _normalize_concurrency_levels,
+        _start_run_for_profile,
+        manager,
+    )
 
     run_id = f"sched_{uuid.uuid4().hex[:8]}"
     current_run_id.set(run_id)
@@ -208,35 +214,22 @@ async def _run_scheduled_task(task_id: int):
         await update_scheduled_task(task_id, status="paused")
         return
 
-    # 全局并发限制
-    if manager.get_running_count() >= BenchTaskManager.MAX_GLOBAL:
-        log.warning("全局并发已达上限（%d），跳过定时任务 #%d", BenchTaskManager.MAX_GLOBAL, task_id)
-        log_error("scheduler:skipped", error="全局并发已达上限",
-                  task_id=task_id, user_id=user_id)
-        return
-
-    # 用户并发限制
-    if manager.get_user_task_count(user_id) >= BenchTaskManager.MAX_PER_USER:
-        log.warning("用户 %d 并发已达上限，跳过定时任务 #%d", user_id, task_id)
-        log_error("scheduler:skipped", error="用户并发已达上限",
-                  task_id=task_id, user_id=user_id)
-        return
-
     # 轻量检查通过后，才做较重的 DB 查询
     profile_ids = task_row.get("profile_ids", [])
     configs_json = task_row.get("configs", {})
 
     profiles = await get_profiles(user_id)
     profile_map = {p["name"]: p for p in profiles}
-    benchmark = await get_settings(user_id)
 
     log.info("执行定时任务 #%d '%s'，%d 个 profile", task_id, task_row["name"], len(profile_ids))
     log_bench("scheduler:start", task_id=task_id, name=task_row["name"],
               profiles=profile_ids, user_id=user_id)
 
-    group_id = run_id
-    bench_tasks = []
+    run_plans = []
+    total_requested_slots = 0
+    levels, _ = _normalize_concurrency_levels(configs_json.get("concurrency_levels"))
 
+    # 先做整组容量预检：容量不足则整个定时任务跳过，不启动部分模型。
     for pname in profile_ids:
         profile = profile_map.get(pname)
         if not profile:
@@ -245,13 +238,6 @@ async def _run_scheduled_task(task_id: int):
                       task_id=task_id, profile=pname)
             continue
 
-        config = dict(benchmark) if benchmark else {}
-        for k in CONNECTION_KEYS:
-            if profile.get(k):
-                config[k] = profile[k]
-        _apply_env_overrides(config)
-
-        # 获取模型列表（优先用定时任务中选的模型子集）
         models = configs_json.get("models") or []
         if not models:
             raw_model = configs_json.get("model") or ""
@@ -259,53 +245,53 @@ async def _run_scheduled_task(task_id: int):
         if not models:
             models = profile.get("models", [])
         if not models:
-            raw_model = config.get("model", "")
-            models = [raw_model] if raw_model else []
+            log_warning = f"profile '{pname}' 未绑定模型"
+            log.warning("定时任务 #%d: %s，跳过", task_id, log_warning)
+            log_error("scheduler:config_missing", error=log_warning, task_id=task_id, profile=pname)
+            continue
 
-        for key, val in configs_json.items():
-            if val is not None:
-                config[key] = val
+        body = dict(configs_json)
+        body["models"] = models
+        body["concurrency_levels"] = levels
+        run_plans.append((profile, body))
+        total_requested_slots += len(models) * max(levels)
 
-        cl = config.get("concurrency_levels", [1])
+    available_slots = min(
+        RUN_MAX_USER_SLOTS - manager.get_running_slots(user_id),
+        RUN_MAX_GLOBAL_SLOTS - manager.get_running_slots(),
+    )
+    if total_requested_slots > available_slots:
+        log.warning("定时任务 #%d 容量不足，跳过: requested=%d available=%d",
+                    task_id, total_requested_slots, max(0, available_slots))
+        log_error("scheduler:skipped_capacity",
+                  error="并发容量不足",
+                  task_id=task_id,
+                  requested_slots=total_requested_slots,
+                  available_slots=max(0, available_slots))
+        return
+
+    bench_tasks = []
+
+    for profile, body in run_plans:
         try:
-            if isinstance(cl, str):
-                cl = json.loads(cl)
-            if isinstance(cl, (list, tuple)):
-                config["concurrency_levels"] = [int(v) for v in cl]
-            elif isinstance(cl, (int, float)):
-                config["concurrency_levels"] = [int(cl)]
-            else:
-                config["concurrency_levels"] = [1]
-        except (ValueError, TypeError, json.JSONDecodeError):
-            config["concurrency_levels"] = [1]
-
-        # 为每个模型创建独立 task
-        for model_name in models:
-            model_config = dict(config)
-            model_config["model"] = model_name
-            model_config["profile_name"] = pname
-
-            # 检查必要配置
-            missing = [k for k in ("base_url", "api_key", "model") if not model_config.get(k)]
-            if missing:
-                log.warning("定时任务 #%d: profile '%s' model '%s' 缺少配置 %s，跳过",
-                           task_id, pname, model_name, missing)
-                log_error("scheduler:config_missing", error=f"缺少配置: {', '.join(missing)}",
-                          task_id=task_id, profile=pname, model=model_name, missing=missing)
-                continue
-
-            from app.protocols import detect_protocol
-            model_config["protocol"] = detect_protocol(model_name, model_config.get("provider", ""))
-
-            tid = uuid.uuid4().hex[:12]
-            bt = manager.create_task(tid, user_id, profile_name=pname, group_id=group_id)
-            bt.scheduled_task_id = task_id
-            bt.model_name = model_name
-            bt.status = "running"
-            bt.stop_event = asyncio.Event()
-            bt.start_time = time.monotonic()
-            bt.asyncio_task = asyncio.create_task(_run_benchmark_task(model_config, user_id, bt))
-            bench_tasks.append(bt)
+            result = await _start_run_for_profile(
+                user_id=user_id,
+                profile=profile,
+                body=body,
+                source="scheduled",
+                scheduled_task_id=task_id,
+            )
+        except RunCapacityError as e:
+            log.warning("定时任务 #%d 容量不足，跳过: requested=%d available=%d",
+                        task_id, e.requested_slots, e.available_slots)
+            log_error("scheduler:skipped_capacity", error="并发容量不足",
+                      task_id=task_id, requested_slots=e.requested_slots,
+                      available_slots=e.available_slots)
+            return
+        if result.get("error"):
+            log_error("scheduler:run_create_failed", error=result["error"], task_id=task_id)
+            continue
+        bench_tasks.extend(manager.get_run_tasks(result["run_id"]))
 
     if not bench_tasks:
         log.warning("定时任务 #%d: 没有有效的 profile，跳过执行", task_id)

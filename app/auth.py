@@ -89,8 +89,16 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     user_id = int(payload["sub"])
-    user_email = payload["email"]
-    user_role = payload.get("role", "user")
+
+    # Role must come from the database so deleted/demoted users lose access
+    # immediately instead of keeping the privileges embedded in an old JWT.
+    from app.db import get_user_by_id
+    user = await get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_email = user["email"]
+    user_role = user.get("role", "user")
 
     request.state.user_id = user_id
     request.state.user_email = user_email

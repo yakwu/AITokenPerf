@@ -112,7 +112,7 @@ const savedConfig = ref(null);
 function initForm() {
   if (!props.profile) return;
   form.value.base_url = props.profile.base_url || '';
-  form.value.api_key = props.profile.api_key_display || props.profile.api_key || '';
+  form.value.api_key = props.profile.api_key_display || '';
   form.value.models = props.profile.models || (props.profile.model ? [props.profile.model] : []);
   form.value.custom_endpoint = !!props.profile.custom_endpoint;
   snapshotConfig();
@@ -170,15 +170,24 @@ function canTest() {
 
 function runConnTest() {
   if (!canTest()) return;
+  if (formDirty.value) {
+    toast('请先保存配置后再验证连通性', 'info');
+    return;
+  }
   connTest.start({
-    base_url: form.value.base_url,
-    api_key: form.value.api_key,
+    profile_name: props.profile.name,
     model: form.value.models[0] || '',
-    custom_endpoint: form.value.custom_endpoint,
   });
 }
 
 // ---- Actions ----
+function apiKeyAction() {
+  const value = (form.value.api_key || '').trim();
+  if (!value) return 'clear';
+  if (value.startsWith('...')) return 'keep';
+  return 'replace';
+}
+
 async function saveProfile() {
   if (!form.value.base_url.trim()) {
     toast('请先填写目标地址', 'info');
@@ -197,6 +206,7 @@ async function saveProfile() {
         name: props.profile.name,
         base_url: form.value.base_url,
         api_key: form.value.api_key,
+        api_key_action: apiKeyAction(),
         models: form.value.models,
         custom_endpoint: form.value.custom_endpoint,
         api_version: '2023-06-01',

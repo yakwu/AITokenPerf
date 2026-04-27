@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseMinuteToTs, aggregateToFixedPoints } from '../trendAggregator.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { parseMinuteToTs, aggregateToFixedPoints, computeAdaptiveBucketCount } from '../trendAggregator.js';
 
 // 辅助：生成连续的分钟级测试数据
 function makeMinuteData(startMinute, count, { intervalMin = 1, fields = {} } = {}) {
@@ -147,5 +147,237 @@ describe('aggregateToFixedPoints', () => {
     for (const label of nonNullLabels) {
       expect(label).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
     }
+  });
+});
+
+describe('medianInterval', () => {
+  it('计算连续 15 分钟间隔的中位数', () => {
+    // 5 个点，间隔 15 分钟
+    const data = makeMinuteData('20260410_0800', 5, { intervalMin: 15 });
+    const { medianInterval } = computeAdaptiveBucketCount(data, 6);
+    expect(medianInterval).toBe(15 * 60_000); // 15 min in ms
+  });
+
+  it('计算混合间隔的中位数', () => {
+    // 构造间隔: 5, 5, 10, 10, 10 分钟
+    const data = [];
+    const baseTs = parseMinuteToTs('20260410_0800');
+    const offsets = [0, 5, 10, 20, 30]; // 分钟偏移 → 间隔 5,5,10,10
+    for (const off of offsets) {
+      const ts = baseTs + off * 60_000;
+      const d = new Date(ts);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      data.push({
+        minute: `${d.getFullYear()}${mm}${dd}_${hh}${mi}`,
+        run_count: 1, avg_success_rate: 99, avg_ttft_p50: 0.5, avg_tpot_p50: 0.05,
+      });
+    }
+    const { medianInterval } = computeAdaptiveBucketCount(data, 6);
+    // 间隔: 5,5,10,10 → 排序后 [5,5,10,10] → 中位 = (5+10)/2 = 7.5 min
+    expect(medianInterval).toBeCloseTo(7.5 * 60_000, -3);
+  });
+
+  it('单个数据点时返回默认 1 分钟', () => {
+    const data = makeMinuteData('20260410_0800', 1);
+    const { medianInterval } = computeAdaptiveBucketCount(data, 6);
+    expect(medianInterval).toBe(60_000); // fallback 1 min
+  });
+});
+
+describe('自适应桶数', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('15 分钟间隔 + 6h 范围 → 约 24 个桶', () => {
+    // 数据范围: 0800 ~ 1400（24 个点 × 15min = 6h）
+    // mock Date.now 为数据末尾之后，让 rangeHours=6 窗口覆盖所有数据
+    const dataEndTs = parseMinuteToTs('20260410_0800') + 23 * 15 * 60_000; // 最后一个数据点
+    const fakeNow = dataEndTs + 60_000; // 比最后数据点晚 1 分钟
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+
+    const data = makeMinuteData('20260410_0800', 24, { intervalMin: 15 });
+    const { items } = aggregateToFixedPoints(data, null, 6);
+    const nonNull = items.filter(i => i !== null);
+    expect(items.length).toBeGreaterThanOrEqual(12);
+    expect(items.length).toBeLessThanOrEqual(30);
+    expect(nonNull.length).toBe(items.length);
+  });
+
+  it('5 分钟间隔 + 6h 范围 → 约 72 个桶', () => {
+    // 数据范围: 0800 ~ 1400（72 个点 × 5min = 6h）
+    const dataEndTs = parseMinuteToTs('20260410_0800') + 71 * 5 * 60_000;
+    const fakeNow = dataEndTs + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+
+    const data = makeMinuteData('20260410_0800', 72, { intervalMin: 5 });
+    const { items } = aggregateToFixedPoints(data, null, 6);
+    expect(items.length).toBeGreaterThanOrEqual(60);
+    expect(items.length).toBeLessThanOrEqual(80);
+  });
+
+  it('targetPts 参数为 null 时走自适应逻辑', () => {
+    const dataEndTs = parseMinuteToTs('20260410_0800') + 23 * 15 * 60_000;
+    const fakeNow = dataEndTs + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+
+    const data = makeMinuteData('20260410_0800', 24, { intervalMin: 15 });
+    const { labels, items } = aggregateToFixedPoints(data, null, 6);
+    expect(labels.length).toBe(items.length);
+    expect(labels.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('targetPts 参数非 null 时保持原有行为', () => {
+    const data = makeMinuteData('20260410_0800', 288);
+    const { labels, items } = aggregateToFixedPoints(data, 144);
+    expect(labels).toHaveLength(144);
+    expect(items).toHaveLength(144);
+  });
+});
+
+describe('插值填充', () => {
+  it('大间隔空桶保持 null 断线', () => {
+    // 构造数据：0, 15, 30, 120, 135 分钟（90 分钟间隔）
+    const data = [];
+    const baseTs = parseMinuteToTs('20260410_0800');
+    const offsets = [0, 15, 30, 120, 135];
+    for (const off of offsets) {
+      const ts = baseTs + off * 60_000;
+      const d = new Date(ts);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      data.push({
+        minute: `${d.getFullYear()}${mm}${dd}_${hh}${mi}`,
+        run_count: 1,
+        avg_success_rate: 99,
+        avg_ttft_p50: 0.5,
+        avg_tpot_p50: 0.05,
+      });
+    }
+    // mock Date.now 使数据落在 rangeHours 窗口内
+    const fakeNow = baseTs + 140 * 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 2);
+    // 90 分钟间隔 >> 2×15min=30min → 应该断线
+    const nullCount = items.filter(i => i === null).length;
+    expect(nullCount).toBeGreaterThan(0);
+  });
+
+  it('插值点标记为 interpolated: true', () => {
+    // 构造数据：0, 15, 45 分钟（30 分钟间隔 = 2×15min）
+    const data = [];
+    const baseTs = parseMinuteToTs('20260410_0800');
+    const offsets = [0, 15, 45];
+    for (const off of offsets) {
+      const ts = baseTs + off * 60_000;
+      const d = new Date(ts);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      data.push({
+        minute: `${d.getFullYear()}${mm}${dd}_${hh}${mi}`,
+        run_count: 1,
+        avg_success_rate: 99,
+        avg_ttft_p50: 0.5,
+        avg_tpot_p50: 0.05,
+      });
+    }
+    // mock Date.now 使数据落在 rangeHours 窗口内
+    const fakeNow = baseTs + 50 * 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 1);
+    // 自适应桶数下数据点都在相邻桶，无空桶需要插值
+    const interpItems = items.filter(i => i !== null && i.interpolated);
+    expect(interpItems.length).toBe(0);
+  });
+
+  it('插值数值线性正确', () => {
+    // 3 个点: off=0(ttft=0.5), off=30(ttft=1.1), off=90(ttft=0.8)
+    // 中位间隔=30min, 桶数≈5 (rangeHours=4, 240/45≈5)
+    const data = [];
+    const baseTs = parseMinuteToTs('20260410_0800');
+    const points = [
+      { off: 0, ttft: 0.5 },
+      { off: 30, ttft: 1.1 },
+      { off: 90, ttft: 0.8 },
+    ];
+    for (const p of points) {
+      const ts = baseTs + p.off * 60_000;
+      const d = new Date(ts);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      data.push({
+        minute: `${d.getFullYear()}${mm}${dd}_${hh}${mi}`,
+        run_count: 1, avg_success_rate: 99,
+        avg_ttft_p50: p.ttft, avg_tpot_p50: 0.05,
+      });
+    }
+    // mock Date.now 使数据落在 rangeHours 窗口内
+    const fakeNow = baseTs + 95 * 60_000; // 最后数据点后 5 分钟
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 4);
+    const interpItems = items.filter(i => i !== null && i.interpolated);
+    expect(interpItems.length).toBeGreaterThan(0);
+    // 插值点的 ttft 应在原始数据范围内（0.5 ~ 1.1）
+    for (const item of interpItems) {
+      expect(item.avg_ttft_p50).toBeGreaterThanOrEqual(0.5);
+      expect(item.avg_ttft_p50).toBeLessThanOrEqual(1.1);
+    }
+  });
+});
+
+describe('边界情况', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('单个数据点不插值', () => {
+    const data = makeMinuteData('20260410_0800', 1);
+    // 不传 rangeHours，走 length===1 快捷路径
+    const { items } = aggregateToFixedPoints(data);
+    expect(items).toHaveLength(1);
+    expect(items[0]).not.toBeNull();
+    expect(items[0].interpolated).toBeFalsy();
+  });
+
+  it('所有点在同一分钟（中位间隔为 0）', () => {
+    const data = makeMinuteData('20260410_0800', 5, { intervalMin: 0 });
+    const fakeNow = parseMinuteToTs('20260410_0800') + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 1);
+    expect(items.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rangeHours 有值但无数据 → emptyRange', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(parseMinuteToTs('20260410_0800'));
+    const { labels, items } = aggregateToFixedPoints([], 144, 6);
+    expect(labels.length).toBeGreaterThan(0);
+    expect(labels).toHaveLength(144);
+    expect(items.every(i => i === null)).toBe(true);
+  });
+
+  it('24h 视图 + 15min 间隔 → 桶数约 96', () => {
+    const data = makeMinuteData('20260410_0000', 96, { intervalMin: 15 });
+    const fakeNow = parseMinuteToTs('20260410_0000') + 96 * 15 * 60_000 + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 24);
+    expect(items.length).toBeGreaterThanOrEqual(80);
+    expect(items.length).toBeLessThanOrEqual(110);
+  });
+
+  it('7d 视图 + 5min 间隔 → 桶数约 200（上限）', () => {
+    const data = makeMinuteData('20260404_0000', 200, { intervalMin: 5 });
+    const fakeNow = parseMinuteToTs('20260404_0000') + 200 * 5 * 60_000 + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 168);
+    expect(items.length).toBeLessThanOrEqual(200);
   });
 });

@@ -41,6 +41,7 @@ async def setup_db():
     from app.server import manager
     manager._tasks.clear()
     manager._group_tasks.clear()
+    manager._runs.clear()
 
 
 @pytest_asyncio.fixture

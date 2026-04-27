@@ -131,8 +131,8 @@ async def test_switch_profile_returns_models(client):
 
 
 @pytest.mark.asyncio
-async def test_start_bench_expands_multi_model(client):
-    """多模型 Profile 启动 bench 应为每个模型创建独立 task"""
+async def test_start_run_expands_multi_model(client):
+    """多模型 Profile 启动 run 应为每个模型创建独立 task"""
     headers = await auth_headers(client)
 
     # 创建多模型 profile
@@ -144,7 +144,8 @@ async def test_start_bench_expands_multi_model(client):
         "provider": "openai",
     }, headers=headers)
 
-    resp = await client.post("/api/bench/start", json={
+    resp = await client.post("/api/runs", json={
+        "profile_name": "bench-multi",
         "concurrency_levels": [1],
         "max_tokens": 16,
         "duration": 1,
@@ -155,12 +156,12 @@ async def test_start_bench_expands_multi_model(client):
     assert len(data["task_ids"]) == 2  # 应创建 2 个 task
 
     # 停止所有任务
-    await client.post("/api/bench/stop", headers=headers)
+    await client.post(f"/api/runs/{data['run_id']}/stop", headers=headers)
 
 
 @pytest.mark.asyncio
-async def test_start_bench_single_model_still_works(client):
-    """单模型 Profile 启动 bench 应只创建 1 个 task（向后兼容）"""
+async def test_start_run_single_model_creates_one_task(client):
+    """单模型 Profile 启动 run 应只创建 1 个 task"""
     headers = await auth_headers(client)
 
     await client.post("/api/profiles/save", json={
@@ -171,7 +172,8 @@ async def test_start_bench_single_model_still_works(client):
         "provider": "openai",
     }, headers=headers)
 
-    resp = await client.post("/api/bench/start", json={
+    resp = await client.post("/api/runs", json={
+        "profile_name": "bench-single",
         "concurrency_levels": [1],
         "max_tokens": 16,
         "duration": 1,
@@ -179,10 +181,9 @@ async def test_start_bench_single_model_still_works(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "started"
-    assert "task_id" in data  # 单模型保持原有返回格式
-    assert "task_ids" not in data
+    assert len(data["task_ids"]) == 1
 
-    await client.post("/api/bench/stop", headers=headers)
+    await client.post(f"/api/runs/{data['run_id']}/stop", headers=headers)
 
 
 @pytest.mark.asyncio
@@ -226,8 +227,8 @@ async def test_scheduled_task_expands_multi_model(client):
 
 
 @pytest.mark.asyncio
-async def test_multi_model_bench_uses_profile_models(client):
-    """start-multi-model 未传 models 时应回退到 Profile 的 models"""
+async def test_multi_model_run_uses_profile_models(client):
+    """Run 未传 models 时应回退到 Profile 的 models"""
     headers = await auth_headers(client)
 
     await client.post("/api/profiles/save", json={
@@ -239,20 +240,20 @@ async def test_multi_model_bench_uses_profile_models(client):
     }, headers=headers)
 
     # 不传 models，应该使用 profile 的 models
-    resp = await client.post("/api/bench/start-multi-model", json={
-        "provider": "openai",
+    resp = await client.post("/api/runs", json={
+        "profile_name": "fallback-test",
     }, headers=headers)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["task_ids"]) == 2
 
     # 停止
-    await client.post("/api/bench/stop", headers=headers)
+    await client.post(f"/api/runs/{data['run_id']}/stop", headers=headers)
 
 
 @pytest.mark.asyncio
-async def test_multi_model_bench_no_models_returns_error(client):
-    """start-multi-model 未传 models 且 Profile 无 models 时应返回明确错误"""
+async def test_multi_model_run_no_models_returns_error(client):
+    """Run 未传 models 且 Profile 无 models 时应返回明确错误"""
     headers = await auth_headers(client)
 
     # 创建无 models 的 profile
@@ -263,8 +264,8 @@ async def test_multi_model_bench_no_models_returns_error(client):
         "provider": "openai",
     }, headers=headers)
 
-    resp = await client.post("/api/bench/start-multi-model", json={
-        "provider": "openai",
+    resp = await client.post("/api/runs", json={
+        "profile_name": "no-models",
     }, headers=headers)
     assert resp.status_code == 400
     assert "models" in resp.json()["error"].lower()

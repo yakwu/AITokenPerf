@@ -331,16 +331,15 @@ function renderLatencyChart() {
   const canvas = latencyCanvas.value;
   if (!canvas) return;
 
-  // 桶数随时间范围缩放，保持 ~10 min/桶 的密度（与 24h 一致）
   const hours = timeRangeStore.hours;
-  const targetPts = hours ? Math.min(144, Math.max(36, hours * 6)) : 144;
-  const { labels, items } = aggregateToFixedPoints(trend, targetPts, hours);
+  const { labels, items } = aggregateToFixedPoints(trend, null, hours);
 
   latencyChart = new Chart(canvas, {
     type: 'line',
     plugins: [crosshairPlugin],
     data: {
       labels,
+      items,  // 新增：供 tooltip filter 使用
       datasets: [
         {
           label: 'TTFT P50',
@@ -377,8 +376,17 @@ function renderLatencyChart() {
           labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 },
         },
         tooltip: {
+          filter: (tooltipItem) => {
+            const raw = tooltipItem.raw;
+            return raw != null;
+          },
           callbacks: {
-            label: ctx => ctx.parsed.y != null ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(3)}s` : '',
+            label: ctx => {
+              if (ctx.parsed.y == null) return '';
+              const item = ctx.chart.data.items?.[ctx.dataIndex];
+              if (item?.interpolated) return '';
+              return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(3)}s`;
+            },
           },
         },
       },
@@ -405,8 +413,7 @@ function renderQualityChart() {
   if (!canvas) return;
 
   const hours = timeRangeStore.hours;
-  const targetPts = hours ? Math.min(144, Math.max(36, hours * 6)) : 144;
-  const { labels, items } = aggregateToFixedPoints(trend, targetPts, hours);
+  const { labels, items } = aggregateToFixedPoints(trend, null, hours);
   const failureData = items.map(r => r?.avg_success_rate != null ? (100 - r.avg_success_rate) : null);
 
   qualityChart = new Chart(canvas, {
@@ -414,6 +421,7 @@ function renderQualityChart() {
     plugins: [crosshairPlugin],
     data: {
       labels,
+      items,  // 新增
       datasets: [
         {
           label: '吞吐量 (t/s)',
@@ -453,9 +461,15 @@ function renderQualityChart() {
           labels: { font: { family: "'DM Sans'", size: 11 }, usePointStyle: true, pointStyle: 'circle', padding: 12 },
         },
         tooltip: {
+          filter: (tooltipItem) => {
+            const raw = tooltipItem.raw;
+            return raw != null;
+          },
           callbacks: {
             label: ctx => {
               if (ctx.parsed.y == null) return '';
+              const item = ctx.chart.data.items?.[ctx.dataIndex];
+              if (item?.interpolated) return '';
               if (ctx.dataset.yAxisID === 'y1') return `失败率: ${ctx.parsed.y.toFixed(1)}%`;
               return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} t/s`;
             },

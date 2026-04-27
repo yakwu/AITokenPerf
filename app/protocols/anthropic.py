@@ -25,11 +25,12 @@ class AnthropicAdapter(ProtocolAdapter):
         }
 
     def build_payload(self, config: dict) -> dict:
+        system_text = config.get("system_prompt", "You are a helpful assistant.")
         return {
             "model": config["model"],
             "max_tokens": config.get("max_tokens", 512),
             "stream": True,
-            "system": config.get("system_prompt", "You are a helpful assistant."),
+            "system": [{"type": "text", "text": system_text}],
             "messages": [
                 {"role": "user", "content": config.get("user_prompt", "Hello")}
             ],

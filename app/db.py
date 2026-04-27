@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS results (
     error_details_json TEXT NOT NULL DEFAULT '[]',
     group_id           TEXT NOT NULL DEFAULT '',
     scheduled_task_id  INTEGER NOT NULL DEFAULT 0,
+    run_id             TEXT NOT NULL DEFAULT '',
+    task_id            TEXT NOT NULL DEFAULT '',
+    source             TEXT NOT NULL DEFAULT 'manual',
     profile_name       TEXT NOT NULL DEFAULT '',
     base_url           TEXT NOT NULL DEFAULT '',
     created_at         TEXT NOT NULL DEFAULT (datetime('now'))
@@ -169,6 +172,9 @@ CREATE TABLE IF NOT EXISTS results (
     error_details_json TEXT NOT NULL DEFAULT '[]',
     group_id           TEXT NOT NULL DEFAULT '',
     scheduled_task_id  INTEGER NOT NULL DEFAULT 0,
+    run_id             TEXT NOT NULL DEFAULT '',
+    task_id            TEXT NOT NULL DEFAULT '',
+    source             TEXT NOT NULL DEFAULT 'manual',
     profile_name       TEXT NOT NULL DEFAULT '',
     base_url           TEXT NOT NULL DEFAULT '',
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -249,6 +255,9 @@ async def init_db():
             for col_def in [
                 "ALTER TABLE results ADD COLUMN profile_name TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE results ADD COLUMN base_url TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN run_id TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN task_id TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
             ]:
                 try:
                     await conn.execute(text(col_def))
@@ -258,6 +267,9 @@ async def init_db():
             for col_def in [
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS profile_name TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS base_url TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS run_id TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS task_id TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'",
             ]:
                 await conn.execute(text(col_def))
 
@@ -267,6 +279,9 @@ async def init_db():
         ))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_results_user_url_time ON results (user_id, base_url, created_at DESC)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_results_user_run_time ON results (user_id, run_id, created_at DESC)"
         ))
 
     # 修复定时任务结果缺失 profile_name 的历史数据
@@ -550,7 +565,8 @@ async def delete_profile(user_id: int, name: str):
 async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
                        config_json: str, summary_json: str, percentiles_json: str,
                        errors_json: str = "{}", error_details_json: str = "[]",
-                       group_id: str = "", scheduled_task_id: int = 0):
+                       group_id: str = "", scheduled_task_id: int = 0,
+                       run_id: str = "", task_id: str = "", source: str = "manual"):
     # 从 config_json 提取冗余字段
     try:
         _cfg = json.loads(config_json)
@@ -563,15 +579,16 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
         await conn.execute(
             text("""INSERT INTO results (user_id, test_id, filename, timestamp, config_json,
                     summary_json, percentiles_json, errors_json, error_details_json, group_id,
-                    scheduled_task_id, profile_name, base_url)
+                    scheduled_task_id, run_id, task_id, source, profile_name, base_url)
                    VALUES (:uid, :test_id, :filename, :timestamp, :config_json,
                     :summary_json, :percentiles_json, :errors_json, :error_details_json, :group_id,
-                    :scheduled_task_id, :profile_name, :base_url)"""),
+                    :scheduled_task_id, :run_id, :task_id, :source, :profile_name, :base_url)"""),
             {"uid": user_id, "test_id": test_id, "filename": filename, "timestamp": timestamp,
              "config_json": config_json, "summary_json": summary_json,
              "percentiles_json": percentiles_json, "errors_json": errors_json,
              "error_details_json": error_details_json, "group_id": group_id,
              "scheduled_task_id": scheduled_task_id,
+             "run_id": run_id or group_id, "task_id": task_id, "source": source or "manual",
              "profile_name": _profile_name, "base_url": _base_url},
         )
 

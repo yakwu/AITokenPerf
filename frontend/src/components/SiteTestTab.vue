@@ -366,7 +366,7 @@ const form = ref({
   user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
 });
 const concurrencyPresets = ref([1, 5, 10, 20, 50, 100]);
-const selectedConcurrency = ref(10);
+const selectedConcurrency = ref(1);
 const customConcurrency = ref('');
 const requestsPerLevel = ref('');
 const showAdvanced = ref(false);
@@ -378,9 +378,10 @@ const logs = ref([]);
 const benchSSE = useBenchSSE();
 const connTest = useConnectivityTest();
 const elapsedTimer = ref(null);
+const currentRunId = ref('');
 let benchStartTime = 0;
 
-// ---- Multi-model sequential testing ----
+// ---- Multi-model parallel testing ----
 const modelQueue = ref([]);
 const currentModelIndex = ref(-1);
 const totalModels = computed(() => modelQueue.value.length);
@@ -405,15 +406,13 @@ function successRateClass(value) {
 }
 
 // ---- Build config for API call ----
-function buildConfig(model) {
-  const conc = selectedConcurrency.value || 10;
+function buildConfig(models) {
+  const conc = selectedConcurrency.value || 1;
   const requests = parseInt(requestsPerLevel.value);
   const config = {
-    base_url: props.profile.base_url,
-    api_key: props.profile.api_key_display || props.profile.api_key,
-    model,
-    provider: props.profile.provider || '',
-    custom_endpoint: props.profile.custom_endpoint || false,
+    profile_name: props.profile.name,
+    models,
+    source: 'manual',
     concurrency_levels: [conc],
     mode: form.value.mode,
     max_tokens: parseInt(form.value.max_tokens) || 512,
@@ -447,41 +446,40 @@ async function startBench() {
   logs.value = [];
   running.value = true;
   currentModelIndex.value = -1;
+  currentRunId.value = '';
+  progress.value = { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' };
 
-  // Run models sequentially
-  for (let i = 0; i < modelQueue.value.length; i++) {
-    if (!running.value) break;
-    currentModelIndex.value = i;
-    modelResults.value[i].running = true;
-    progress.value = { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' };
+  for (const mr of modelResults.value) mr.running = true;
+  logLine(`<span class="info">并行启动 ${selectedModels.value.length} 个模型</span>`);
 
-    logLine(`<span class="info">[模型 ${i + 1}/${modelQueue.value.length}] 开始测试 ${escHtml(modelQueue.value[i])}</span>`);
-
-    try {
-      const config = buildConfig(modelQueue.value[i]);
-      const res = await api('/api/bench/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
-      if (res.error) {
-        toast(`模型 ${modelQueue.value[i]} 启动失败: ${res.error}`, 'error');
-        logLine(`<span class="fail">模型 ${escHtml(modelQueue.value[i])} 启动失败: ${escHtml(res.error)}</span>`);
-        modelResults.value[i].running = false;
-        continue;
+  try {
+    const config = buildConfig([...selectedModels.value]);
+    const res = await api('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (res.error) {
+      toast(res.error, 'error');
+      logLine(`<span class="fail">启动失败: ${escHtml(res.error)}</span>`);
+      if (res.requested_slots != null) {
+        logLine(`<span class="fail">请求槽位 ${escHtml(res.requested_slots)}，可用 ${escHtml(res.available_slots ?? 0)}</span>`);
       }
-      // Wait for SSE to complete
-      await runWithSSE(modelQueue.value[i]);
-      modelResults.value[i].running = false;
-    } catch (e) {
-      toast(`模型 ${modelQueue.value[i]} 失败: ${e.message}`, 'error');
-      logLine(`<span class="fail">模型 ${escHtml(modelQueue.value[i])} 失败: ${escHtml(e.message)}</span>`);
-      modelResults.value[i].running = false;
+      running.value = false;
+      for (const mr of modelResults.value) mr.running = false;
+      return;
     }
+    currentRunId.value = res.run_id;
+    await runWithSSE(res.run_id);
+  } catch (e) {
+    toast(`测试失败: ${e.message}`, 'error');
+    logLine(`<span class="fail">测试失败: ${escHtml(e.message)}</span>`);
   }
 
   running.value = false;
   currentModelIndex.value = -1;
+  currentRunId.value = '';
+  for (const mr of modelResults.value) mr.running = false;
   if (modelResults.value.some(mr => mr.result)) {
     toast('测试完成！', 'success');
   }
@@ -493,20 +491,18 @@ function runConnTest() {
     return;
   }
   connTest.start({
-    base_url: props.profile.base_url,
-    api_key: props.profile.api_key_display || props.profile.api_key,
+    profile_name: props.profile.name,
     model: selectedModels.value[0],
-    provider: props.profile.provider || '',
-    custom_endpoint: props.profile.custom_endpoint || false,
   });
 }
 
-function runWithSSE(modelName) {
+function runWithSSE(runId) {
   return new Promise((resolve) => {
     benchStartTime = Date.now();
     progress.value = { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' };
+    const completedModels = new Set();
 
-    benchSSE.connect((type, d) => {
+    benchSSE.connect(runId, (type, d) => {
       switch (type) {
         case 'bench:start':
           logLine(`<span class="info">[第 ${escHtml(d.current_level)}/${escHtml(d.total_levels)} 级] 启动 并发=${escHtml(d.concurrency)} 模式=${escHtml(d.mode)}</span>`);
@@ -516,32 +512,52 @@ function runWithSSE(modelName) {
           if (d.elapsed > 0) progress.value.rate = (d.done / d.elapsed).toFixed(1);
           break;
         case 'bench:level_complete': {
-          logLine(`<span class="ok">[完成] 并发=${escHtml(d.concurrency)} -- ${escHtml(modelName)}</span>`);
-          // Store result for current model
+          const modelName = d.model || d.result?.config?.model || '';
+          logLine(`<span class="ok">[完成] 并发=${escHtml(d.concurrency)} -- ${escHtml(modelName || '-')}</span>`);
           const idx = modelResults.value.findIndex(mr => mr.model === modelName);
           if (idx >= 0) {
             modelResults.value[idx].result = d.result;
+            modelResults.value[idx].running = false;
           }
           if (d.filename) {
             logLine(`<span class="info">结果已保存: ${escHtml(d.filename)}</span>`);
           }
           break;
         }
-        case 'bench:complete':
-          stopSSE();
-          logLine('<span class="ok">测试完成！</span>');
-          resolve();
+        case 'bench:complete': {
+          // 多模型并行时，每个模型都会发 bench:complete，需等全部完成才关闭
+          if (d.model) completedModels.add(d.model);
+          const doneCount = completedModels.size;
+          const totalCount = modelResults.value.length;
+          logLine(`<span class="ok">模型 ${d.model || ''} 测试完成 (${doneCount}/${totalCount})</span>`);
+          if (doneCount >= totalCount) {
+            stopSSE();
+            logLine('<span class="ok">所有模型测试完成！</span>');
+            resolve();
+          }
           break;
+        }
         case 'bench:stopped':
           stopSSE();
           logLine('<span class="fail">测试已被用户停止</span>');
           resolve();
           break;
-        case 'bench:error':
-          stopSSE();
-          logLine(`<span class="fail">错误: ${escHtml(d.error)}</span>`);
-          resolve();
+        case 'bench:error': {
+          // 多模型并行时，某个模型出错不应中断其他模型
+          if (d.model) {
+            completedModels.add(d.model);
+            const idx = modelResults.value.findIndex(mr => mr.model === d.model);
+            if (idx >= 0) modelResults.value[idx].running = false;
+          }
+          logLine(`<span class="fail">模型 ${d.model || ''} 错误: ${escHtml(d.error)}</span>`);
+          const doneCount = completedModels.size;
+          const totalCount = modelResults.value.length;
+          if (doneCount >= totalCount) {
+            stopSSE();
+            resolve();
+          }
           break;
+        }
       }
     });
 
@@ -557,7 +573,9 @@ function runWithSSE(modelName) {
 }
 
 async function stopBench() {
-  await api('/api/bench/stop', { method: 'POST' });
+  if (currentRunId.value) {
+    await api(`/api/runs/${encodeURIComponent(currentRunId.value)}/stop`, { method: 'POST' });
+  }
   running.value = false;
   toast('正在停止...', 'info');
 }

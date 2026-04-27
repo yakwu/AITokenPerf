@@ -3,10 +3,10 @@ import { ref } from 'vue';
 export function useBenchSSE() {
   const source = ref(null);
 
-  function connect(onEvent) {
+  function connect(runId, onEvent) {
     disconnect();
     const token = localStorage.getItem('token') || '';
-    const url = `/api/bench/stream?token=${encodeURIComponent(token)}`;
+    const url = `/api/runs/${encodeURIComponent(runId)}/stream?token=${encodeURIComponent(token)}`;
     const es = new EventSource(url);
     source.value = es;
 

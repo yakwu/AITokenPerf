@@ -28,13 +28,12 @@ export const createProfile = (data) => api('/api/profiles', { method: 'POST', he
 export const updateProfile = (name, data) => api(`/api/profiles/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const deleteProfileApi = (name) => api(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
 
-// Benchmark
-export const startBenchApi = (data) => api('/api/bench/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-export const stopBenchApi = () => api('/api/bench/stop', { method: 'POST' });
-export const getBenchStatus = () => api('/api/bench/status');
-export const startMultiBenchApi = (data) => api('/api/bench/start-multi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-export const getMultiBenchStatus = (groupId) => api(`/api/bench/status-multi/${encodeURIComponent(groupId)}`);
-export const getRunningTasks = () => api('/api/bench/running');
+// Runs
+export const createRunApi = (data) => api('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+export const getRunApi = (runId) => api(`/api/runs/${encodeURIComponent(runId)}`);
+export const stopRunApi = (runId) => api(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' });
+export const retryRunApi = (runId) => api(`/api/runs/${encodeURIComponent(runId)}/retry`, { method: 'POST' });
+export const getRunningTasks = () => api('/api/runs/running');
 
 // Results
 export const getResults = (params = {}) => {
@@ -75,6 +74,8 @@ export const changePasswordApi = (data) => api('/api/user/password', { method: '
 export const getUsers = () => api('/api/admin/users');
 export const updateUserRoleApi = (id, role) => api(`/api/admin/users/${id}/role`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
 export const deleteUserApi = (id) => api(`/api/admin/users/${id}`, { method: 'DELETE' });
+export const getAdminRuns = () => api('/api/admin/runs');
+export const adminStopRunApi = (id) => api(`/api/admin/runs/${encodeURIComponent(id)}/stop`, { method: 'POST' });
 
 // Sites
 export const getSitesSummary = ({ hours } = {}) => {

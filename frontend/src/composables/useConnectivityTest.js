@@ -44,15 +44,13 @@ export function useConnectivityTest() {
     logLine(`<span class="info">连通性验证: ${escHtml(model)}</span>`);
 
     try {
-      const res = await api('/api/bench/start', {
+      const res = await api('/api/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          base_url: config.base_url,
-          api_key: config.api_key,
-          model,
-          provider: config.provider || '',
-          custom_endpoint: config.custom_endpoint || false,
+          profile_name: config.profile_name,
+          models: [model],
+          source: 'connectivity',
           concurrency_levels: [1],
           requests_per_level: 1,
           mode: 'burst',
@@ -72,7 +70,7 @@ export function useConnectivityTest() {
         return;
       }
 
-      await waitForSSE(model);
+      await waitForSSE(res.run_id, model);
     } catch (e) {
       error.value = e.message;
       toast('连通性验证失败: ' + e.message, 'error');
@@ -81,12 +79,12 @@ export function useConnectivityTest() {
     running.value = false;
   }
 
-  function waitForSSE(modelName) {
+  function waitForSSE(runId, modelName) {
     return new Promise((resolve) => {
       startTime = Date.now();
       progress.value = { done: 0, total: 0, success: 0, failed: 0, elapsed: 0, rate: '-' };
 
-      benchSSE.connect((type, d) => {
+      benchSSE.connect(runId, (type, d) => {
         switch (type) {
           case 'bench:start':
             logLine(`<span class="info">请求发送中...</span>`);

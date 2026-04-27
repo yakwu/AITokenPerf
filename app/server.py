@@ -34,6 +34,13 @@ from app.db import create_user, get_user_by_email, get_user_by_id, update_user_p
 from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
 from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
 from app.auth import _is_public_path
+from app.config import (
+    ALLOW_PROFILE_ENV_OVERRIDES,
+    CORS_ORIGINS,
+    RUN_MAX_CHILDREN_PER_RUN,
+    RUN_MAX_GLOBAL_SLOTS,
+    RUN_MAX_USER_SLOTS,
+)
 
 BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -51,6 +58,8 @@ class BenchTask:
     profile_name: str = ""
     model_name: str = ""
     group_id: str = ""
+    run_id: str = ""
+    source: str = "manual"
     scheduled_task_id: int = 0
     status: str = "idle"  # idle | running | stopping | error
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -69,6 +78,21 @@ class BenchTask:
     event_waiters: list = field(default_factory=list)  # asyncio.Event for SSE
 
 
+@dataclass
+class BenchRun:
+    """一次用户可见的完整测试运行，包含一个或多个并行 child task。"""
+    run_id: str
+    owner_id: int
+    profile_name: str = ""
+    source: str = "manual"
+    requested_slots: int = 0
+    task_ids: list[str] = field(default_factory=list)
+    config: dict = field(default_factory=dict)
+    scheduled_task_id: int = 0
+    created_at: float = field(default_factory=time.monotonic)
+    start_time: float = 0.0
+
+
 class BenchTaskManager:
     MAX_PER_USER = 5
     MAX_GLOBAL = 20
@@ -76,12 +100,43 @@ class BenchTaskManager:
     def __init__(self):
         self._tasks: dict[str, BenchTask] = {}
         self._group_tasks: dict[str, list[str]] = {}
+        self._runs: dict[str, BenchRun] = {}
 
-    def create_task(self, task_id: str, owner_id: int, profile_name: str = "", group_id: str = "") -> BenchTask:
-        task = BenchTask(task_id=task_id, owner_id=owner_id, profile_name=profile_name, group_id=group_id)
+    def create_run(self, run_id: str, owner_id: int, profile_name: str = "",
+                   source: str = "manual", requested_slots: int = 0,
+                   config: dict | None = None, scheduled_task_id: int = 0) -> BenchRun:
+        run = BenchRun(
+            run_id=run_id,
+            owner_id=owner_id,
+            profile_name=profile_name,
+            source=source or "manual",
+            requested_slots=requested_slots,
+            config=config or {},
+            scheduled_task_id=scheduled_task_id,
+        )
+        self._runs[run_id] = run
+        self._group_tasks.setdefault(run_id, [])
+        return run
+
+    def get_run(self, run_id: str) -> Optional[BenchRun]:
+        return self._runs.get(run_id)
+
+    def create_task(self, task_id: str, owner_id: int, profile_name: str = "",
+                    group_id: str = "", run_id: str = "", source: str = "manual") -> BenchTask:
+        run_id = run_id or group_id
+        task = BenchTask(
+            task_id=task_id,
+            owner_id=owner_id,
+            profile_name=profile_name,
+            group_id=group_id or run_id,
+            run_id=run_id,
+            source=source or "manual",
+        )
         self._tasks[task_id] = task
-        if group_id:
-            self._group_tasks.setdefault(group_id, []).append(task_id)
+        if task.group_id:
+            self._group_tasks.setdefault(task.group_id, []).append(task_id)
+        if run_id and run_id in self._runs:
+            self._runs[run_id].task_ids.append(task_id)
         return task
 
     def get_task(self, task_id: str) -> Optional[BenchTask]:
@@ -108,6 +163,24 @@ class BenchTaskManager:
     def get_group_tasks(self, group_id: str) -> list[BenchTask]:
         task_ids = self._group_tasks.get(group_id, [])
         return [self._tasks[tid] for tid in task_ids if tid in self._tasks]
+
+    def get_run_tasks(self, run_id: str) -> list[BenchTask]:
+        run = self._runs.get(run_id)
+        if not run:
+            return []
+        return [self._tasks[tid] for tid in run.task_ids if tid in self._tasks]
+
+    def get_running_runs(self, user_id: int | None = None) -> list[BenchRun]:
+        runs = []
+        for run in self._runs.values():
+            if user_id is not None and run.owner_id != user_id:
+                continue
+            if any(t.status in ("running", "stopping") for t in self.get_run_tasks(run.run_id)):
+                runs.append(run)
+        return runs
+
+    def get_running_slots(self, user_id: int | None = None) -> int:
+        return sum(run.requested_slots for run in self.get_running_runs(user_id))
 
     def remove_task(self, task_id: str):
         task = self._tasks.pop(task_id, None)
@@ -140,16 +213,13 @@ _ip_ban: dict[str, float] = {}
 _rate_store: dict[str, list[float]] = {}
 
 RATE_LIMITS = {
-    "/api/bench/start": (5, 60),
-    "/api/bench/stop": (5, 60),
-    "/api/bench/status": (120, 60),
-    "/api/bench/stream": (10, 60),
+    "/api/runs/running": (120, 60),
+    "/api/runs": (10, 60),
+    "/api/admin/runs": (120, 60),
     "/api/auth/login": (5, 60),
     "/api/auth/register": (3, 3600),
 }
 RATE_LIMIT_DEFAULT = (60, 60)
-
-from app.config import CORS_ORIGINS
 
 
 def _check_ban(ip: str) -> bool:
@@ -202,6 +272,8 @@ async def _publish(task: BenchTask, event_type: str, data: dict):
 
 def _apply_env_overrides(config: dict) -> dict:
     """环境变量覆盖配置（优先级：环境变量 > config.yaml）"""
+    if not ALLOW_PROFILE_ENV_OVERRIDES:
+        return config
     env_map = {
         "API_KEY": "api_key",
         "BASE_URL": "base_url",
@@ -219,6 +291,31 @@ def _mask_api_key(key: str) -> str:
     if len(key) > 4:
         return f"...{key[-4:]}"
     return "****"
+
+
+async def _resolve_profile_api_key(user_id: int, name: str, data: dict) -> str:
+    """Resolve profile API key without ever falling back to an unrelated active profile."""
+    action = data.get("api_key_action")
+    if action == "replace":
+        return data.get("api_key", "")
+    if action == "clear":
+        return ""
+
+    existing = None
+    for profile in await get_profiles(user_id):
+        if profile.get("name") == name:
+            existing = profile
+            break
+
+    if action == "keep":
+        return existing.get("api_key", "") if existing else ""
+
+    # Legacy clients send the masked display value back. Treat that as keep for
+    # the same profile only; never borrow the active profile's key.
+    api_key = data.get("api_key", "")
+    if isinstance(api_key, str) and api_key.startswith("..."):
+        return existing.get("api_key", "") if existing else ""
+    return api_key
 
 
 # ---- Core benchmark task ----
@@ -300,6 +397,10 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
 
                 result = aggregate_metrics(metrics, level, mode, bench_duration, pricing=pricing)
                 report_dict = build_report_dict(result, config)
+                report_dict.setdefault("config", {})
+                report_dict["config"]["run_id"] = task.run_id or task.group_id
+                report_dict["config"]["task_id"] = task.task_id
+                report_dict["config"]["source"] = task.source
                 filename = f"bench_{result.concurrency}c_{result.mode}_{report_dict.get('timestamp', '')}.json"
                 task.result_filenames.append(filename)
 
@@ -317,6 +418,9 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
                         error_details_json=json.dumps(report_dict.get("error_details", [])),
                         group_id=task.group_id,
                         scheduled_task_id=task.scheduled_task_id,
+                        run_id=task.run_id or task.group_id,
+                        task_id=task.task_id,
+                        source=task.source,
                     )
                 except Exception as db_err:
                     log.warning("failed to save result to DB: %s", db_err)
@@ -726,10 +830,7 @@ async def save_profile(request: Request, user: dict = Depends(get_current_user))
     if not name:
         return JSONResponse({"error": "Profile name is required"}, status_code=400)
 
-    api_key = data.get("api_key", "")
-    if api_key.startswith("..."):
-        active = await get_active_profile(user_id)
-        api_key = active.get("api_key", "") if active else ""
+    api_key = await _resolve_profile_api_key(user_id, name, data)
 
     models = data.get("models")
     model = data.get("model", "")
@@ -781,10 +882,7 @@ async def update_profile(name: str, request: Request, user: dict = Depends(get_c
     user_id = user["user_id"]
     data = await request.json()
 
-    api_key = data.get("api_key", "")
-    if api_key.startswith("..."):
-        active = await get_active_profile(user_id)
-        api_key = active.get("api_key", "") if active else ""
+    api_key = await _resolve_profile_api_key(user_id, name, data)
 
     models = data.get("models")
     model = data.get("model", "")
@@ -853,9 +951,435 @@ async def delete_result_handler(filename: str, user: dict = Depends(get_current_
     return {"status": "deleted"}
 
 
-# ---- Benchmark Routes ----
+# ---- Run Center Routes ----
 
-@app.post("/api/bench/start")
+class RunCapacityError(Exception):
+    def __init__(self, requested_slots: int, available_slots: int,
+                 max_user_slots: int, max_global_slots: int):
+        self.requested_slots = requested_slots
+        self.available_slots = max(0, available_slots)
+        self.max_user_slots = max_user_slots
+        self.max_global_slots = max_global_slots
+
+
+def _normalize_concurrency_levels(raw) -> tuple[list[int], list[str]]:
+    errors = []
+    levels = raw if raw is not None else [1]
+    if isinstance(levels, int):
+        levels = [levels]
+    if not isinstance(levels, list):
+        return [1], ["concurrency_levels 必须是数组或整数"]
+    if not levels:
+        return [1], ["concurrency_levels 不能为空"]
+    if len(levels) > 20:
+        errors.append("concurrency_levels 最多 20 项")
+    normalized = []
+    for v in levels:
+        if not isinstance(v, int) or v < 1 or v > 2000:
+            errors.append(f"concurrency 值 {v} 超出范围 (1-2000)")
+        else:
+            normalized.append(v)
+    return normalized or [1], errors
+
+
+def _validate_run_body(body: dict, levels: list[int]) -> list[str]:
+    errors = []
+    duration = body.get("duration")
+    if duration is not None and (not isinstance(duration, int) or duration < 1 or duration > 3600):
+        errors.append("duration 超出范围 (1-3600)")
+    max_tokens = body.get("max_tokens")
+    if max_tokens is not None and (not isinstance(max_tokens, int) or max_tokens < 1 or max_tokens > 8192):
+        errors.append("max_tokens 超出范围 (1-8192)")
+    timeout = body.get("timeout")
+    if timeout is not None and (not isinstance(timeout, int) or timeout < 1 or timeout > 3600):
+        errors.append("timeout 超出范围 (1-3600)")
+    rpl = body.get("requests_per_level")
+    if rpl is not None and (not isinstance(rpl, int) or rpl < 1 or rpl > 50000):
+        errors.append("requests_per_level 超出范围 (1-50000)")
+    mode = body.get("mode")
+    if mode is not None and mode not in ("burst", "sustained"):
+        errors.append("mode 必须是 burst 或 sustained")
+    if not levels:
+        errors.append("concurrency_levels 不能为空")
+    return errors
+
+
+def _extract_requested_models(body: dict, profile: dict) -> tuple[list[str], str]:
+    profile_models = profile.get("models", []) or []
+    requested = body.get("models")
+    if requested is None and body.get("model"):
+        requested = [body.get("model")]
+    if requested is None:
+        requested = profile_models
+    if isinstance(requested, str):
+        requested = [requested]
+    if not isinstance(requested, list):
+        return [], "models 必须是数组"
+    models = []
+    for model in requested:
+        if isinstance(model, str) and model.strip():
+            models.append(model.strip())
+    if not models:
+        return [], "models 未指定，请先在站点配置中绑定模型"
+    if len(models) > RUN_MAX_CHILDREN_PER_RUN:
+        return [], f"models 数量不能超过 {RUN_MAX_CHILDREN_PER_RUN} 个"
+    if profile_models:
+        unknown = [m for m in models if m not in profile_models]
+        if unknown:
+            return [], f"模型未绑定到站点: {', '.join(unknown)}"
+    return models, ""
+
+
+def _run_status(run: BenchRun, tasks: list[BenchTask]) -> str:
+    if not tasks:
+        return "queued"
+    if any(t.status == "stopping" for t in tasks):
+        return "stopping"
+    if any(t.status == "running" for t in tasks):
+        return "running"
+    event_types = [evt["type"] for t in tasks for evt in t.events]
+    if any(t == "bench:error" for t in event_types):
+        return "failed"
+    if any(t == "bench:stopped" for t in event_types):
+        return "canceled"
+    return "completed"
+
+
+def _serialize_task(t: BenchTask) -> dict:
+    return {
+        "task_id": t.task_id,
+        "run_id": t.run_id,
+        "model": t.model_name,
+        "profile_name": t.profile_name,
+        "scheduled_task_id": t.scheduled_task_id or 0,
+        "status": t.status,
+        "done": t.done_count,
+        "total": t.total_count,
+        "success": t.success_count,
+        "failed": t.failed_count,
+        "concurrency": t.current_concurrency,
+        "level": t.current_level,
+        "total_levels": t.total_levels,
+        "elapsed": round(time.monotonic() - t.start_time, 1) if t.start_time else 0,
+        "result_filenames": t.result_filenames,
+    }
+
+
+def _serialize_run(run: BenchRun) -> dict:
+    tasks = manager.get_run_tasks(run.run_id)
+    status = _run_status(run, tasks)
+    return {
+        "run_id": run.run_id,
+        "owner_id": run.owner_id,
+        "status": status,
+        "source": run.source,
+        "profile_name": run.profile_name,
+        "requested_slots": run.requested_slots,
+        "scheduled_task_id": run.scheduled_task_id or 0,
+        "created_at": run.created_at,
+        "start_time": run.start_time,
+        "tasks": [_serialize_task(t) for t in tasks],
+    }
+
+
+async def _get_user_profile_by_name(user_id: int, profile_name: str) -> Optional[dict]:
+    for profile in await get_profiles(user_id):
+        if profile.get("name") == profile_name:
+            return profile
+    return None
+
+
+async def _start_run_for_profile(
+    *,
+    user_id: int,
+    profile: dict,
+    body: dict,
+    source: str = "manual",
+    scheduled_task_id: int = 0,
+) -> dict:
+    levels, level_errors = _normalize_concurrency_levels(body.get("concurrency_levels"))
+    errors = level_errors + _validate_run_body(body, levels)
+    models, model_error = _extract_requested_models(body, profile)
+    if model_error:
+        errors.append(model_error)
+    for key in ("base_url", "api_key"):
+        if not profile.get(key):
+            errors.append(f"站点缺少 {key}")
+    if errors:
+        return {"error": "; ".join(errors), "_status": 400}
+
+    requested_slots = len(models) * max(levels)
+    user_running_slots = manager.get_running_slots(user_id)
+    global_running_slots = manager.get_running_slots()
+    available_slots = min(
+        RUN_MAX_USER_SLOTS - user_running_slots,
+        RUN_MAX_GLOBAL_SLOTS - global_running_slots,
+    )
+    if requested_slots > available_slots:
+        raise RunCapacityError(
+            requested_slots=requested_slots,
+            available_slots=available_slots,
+            max_user_slots=RUN_MAX_USER_SLOTS,
+            max_global_slots=RUN_MAX_GLOBAL_SLOTS,
+        )
+
+    benchmark = await get_settings(user_id)
+    base_config = dict(benchmark) if benchmark else {}
+    for k in CONNECTION_KEYS:
+        if profile.get(k):
+            base_config[k] = profile[k]
+
+    for key in BENCHMARK_KEYS + ("requests_per_level",):
+        if key in body and body[key] is not None:
+            base_config[key] = body[key]
+    base_config["concurrency_levels"] = levels
+    base_config["profile_name"] = profile["name"]
+
+    run_id = f"run_{uuid.uuid4().hex[:12]}"
+    current_run_id.set(run_id)
+    run = manager.create_run(
+        run_id,
+        user_id,
+        profile_name=profile["name"],
+        source=source,
+        requested_slots=requested_slots,
+        config={
+            "profile_name": profile["name"],
+            "models": models,
+            "concurrency_levels": levels,
+            "source": source,
+            "scheduled_task_id": scheduled_task_id,
+            **{k: v for k, v in body.items() if k in BENCHMARK_KEYS or k == "requests_per_level"},
+        },
+        scheduled_task_id=scheduled_task_id,
+    )
+    run.start_time = time.monotonic()
+
+    task_ids = []
+    from app.protocols import detect_protocol
+    for model_name in models:
+        config = dict(base_config)
+        config["model"] = model_name
+        config["protocol"] = detect_protocol(model_name, config.get("provider", ""))
+        config["profile_name"] = profile["name"]
+
+        task_id = uuid.uuid4().hex[:12]
+        task = manager.create_task(
+            task_id,
+            user_id,
+            profile_name=profile["name"],
+            group_id=run_id,
+            run_id=run_id,
+            source=source,
+        )
+        task.model_name = model_name
+        task.scheduled_task_id = scheduled_task_id
+        task.status = "running"
+        task.stop_event = asyncio.Event()
+        task.start_time = time.monotonic()
+        task.asyncio_task = asyncio.create_task(_run_benchmark_task(config, user_id, task))
+        task_ids.append(task_id)
+
+    return {
+        "status": "started",
+        "run_id": run_id,
+        "task_ids": task_ids,
+        "requested_slots": requested_slots,
+    }
+
+
+def _capacity_error_response(exc: RunCapacityError) -> JSONResponse:
+    return JSONResponse({
+        "error": "当前可用并发容量不足，测试未启动",
+        "requested_slots": exc.requested_slots,
+        "available_slots": exc.available_slots,
+        "max_user_slots": exc.max_user_slots,
+        "max_global_slots": exc.max_global_slots,
+    }, status_code=429)
+
+
+@app.post("/api/runs")
+async def create_run(request: Request, user: dict = Depends(get_current_user)):
+    user_id = user["user_id"]
+    body = await request.json() if (await request.body()) else {}
+    profile_name = (body.get("profile_name") or "").strip()
+    if not profile_name:
+        return JSONResponse({"error": "profile_name is required"}, status_code=400)
+    profile = await _get_user_profile_by_name(user_id, profile_name)
+    if not profile:
+        return JSONResponse({"error": "Profile not found"}, status_code=404)
+    source = (body.get("source") or "manual").strip() or "manual"
+    try:
+        result = await _start_run_for_profile(
+            user_id=user_id,
+            profile=profile,
+            body=body,
+            source=source,
+        )
+    except RunCapacityError as exc:
+        return _capacity_error_response(exc)
+    if result.get("error"):
+        return JSONResponse({"error": result["error"]}, status_code=result.get("_status", 400))
+    return result
+
+
+@app.get("/api/runs/running")
+async def get_running_runs(user: dict = Depends(get_current_user)):
+    tasks = []
+    for run in manager.get_running_runs(user["user_id"]):
+        tasks.extend(_serialize_task(t) for t in manager.get_run_tasks(run.run_id)
+                     if t.status in ("running", "stopping"))
+    return {"tasks": tasks}
+
+
+@app.get("/api/runs/{run_id}")
+async def get_run_status(run_id: str, user: dict = Depends(get_current_user)):
+    run = manager.get_run(run_id)
+    if not run or run.owner_id != user["user_id"]:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return _serialize_run(run)
+
+
+@app.post("/api/runs/{run_id}/stop")
+async def stop_run(run_id: str, user: dict = Depends(get_current_user)):
+    run = manager.get_run(run_id)
+    if not run or run.owner_id != user["user_id"]:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    stopped = []
+    for task in manager.get_run_tasks(run_id):
+        if task.status == "running":
+            task.status = "stopping"
+            task.stop_event.set()
+            stopped.append(task.task_id)
+    if not stopped:
+        return JSONResponse({"error": "No run running"}, status_code=400)
+    return {"status": "stopping", "run_id": run_id, "task_ids": stopped}
+
+
+@app.post("/api/runs/{run_id}/retry")
+async def retry_run(run_id: str, user: dict = Depends(get_current_user)):
+    run = manager.get_run(run_id)
+    if not run or run.owner_id != user["user_id"]:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    body = dict(run.config)
+    body["source"] = "retry"
+    profile = await _get_user_profile_by_name(user["user_id"], run.profile_name)
+    if not profile:
+        return JSONResponse({"error": "Profile not found"}, status_code=404)
+    try:
+        result = await _start_run_for_profile(
+            user_id=user["user_id"],
+            profile=profile,
+            body=body,
+            source="retry",
+        )
+    except RunCapacityError as exc:
+        return _capacity_error_response(exc)
+    if result.get("error"):
+        return JSONResponse({"error": result["error"]}, status_code=result.get("_status", 400))
+    return result
+
+
+@app.get("/api/admin/runs")
+async def admin_runs(user: dict = Depends(require_admin)):
+    runs = [_serialize_run(run) for run in manager.get_running_runs()]
+    return {"runs": runs}
+
+
+@app.post("/api/admin/runs/{run_id}/stop")
+async def admin_stop_run(run_id: str, user: dict = Depends(require_admin)):
+    run = manager.get_run(run_id)
+    if not run:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    stopped = []
+    for task in manager.get_run_tasks(run_id):
+        if task.status == "running":
+            task.status = "stopping"
+            task.stop_event.set()
+            stopped.append(task.task_id)
+    return {"status": "stopping", "run_id": run_id, "task_ids": stopped}
+
+
+@app.get("/api/runs/{run_id}/stream")
+async def run_stream(request: Request, run_id: str, token: str = Query("")):
+    if not token:
+        return JSONResponse({"error": "Missing token"}, status_code=401)
+    payload = decode_jwt_token(token)
+    if payload is None:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
+    user_id = int(payload["sub"])
+    user_data = await get_user_by_id(user_id)
+    if not user_data:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
+    run = manager.get_run(run_id)
+    if not run or run.owner_id != user_id:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    tasks = manager.get_run_tasks(run_id)
+    if not tasks:
+        def idle_stream():
+            yield f"event: run:idle\ndata: {json.dumps({'status': 'idle', 'run_id': run_id})}\n\n"
+        return StreamingResponse(idle_stream(), media_type="text/event-stream")
+
+    waiters = []
+    for task in tasks:
+        waiter = asyncio.Event()
+        task.event_waiters.append(waiter)
+        waiters.append((task, waiter))
+    last_seq = {task.task_id: 0 for task in tasks}
+
+    async def event_generator():
+        try:
+            for task in tasks:
+                for evt in task.events:
+                    last_seq[task.task_id] = evt["seq"]
+                    data = dict(evt["data"])
+                    data.update({"run_id": run_id, "task_id": task.task_id,
+                                 "model": task.model_name, "profile_name": task.profile_name})
+                    yield f"id: {task.task_id}:{evt['seq']}\nevent: {evt['type']}\ndata: {json.dumps(data)}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    pending_waits = [asyncio.create_task(waiter.wait()) for _, waiter in waiters]
+                    done, pending = await asyncio.wait(
+                        pending_waits,
+                        timeout=30.0,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in pending:
+                        task.cancel()
+                    if not done:
+                        yield ": keepalive\n\n"
+                        continue
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                for _, waiter in waiters:
+                    waiter.clear()
+
+                emitted = False
+                for task in tasks:
+                    new_events = [e for e in task.events if e["seq"] > last_seq[task.task_id]]
+                    for evt in new_events:
+                        emitted = True
+                        last_seq[task.task_id] = evt["seq"]
+                        data = dict(evt["data"])
+                        data.update({"run_id": run_id, "task_id": task.task_id,
+                                     "model": task.model_name, "profile_name": task.profile_name})
+                        yield f"id: {task.task_id}:{evt['seq']}\nevent: {evt['type']}\ndata: {json.dumps(data)}\n\n"
+                if emitted and all(t.status == "idle" for t in tasks):
+                    break
+        finally:
+            for task, waiter in waiters:
+                if waiter in task.event_waiters:
+                    task.event_waiters.remove(waiter)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ---- Legacy benchmark internals (not exposed as public API) ----
+
 async def start_bench(request: Request, user: dict = Depends(get_current_user)):
     user_id = user["user_id"]
 
@@ -957,7 +1481,6 @@ async def start_bench(request: Request, user: dict = Depends(get_current_user)):
         return {"status": "started", "group_id": group_id, "task_ids": task_ids}
 
 
-@app.post("/api/bench/stop")
 async def stop_bench(
     task_id: str = Query(""),
     user: dict = Depends(get_current_user),
@@ -984,7 +1507,6 @@ async def stop_bench(
         return {"status": "stopping", "task_ids": stopped}
 
 
-@app.get("/api/bench/running")
 async def bench_running(user: dict = Depends(get_current_user)):
     """返回当前用户所有正在执行的 benchmark 任务"""
     tasks = manager.get_user_running_tasks(user["user_id"])
@@ -1004,7 +1526,6 @@ async def bench_running(user: dict = Depends(get_current_user)):
     ]}
 
 
-@app.get("/api/bench/status")
 async def bench_status(
     task_id: str = Query(""),
     since: int = Query(0),
@@ -1043,7 +1564,6 @@ async def bench_status(
     }
 
 
-@app.post("/api/bench/start-multi")
 async def start_multi_bench(request: Request, user: dict = Depends(get_current_user)):
     """多服务器并行测试"""
     user_id = user["user_id"]
@@ -1099,7 +1619,6 @@ async def start_multi_bench(request: Request, user: dict = Depends(get_current_u
     return {"status": "started", "group_id": group_id, "task_ids": task_ids}
 
 
-@app.post("/api/bench/start-multi-model")
 async def start_multi_model_bench(request: Request, user: dict = Depends(get_current_user)):
     """多模型并行测试 — 单 profile，多个模型"""
     user_id = user["user_id"]
@@ -1170,13 +1689,11 @@ async def start_multi_model_bench(request: Request, user: dict = Depends(get_cur
     return {"status": "started", "group_id": group_id, "task_ids": task_ids}
 
 
-@app.get("/api/bench/status-multi/{group_id}")
 async def status_multi_by_path(group_id: str, user: dict = Depends(get_current_user)):
     """多服务器测试状态聚合 — 路径参数版（前端调用）"""
     return await _status_multi_impl(group_id)
 
 
-@app.get("/api/bench/status-multi")
 async def status_multi_by_query(
     group_id: str = Query(""),
     user: dict = Depends(get_current_user),
@@ -1216,7 +1733,6 @@ async def _status_multi_impl(group_id: str):
     }
 
 
-@app.post("/api/bench/dry-run")
 async def dry_run(request: Request, user: dict = Depends(get_current_user)):
     """单次请求验证连通性"""
     from main import run_dry
@@ -1264,8 +1780,6 @@ _SCHEDULE_CONFIG_WHITELIST = {
     "concurrency_levels", "num_requests",
     "mode", "duration",
     "timeout",
-    # 连接参数
-    "api_base", "api_key", "custom_api_base",
     # 提示词
     "system_prompt", "user_prompt",
 }
@@ -1604,7 +2118,6 @@ async def pricing_refresh(user: dict = Depends(require_admin)):
 
 # ---- SSE Stream ----
 
-@app.get("/api/bench/stream")
 async def bench_stream(request: Request, token: str = Query("")):
     """SSE 长连接 — 实时推送测试事件"""
     if not token:
