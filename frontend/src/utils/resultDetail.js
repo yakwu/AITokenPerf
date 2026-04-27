@@ -85,6 +85,38 @@ export function renderResultDetail(r) {
 
   html += `</div>`;
 
+  // --- 渠道诊断摘要 ---
+  const diag = c.channel_diagnostic || r.channel_diagnostic_summary_json;
+  if (diag && diag.status) {
+    const diagStatusMap = {
+      passed: { color: 'var(--success)', label: '缓存正常' },
+      warning: { color: 'var(--warning)', label: '需关注' },
+      critical: { color: 'var(--danger)', label: '高风险' },
+      inconclusive: { color: 'var(--text-tertiary)', label: '无法判断' },
+      error: { color: 'var(--danger)', label: '诊断失败' },
+    };
+    const diagInfo = diagStatusMap[diag.status] || diagStatusMap.inconclusive;
+    html += `
+    <div style="margin-top:16px;padding:12px 16px;background:var(--bg);border-radius:8px;border-left:3px solid ${diagInfo.color}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-weight:600;font-size:13px">渠道诊断</span>
+        <span style="background:${diagInfo.color};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${diagInfo.label}</span>
+      </div>
+      <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary)">`;
+    if (diag.cache_hit_rate != null) {
+      html += `<span>缓存命中率: <strong>${(diag.cache_hit_rate * 100).toFixed(1)}%</strong></span>`;
+    }
+    if (diag.overall_risk) {
+      html += `<span>风险等级: <strong>${escHtml(diag.overall_risk)}</strong></span>`;
+    }
+    if (diag.confidence != null) {
+      html += `<span>置信度: <strong>${(diag.confidence * 100).toFixed(0)}%</strong></span>`;
+    }
+    html += `
+      </div>
+    </div>`;
+  }
+
   // Percentile table
   if (p.TTFT || p.TPOT || p.E2E) {
     html += `<div class="card" style="margin-bottom:20px"><div class="card-title" style="margin-bottom:12px">百分位分布</div>
