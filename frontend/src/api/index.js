@@ -66,6 +66,18 @@ export const getSiteTrend = (profileName, { hours } = {}) => {
   return api(`/api/sites/trend?${params}`);
 };
 
+// Channel Diagnostics
+export const createChannelDiagnostic = (data) =>
+  api('/api/channel-diagnostics', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+
+export const getChannelDiagnostic = (id) =>
+  api(`/api/channel-diagnostics/${id}`);
+
+export const listChannelDiagnostics = (params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  return api('/api/channel-diagnostics' + (qs ? '?' + qs : ''));
+};
+
 // Settings
 export const updateProfileApi = (data) => api('/api/user/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const changePasswordApi = (data) => api('/api/user/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
