@@ -98,14 +98,29 @@ export function aggregateToFixedPoints(trend, targetPoints = 144, rangeHours = n
   // 自适应桶数：当 targetPts 为 null 时根据数据密度计算
   let actualTargetPoints = targetPoints;
   let actualBucketWidth;
+  let gapThreshold;
 
   if (targetPoints == null && trend.length >= 2) {
     const adaptive = computeAdaptiveBucketCount(trend, rangeHours || (totalRange / 3600_000));
     actualTargetPoints = adaptive.targetPoints;
     actualBucketWidth = adaptive.bucketWidth;
+    gapThreshold = adaptive.medianInterval * 2; // 2 倍中位间隔
   } else {
     actualTargetPoints = targetPoints || 144;
     actualBucketWidth = totalRange / actualTargetPoints;
+    // 非自适应模式也计算 gapThreshold 用于插值
+    const intervals = [];
+    for (let i = 1; i < trend.length; i++) {
+      intervals.push(parseMinuteToTs(trend[i].minute) - parseMinuteToTs(trend[i - 1].minute));
+    }
+    if (intervals.length > 0) {
+      const sorted = intervals.slice().sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      gapThreshold = median * 2;
+    } else {
+      gapThreshold = actualBucketWidth * 2;
+    }
   }
 
   const bucketWidth = actualBucketWidth;
