@@ -32,6 +32,8 @@ from app.db import get_settings, save_settings
 from app.db import get_sites_summary as db_get_sites_summary
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
 from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
+from app.db import save_channel_diagnostic, get_channel_diagnostic, list_channel_diagnostics
+from app.channel_diagnostics import run_cache_diagnostics
 from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
 from app.auth import _is_public_path
 from app.config import (
@@ -949,6 +951,106 @@ async def get_result(filename: str, user: dict = Depends(get_current_user)):
 async def delete_result_handler(filename: str, user: dict = Depends(get_current_user)):
     await db_delete_result(user["user_id"], filename)
     return {"status": "deleted"}
+
+
+# ---- Channel Diagnostics Routes ----
+
+@app.post("/api/channel-diagnostics")
+async def create_channel_diagnostic(request: Request, user: dict = Depends(get_current_user)):
+    """运行渠道诊断"""
+    body = await request.json() if (await request.body()) else {}
+    profile_name = (body.get("profile_name") or "").strip()
+    if not profile_name:
+        return JSONResponse({"error": "profile_name is required"}, status_code=400)
+
+    model = (body.get("model") or "").strip()
+
+    profile = await _get_user_profile_by_name(user["user_id"], profile_name)
+    if not profile:
+        return JSONResponse({"error": "Profile not found"}, status_code=404)
+
+    if not model:
+        model = profile.get("model", "")
+
+    diag_config = {
+        "base_url": profile.get("base_url", ""),
+        "api_key": profile.get("api_key", ""),
+        "model": model,
+        "protocol": profile.get("protocol", ""),
+        "api_version": profile.get("api_version", "2023-06-01"),
+        "custom_endpoint": profile.get("custom_endpoint", False),
+    }
+
+    try:
+        result = await run_cache_diagnostics(diag_config)
+    except Exception as e:
+        log.exception("Channel diagnostics failed")
+        return JSONResponse({"error": f"Diagnostics failed: {str(e)}"}, status_code=500)
+
+    report_dict = {
+        "schema_version": 1,
+        "profile_name": profile_name,
+        "model": model,
+        "dimensions": {
+            "cache": result.report,
+        },
+        "probes": [
+            {
+                "name": p.name,
+                "status": p.status,
+                "latency_ms": p.latency_ms,
+                "usage": {
+                    "input_tokens": p.input_tokens,
+                    "cache_read_input_tokens": p.cache_read_tokens,
+                    "cache_creation_input_tokens": p.cache_creation_tokens,
+                },
+            }
+            for p in result.probes
+        ],
+    }
+
+    diag_id = await save_channel_diagnostic(
+        user_id=user["user_id"],
+        profile_name=profile_name,
+        model=model,
+        status=result.status,
+        overall_risk=result.overall_risk,
+        confidence=result.confidence,
+        report_json=report_dict,
+    )
+
+    cache_hit_rate = result.report.get("prompt_cache", {}).get("hit_rate", 0)
+
+    return {
+        "diagnostic_id": diag_id,
+        "status": result.status,
+        "overall_risk": result.overall_risk,
+        "confidence": result.confidence,
+        "cache_hit_rate": cache_hit_rate,
+        "summary": {
+            "cache": result.report.get("prompt_cache", {}).get("status", "inconclusive"),
+        },
+    }
+
+
+@app.get("/api/channel-diagnostics/{diag_id}")
+async def get_channel_diagnostic_handler(diag_id: int, user: dict = Depends(get_current_user)):
+    """获取诊断详情"""
+    result = await get_channel_diagnostic(diag_id, user["user_id"])
+    if not result:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return result
+
+
+@app.get("/api/channel-diagnostics")
+async def list_channel_diagnostics_handler(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    """列出诊断记录"""
+    results = await list_channel_diagnostics(user["user_id"], limit=limit, offset=offset)
+    return {"items": results, "total": len(results)}
 
 
 # ---- Run Center Routes ----
