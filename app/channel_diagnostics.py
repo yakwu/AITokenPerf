@@ -18,7 +18,7 @@ from typing import Optional
 
 import aiohttp
 
-from app.protocols import get_adapter
+from app.protocols import get_adapter, detect_protocol
 
 log = logging.getLogger("channel_diagnostics")
 
@@ -135,7 +135,8 @@ async def _run_single_probe(
     timeout_seconds: int = 60,
 ) -> ProbeResult:
     """执行单个 probe 请求"""
-    adapter = get_adapter(config.get("protocol", "anthropic"))
+    protocol = config.get("protocol") or detect_protocol(config.get("model", ""), config.get("provider", ""))
+    adapter = get_adapter(protocol)
 
     probe_config = dict(config)
     probe_config["system_prompt"] = system_prompt
