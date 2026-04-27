@@ -333,3 +333,51 @@ describe('插值填充', () => {
     }
   });
 });
+
+describe('边界情况', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('单个数据点不插值', () => {
+    const data = makeMinuteData('20260410_0800', 1);
+    // 不传 rangeHours，走 length===1 快捷路径
+    const { items } = aggregateToFixedPoints(data);
+    expect(items).toHaveLength(1);
+    expect(items[0]).not.toBeNull();
+    expect(items[0].interpolated).toBeFalsy();
+  });
+
+  it('所有点在同一分钟（中位间隔为 0）', () => {
+    const data = makeMinuteData('20260410_0800', 5, { intervalMin: 0 });
+    const fakeNow = parseMinuteToTs('20260410_0800') + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 1);
+    expect(items.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rangeHours 有值但无数据 → emptyRange', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(parseMinuteToTs('20260410_0800'));
+    const { labels, items } = aggregateToFixedPoints([], 144, 6);
+    expect(labels.length).toBeGreaterThan(0);
+    expect(labels).toHaveLength(144);
+    expect(items.every(i => i === null)).toBe(true);
+  });
+
+  it('24h 视图 + 15min 间隔 → 桶数约 96', () => {
+    const data = makeMinuteData('20260410_0000', 96, { intervalMin: 15 });
+    const fakeNow = parseMinuteToTs('20260410_0000') + 96 * 15 * 60_000 + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 24);
+    expect(items.length).toBeGreaterThanOrEqual(80);
+    expect(items.length).toBeLessThanOrEqual(110);
+  });
+
+  it('7d 视图 + 5min 间隔 → 桶数约 200（上限）', () => {
+    const data = makeMinuteData('20260404_0000', 200, { intervalMin: 5 });
+    const fakeNow = parseMinuteToTs('20260404_0000') + 200 * 5 * 60_000 + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
+    const { items } = aggregateToFixedPoints(data, null, 168);
+    expect(items.length).toBeLessThanOrEqual(200);
+  });
+});
