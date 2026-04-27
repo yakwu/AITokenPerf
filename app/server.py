@@ -2191,8 +2191,8 @@ if (STATIC_DIR / "vendor").exists():
 
 @app.get("/{full_path:path}")
 async def spa_fallback(full_path: str):
-    """SPA 兜底 — 返回 index.html"""
+    """SPA 兜底 — 返回 index.html（no-cache 防止浏览器缓存旧版本）"""
     index_path = STATIC_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        return FileResponse(str(index_path), headers={"Cache-Control": "no-cache"})
     return Response(status_code=404)
