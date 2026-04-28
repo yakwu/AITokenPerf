@@ -144,13 +144,9 @@
       <!-- Diagnostics Tab -->
       <template v-if="activeTab === 'diag'">
         <div class="diag-tab-content">
-          <div class="diag-info">
-            <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px">
-              诊断使用内置固定 prompt 测试渠道的缓存支持情况，不使用上方的提示词配置。
-            </p>
-            <p style="font-size:12px;color:var(--text-tertiary);margin:0">
-              预计消耗 ~10 个请求、~25K tokens
-            </p>
+          <div class="create-form-notice">
+            <span style="color:var(--info)">i</span>
+            <span>诊断使用内置 prompt 测试缓存支持，不使用上方的提示词配置。预计消耗 ~10 请求、~25K tokens</span>
           </div>
 
           <div class="btn-group" style="margin-top:16px">
@@ -164,7 +160,7 @@
 
           <!-- Diagnostic Results -->
           <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
-            <div v-for="(result, model) in diagResults" :key="model" style="padding:12px 16px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--accent)">
+            <div v-for="(result, model) in diagResults" :key="model" class="diag-result-card">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                 <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
                 <span :style="'background:' + diagStatusColor(result.status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
@@ -977,11 +973,24 @@ onUnmounted(() => {
   padding: 4px 0;
 }
 
-.diag-info {
+.diag-tab-content .create-form-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+}
+
+.diag-result-card {
   padding: 12px 16px;
   background: var(--bg);
   border-radius: var(--radius);
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 8px;
 }
 
 /* ---- Responsive ---- */
