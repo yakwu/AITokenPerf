@@ -124,6 +124,9 @@
               <input type="checkbox" v-model="cacheTest">
               <span>启用缓存（关闭 = 每请求独立，测量冷启动延迟）</span>
             </label>
+            <div v-if="cacheTest && selectedConcurrency === 1" style="margin-top:6px;font-size:12px;color:var(--warning)">
+              并发 1 + 缓存测试意义不大，第二个请求起基本都是缓存命中，测不出真实差异。建议并发 ≥ 5 再开。
+            </div>
           </div>
         </template>
       </div>
