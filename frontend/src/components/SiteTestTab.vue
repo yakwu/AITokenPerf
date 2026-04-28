@@ -5,49 +5,57 @@
         <div class="card-title">测试配置</div>
       </div>
 
-      <!-- Model Selection (tag-style combobox) -->
-      <div class="form-grid">
-        <div class="form-group form-group--full">
-          <label class="form-label">选择模型 <span class="info-tip" data-tip="从站点已配置的模型中选择一个或多个进行测试">?</span></label>
-          <div class="combobox" ref="modelComboboxRef">
-            <div class="model-tags-input" @click="modelDropdownOpen = true">
-              <span v-for="(m, i) in selectedModels" :key="m" class="model-tag">
+      <!-- Model Selection (tag-style combobox) — shared above tabs -->
+      <div class="form-group form-group--full" style="margin-bottom:16px">
+        <label class="form-label">选择模型 <span class="info-tip" data-tip="从站点已配置的模型中选择一个或多个进行测试">?</span></label>
+        <div class="combobox" ref="modelComboboxRef">
+          <div class="model-tags-input" @click="modelDropdownOpen = true">
+            <span v-for="(m, i) in selectedModels" :key="m" class="model-tag">
+              {{ m }}
+              <button type="button" class="model-tag-remove" @click.stop="removeModel(i)">&times;</button>
+            </span>
+            <input
+              class="model-tag-search"
+              v-model="modelSearch"
+              :placeholder="selectedModels.length ? '' : '选择模型（可多选）'"
+              @focus="modelDropdownOpen = true"
+              @keydown.enter.prevent="addModelFromSearch()"
+              @keydown.backspace="onModelBackspace()"
+              @keydown.escape="modelDropdownOpen = false"
+              autocomplete="off"
+              ref="modelSearchInputRef"
+              :disabled="running"
+            >
+          </div>
+          <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+          </button>
+          <div class="combobox-dropdown" v-show="modelDropdownOpen">
+            <template v-for="m in filteredModels" :key="m">
+              <div class="combobox-option" :class="{ active: selectedModels.includes(m) }" @mousedown.prevent="toggleModel(m)">
+                <span v-if="selectedModels.includes(m)" style="color:var(--accent);margin-right:4px">&#10003;</span>
                 {{ m }}
-                <button type="button" class="model-tag-remove" @click.stop="removeModel(i)">&times;</button>
-              </span>
-              <input
-                class="model-tag-search"
-                v-model="modelSearch"
-                :placeholder="selectedModels.length ? '' : '选择模型（可多选）'"
-                @focus="modelDropdownOpen = true"
-                @keydown.enter.prevent="addModelFromSearch()"
-                @keydown.backspace="onModelBackspace()"
-                @keydown.escape="modelDropdownOpen = false"
-                autocomplete="off"
-                ref="modelSearchInputRef"
-                :disabled="running"
-              >
+              </div>
+            </template>
+            <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">
+              无匹配模型
             </div>
-            <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-            </button>
-            <div class="combobox-dropdown" v-show="modelDropdownOpen">
-              <template v-for="m in filteredModels" :key="m">
-                <div class="combobox-option" :class="{ active: selectedModels.includes(m) }" @mousedown.prevent="toggleModel(m)">
-                  <span v-if="selectedModels.includes(m)" style="color:var(--accent);margin-right:4px">&#10003;</span>
-                  {{ m }}
-                </div>
-              </template>
-              <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">
-                无匹配模型
-              </div>
-              <div class="combobox-empty" v-show="!profileModels.length && !modelSearch">
-                站点未配置模型，请先在配置 Tab 中添加模型
-              </div>
+            <div class="combobox-empty" v-show="!profileModels.length && !modelSearch">
+              站点未配置模型，请先在配置 Tab 中添加模型
             </div>
           </div>
         </div>
+      </div>
 
+      <!-- Tab Switcher -->
+      <div class="tab-switcher">
+        <button class="tab-btn" :class="{ active: activeTab === 'bench' }" @click="activeTab = 'bench'">基准测试</button>
+        <button class="tab-btn" :class="{ active: activeTab === 'diag' }" @click="activeTab = 'diag'">渠道诊断</button>
+      </div>
+
+      <!-- Benchmark Tab -->
+      <template v-if="activeTab === 'bench'">
+      <div class="form-grid">
         <!-- Mode Selection -->
         <div class="form-group">
           <label class="form-label">测试模式</label>
@@ -111,10 +119,10 @@
             <textarea class="form-textarea" v-model="form.user_prompt" rows="2"></textarea>
           </div>
           <div class="form-group form-group--full">
-            <label class="form-label">渠道诊断 <span class="info-tip" data-tip="运行缓存命中率检测，验证 prompt cache 是否真实生效。预计额外消耗 ~10 个请求和 ~25K tokens">?</span></label>
+            <label class="form-label">缓存测试 <span class="info-tip" data-tip="开启后所有请求使用相同的 system prompt，允许 Anthropic/OpenAI 的 prompt cache 生效。关闭时每个请求追加随机后缀破坏缓存，测量真实冷启动延迟">?</span></label>
             <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-              <input type="checkbox" v-model="enableDiagnostics">
-              <span>启用缓存诊断（运行测试前先检测缓存命中率）</span>
+              <input type="checkbox" v-model="cacheTest">
+              <span>启用缓存（关闭 = 每请求独立，测量冷启动延迟）</span>
             </label>
           </div>
         </template>
@@ -130,13 +138,48 @@
         <button class="btn btn-ghost" v-show="!running && !connTest.running.value" @click="runConnTest()" :disabled="!selectedModels.length">
           连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span>
         </button>
-        <button class="btn btn-ghost" v-show="!running && !diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length" style="color:var(--accent)">
-          缓存诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型)</span>
-        </button>
-        <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
-          诊断中...
-        </button>
       </div>
+      </template>
+
+      <!-- Diagnostics Tab -->
+      <template v-if="activeTab === 'diag'">
+        <div class="diag-tab-content">
+          <div class="diag-info">
+            <p style="font-size:13px;color:var(--text-secondary);margin:0 0 8px">
+              诊断使用内置固定 prompt 测试渠道的缓存支持情况，不使用上方的提示词配置。
+            </p>
+            <p style="font-size:12px;color:var(--text-tertiary);margin:0">
+              预计消耗 ~10 个请求、~25K tokens
+            </p>
+          </div>
+
+          <div class="btn-group" style="margin-top:16px">
+            <button class="btn btn-ghost" v-show="!diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length" style="color:var(--accent)">
+              开始诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型)</span>
+            </button>
+            <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
+              诊断中...
+            </button>
+          </div>
+
+          <!-- Diagnostic Results -->
+          <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
+            <div v-for="(result, model) in diagResults" :key="model" style="padding:12px 16px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--accent)">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
+                <span :style="'background:' + diagStatusColor(result.status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
+                  {{ diagStatusLabel(result.status) }}
+                </span>
+              </div>
+              <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary)">
+                <span v-if="result.cache_hit_rate != null">缓存命中率: <strong>{{ (result.cache_hit_rate * 100).toFixed(1) }}%</strong></span>
+                <span v-if="result.overall_risk">风险: <strong>{{ result.overall_risk }}</strong></span>
+                <span v-if="result.confidence != null">置信度: <strong>{{ (result.confidence * 100).toFixed(0) }}%</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
 
       <ConnectivityProgress
         :running="connTest.running.value"
@@ -146,23 +189,6 @@
         :error="connTest.error.value"
         @dismiss="connTest.reset()"
       />
-
-      <!-- Diagnostic Results -->
-      <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
-        <div v-for="(result, model) in diagResults" :key="model" style="padding:12px 16px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--accent)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
-            <span :style="'background:' + diagStatusColor(result.status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
-              {{ diagStatusLabel(result.status) }}
-            </span>
-          </div>
-          <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary)">
-            <span v-if="result.cache_hit_rate != null">缓存命中率: <strong>{{ (result.cache_hit_rate * 100).toFixed(1) }}%</strong></span>
-            <span v-if="result.overall_risk">风险: <strong>{{ result.overall_risk }}</strong></span>
-            <span v-if="result.confidence != null">置信度: <strong>{{ (result.confidence * 100).toFixed(0) }}%</strong></span>
-          </div>
-        </div>
-      </div>
 
       <!-- Progress Panel -->
       <div class="progress-panel" :class="{ active: running }" v-show="running">
@@ -400,7 +426,8 @@ const selectedConcurrency = ref(1);
 const customConcurrency = ref('');
 const requestsPerLevel = ref('');
 const showAdvanced = ref(false);
-const enableDiagnostics = ref(false);
+const activeTab = ref('bench'); // 'bench' | 'diag'
+const cacheTest = ref(false);
 
 // ---- Diagnostics state ----
 const diagRunning = ref(false);
@@ -455,6 +482,7 @@ function buildConfig(models) {
     duration: parseInt(form.value.duration) || 120,
     system_prompt: form.value.system_prompt,
     user_prompt: form.value.user_prompt,
+    cache_test: cacheTest.value,
   };
   if (!isNaN(requests) && requests > 0) config.requests_per_level = requests;
   return config;
@@ -911,6 +939,49 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 32px;
+}
+
+/* ---- Tab Switcher ---- */
+.tab-switcher {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.tab-btn:hover {
+  color: var(--text-secondary);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---- Diagnostics Tab ---- */
+.diag-tab-content {
+  padding: 4px 0;
+}
+
+.diag-info {
+  padding: 12px 16px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
 }
 
 /* ---- Responsive ---- */
