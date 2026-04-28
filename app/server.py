@@ -49,7 +49,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version", "provider", "protocol", "custom_endpoint")
 BENCHMARK_KEYS = ("mode", "concurrency_levels", "duration", "max_tokens",
-                   "timeout", "connector_limit", "system_prompt", "user_prompt")
+                   "timeout", "connector_limit", "system_prompt", "user_prompt", "cache_test")
 
 
 @dataclass
@@ -1030,6 +1030,9 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
         "summary": {
             "cache": result.report.get("prompt_cache", {}).get("status", "inconclusive"),
         },
+        "probes": report_dict.get("probes", []),
+        "prompt_cache": result.report.get("prompt_cache", {}),
+        "response_cache": result.report.get("response_cache", {}),
     }
 
 

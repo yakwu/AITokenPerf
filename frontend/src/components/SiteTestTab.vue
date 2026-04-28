@@ -157,7 +157,8 @@
               开始诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型)</span>
             </button>
             <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
-              诊断中...
+              <span class="result-loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></span>
+              正在诊断 {{ diagCurrentModel }} ({{ diagProgress.done }}/{{ diagProgress.total }})
             </button>
           </div>
 
@@ -170,10 +171,33 @@
                   {{ diagStatusLabel(result.status) }}
                 </span>
               </div>
-              <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary)">
-                <span v-if="result.cache_hit_rate != null">缓存命中率: <strong>{{ (result.cache_hit_rate * 100).toFixed(1) }}%</strong></span>
-                <span v-if="result.overall_risk">风险: <strong>{{ result.overall_risk }}</strong></span>
+              <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+                <span v-if="result.cache_hit_rate != null">命中率: <strong>{{ (result.cache_hit_rate * 100).toFixed(1) }}%</strong></span>
                 <span v-if="result.confidence != null">置信度: <strong>{{ (result.confidence * 100).toFixed(0) }}%</strong></span>
+              </div>
+
+              <!-- Probe Details -->
+              <div v-if="result.probes && result.probes.length" class="diag-probes">
+                <div v-for="probe in result.probes" :key="probe.name" class="diag-probe-row">
+                  <span class="diag-probe-name">{{ diagProbeLabel(probe.name) }}</span>
+                  <span class="diag-probe-latency">{{ probe.latency_ms ? (probe.latency_ms).toFixed(0) + 'ms' : '-' }}</span>
+                  <span class="diag-probe-tokens">
+                    <template v-if="probe.usage?.cache_read_input_tokens > 0">
+                      <span style="color:var(--success)">cache {{ probe.usage.cache_read_input_tokens }}</span>
+                    </template>
+                    <template v-else-if="probe.usage?.cache_creation_input_tokens > 0">
+                      <span style="color:var(--info)">创建 {{ probe.usage.cache_creation_input_tokens }}</span>
+                    </template>
+                    <template v-else>
+                      <span style="color:var(--text-tertiary)">无缓存</span>
+                    </template>
+                  </span>
+                </div>
+              </div>
+
+              <!-- Response Cache -->
+              <div v-if="result.response_cache && result.response_cache.status !== 'not_detected'" style="margin-top:6px;font-size:11px;color:var(--warning)">
+                检测到响应缓存: {{ result.response_cache.status }}
               </div>
             </div>
           </div>
@@ -431,6 +455,8 @@ const cacheTest = ref(false);
 // ---- Diagnostics state ----
 const diagRunning = ref(false);
 const diagResults = ref({}); // { modelName: result }
+const diagCurrentModel = ref('');
+const diagProgress = ref({ done: 0, total: 0 });
 
 // ---- Running state ----
 const running = ref(false);
@@ -566,9 +592,12 @@ async function runDiagnostics() {
   }
   diagRunning.value = true;
   diagResults.value = {};
+  diagProgress.value = { done: 0, total: selectedModels.value.length };
   toast('开始缓存诊断...', 'info');
 
-  for (const model of selectedModels.value) {
+  for (let i = 0; i < selectedModels.value.length; i++) {
+    const model = selectedModels.value[i];
+    diagCurrentModel.value = model;
     try {
       const result = await createChannelDiagnostic({
         profile_name: props.profile.name,
@@ -582,8 +611,10 @@ async function runDiagnostics() {
     } catch (e) {
       diagResults.value[model] = { status: 'error', error: e.message };
     }
+    diagProgress.value.done = i + 1;
   }
 
+  diagCurrentModel.value = '';
   diagRunning.value = false;
   toast('缓存诊断完成', 'success');
 }
@@ -596,6 +627,17 @@ function diagStatusColor(status) {
 function diagStatusLabel(status) {
   const map = { passed: '缓存正常', warning: '需关注', critical: '高风险', inconclusive: '无法判断', error: '诊断失败' };
   return map[status] || status;
+}
+
+function diagProbeLabel(name) {
+  const map = {
+    cold_prefix: '冷启动基准',
+    warm_prefix: '缓存命中',
+    warm_append: '追加前缀',
+    breaker_prefix: '前缀破坏',
+    repeat_identical: '重复请求',
+  };
+  return map[name] || name;
 }
 
 function runWithSSE(runId) {
@@ -994,6 +1036,38 @@ onUnmounted(() => {
   border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   margin-bottom: 8px;
+}
+
+.diag-probes {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+}
+
+.diag-probe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.diag-probe-name {
+  width: 80px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.diag-probe-latency {
+  width: 60px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.diag-probe-tokens {
+  font-size: 11px;
 }
 
 /* ---- Responsive ---- */
