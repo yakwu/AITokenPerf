@@ -322,6 +322,7 @@ function diagTooltip(r) {
     warning: '需关注',
     critical: '高风险',
     inconclusive: '无法判断',
+    no_usage_fields: '渠道未返回缓存数据',
     error: '诊断失败',
   };
   const s = statusMap[r.channel_diagnostic_status] || '未知';
@@ -715,5 +716,6 @@ watch(() => timeRangeStore.hours, () => {
 .diag-icon.diag-warning { background: var(--warning); }
 .diag-icon.diag-critical { background: var(--danger); }
 .diag-icon.diag-inconclusive { background: var(--text-tertiary); }
+.diag-icon.diag-no_usage_fields { background: var(--info); }
 .diag-icon.diag-error { background: var(--danger); }
 </style>

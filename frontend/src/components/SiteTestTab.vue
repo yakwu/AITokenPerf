@@ -175,6 +175,9 @@
                 <span v-if="result.cache_hit_rate != null">命中率: <strong>{{ (result.cache_hit_rate * 100).toFixed(1) }}%</strong></span>
                 <span v-if="result.confidence != null">置信度: <strong>{{ (result.confidence * 100).toFixed(0) }}%</strong></span>
               </div>
+              <div v-if="result.status === 'no_usage_fields'" style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">
+                该渠道未返回 cache_read_input_tokens 字段，无法确认缓存是否真实生效。
+              </div>
 
               <!-- Probe Details -->
               <div v-if="result.probes && result.probes.length" class="diag-probes">
@@ -620,12 +623,12 @@ async function runDiagnostics() {
 }
 
 function diagStatusColor(status) {
-  const map = { passed: 'var(--success)', warning: 'var(--warning)', critical: 'var(--danger)', inconclusive: 'var(--text-tertiary)', error: 'var(--danger)' };
+  const map = { passed: 'var(--success)', warning: 'var(--warning)', critical: 'var(--danger)', inconclusive: 'var(--text-tertiary)', no_usage_fields: 'var(--info)', error: 'var(--danger)' };
   return map[status] || 'var(--text-tertiary)';
 }
 
 function diagStatusLabel(status) {
-  const map = { passed: '缓存正常', warning: '需关注', critical: '高风险', inconclusive: '无法判断', error: '诊断失败' };
+  const map = { passed: '缓存正常', warning: '需关注', critical: '高风险', inconclusive: '无法判断', no_usage_fields: '渠道未返回缓存数据', error: '诊断失败' };
   return map[status] || status;
 }
 

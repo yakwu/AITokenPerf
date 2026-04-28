@@ -143,6 +143,7 @@ async def _run_single_probe(
     probe_config["user_prompt"] = user_prompt
     probe_config["max_tokens"] = 100
     probe_config["timeout"] = timeout_seconds
+    probe_config["cache_test"] = True  # 诊断探针需要测试真实缓存，不追加 nonce
 
     url = adapter.build_url(probe_config)
     headers = adapter.build_headers(probe_config)
@@ -309,12 +310,7 @@ def build_cache_report(probes: list[ProbeResult]) -> dict:
                 "hit": _is_cache_hit(p),
             })
 
-        # 无 usage 时用延迟估算
-        if warm_evidence == "no_usage_fields" and cold_latency > 0 and warm_avg_latency > 0:
-            speedup = 1 - (warm_avg_latency / cold_latency)
-            if speedup > 0.1:
-                warm_hit_rate = min(speedup * 1.2, 1.0)
-                warm_evidence = "latency_estimation"
+        # 无 usage 字段时不做延迟猜（延迟差异不可靠），保持 hit_rate=0
 
         report["prompt_cache"]["warm_samples"] = warm_sample_details
 
@@ -375,9 +371,10 @@ def build_cache_report(probes: list[ProbeResult]) -> dict:
             elif breaker_confirms and combined_hit_rate > 0:
                 status = "partial"
                 confidence = 0.7
-            elif warm_evidence == "latency_estimation":
-                status = "estimated"
-                confidence = 0.4
+            elif warm_evidence == "no_usage_fields":
+                # API 不返回 cache usage 字段，无法判断
+                status = "no_usage_fields"
+                confidence = 0.2
             else:
                 status = "inconclusive"
                 confidence = 0.3
@@ -427,8 +424,10 @@ def compute_overall_status(report: dict) -> tuple[str, str, float]:
 
     if prompt_status == "supported":
         return "passed", "low", prompt_confidence
-    elif prompt_status in ("partial", "estimated"):
+    elif prompt_status == "partial":
         return "passed", "low", prompt_confidence
+    elif prompt_status == "no_usage_fields":
+        return "no_usage_fields", "unknown", 0.2
     elif prompt_status == "warning":
         return "warning", "medium", prompt_confidence
     else:
