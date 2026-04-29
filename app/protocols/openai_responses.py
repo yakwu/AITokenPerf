@@ -7,6 +7,7 @@ SSE 事件格式与 chat/completions 完全不同。
 
 import json
 import time
+import uuid
 
 import aiohttp
 
@@ -36,6 +37,9 @@ class OpenAIResponsesAdapter(ProtocolAdapter):
         }
         system_prompt = config.get("system_prompt")
         if system_prompt:
+            # 默认破坏前缀缓存：在开头插入唯一随机值
+            if not config.get("cache_test"):
+                system_prompt = f"[nonce:{uuid.uuid4().hex[:12]}] {system_prompt}"
             payload["instructions"] = system_prompt
         return payload
 

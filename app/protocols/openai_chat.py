@@ -6,6 +6,7 @@
 
 import json
 import time
+import uuid
 
 import aiohttp
 
@@ -30,6 +31,9 @@ class OpenAIChatAdapter(ProtocolAdapter):
         messages = []
         system_prompt = config.get("system_prompt")
         if system_prompt:
+            # 默认破坏前缀缓存：在开头插入唯一随机值
+            if not config.get("cache_test"):
+                system_prompt = f"[nonce:{uuid.uuid4().hex[:12]}] {system_prompt}"
             messages.append({"role": "system", "content": system_prompt})
         messages.append(
             {"role": "user", "content": config.get("user_prompt", "Hello")}

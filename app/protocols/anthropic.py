@@ -3,6 +3,7 @@
 
 import json
 import time
+import uuid
 
 import aiohttp
 
@@ -26,11 +27,23 @@ class AnthropicAdapter(ProtocolAdapter):
 
     def build_payload(self, config: dict) -> dict:
         system_text = config.get("system_prompt", "You are a helpful assistant.")
+
+        # 默认破坏前缀缓存：在 system prompt 开头插入唯一随机值
+        # 放在开头比尾部追加更可靠——尾部追加时长 prompt 前面的大段稳定前缀仍可能被命中
+        # 仅当 cache_test=True 时跳过，让 Anthropic 自然缓存生效
+        if not config.get("cache_test"):
+            system_text = f"[nonce:{uuid.uuid4().hex[:12]}] {system_text}"
+
+        system_block = {"type": "text", "text": system_text}
+        # 渠道诊断需要显式 cache_control 来测试 prompt caching
+        if config.get("cache_control"):
+            system_block["cache_control"] = {"type": "ephemeral"}
+
         return {
             "model": config["model"],
             "max_tokens": config.get("max_tokens", 512),
             "stream": True,
-            "system": [{"type": "text", "text": system_text}],
+            "system": [system_block],
             "messages": [
                 {"role": "user", "content": config.get("user_prompt", "Hello")}
             ],

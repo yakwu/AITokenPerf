@@ -55,3 +55,127 @@ async def test_anthropic_adapter_captures_cache_usage():
     assert metrics.input_tokens == 5000
     assert metrics.cache_read_tokens == 4000
     assert metrics.cache_creation_tokens == 1000
+
+
+# --- 缓存控制 nonce 测试 ---
+
+def test_anthropic_default_breaks_cache():
+    """默认模式：system prompt 追加随机 nonce，破坏前缀缓存"""
+    from app.protocols.anthropic import AnthropicAdapter
+    adapter = AnthropicAdapter()
+    config = {
+        "model": "claude-sonnet-4-20250514",
+        "system_prompt": "You are a helpful assistant.",
+        "user_prompt": "Hello",
+        "api_key": "test-key",
+        "base_url": "https://api.anthropic.com",
+    }
+    payload = adapter.build_payload(config)
+    system_text = payload["system"][0]["text"]
+    assert "[nonce:" in system_text
+    # nonce 在开头，确保破坏前缀缓存
+    assert system_text.startswith("[nonce:")
+    assert "You are a helpful assistant." in system_text
+
+
+def test_anthropic_cache_test_preserves_prompt():
+    """cache_test=True：system prompt 不变，允许缓存生效"""
+    from app.protocols.anthropic import AnthropicAdapter
+    adapter = AnthropicAdapter()
+    config = {
+        "model": "claude-sonnet-4-20250514",
+        "system_prompt": "You are a helpful assistant.",
+        "user_prompt": "Hello",
+        "api_key": "test-key",
+        "base_url": "https://api.anthropic.com",
+        "cache_test": True,
+    }
+    payload = adapter.build_payload(config)
+    system_text = payload["system"][0]["text"]
+    assert system_text == "You are a helpful assistant."
+    assert "[nonce:" not in system_text
+
+
+def test_anthropic_each_request_has_unique_nonce():
+    """默认模式下每次请求 nonce 不同"""
+    from app.protocols.anthropic import AnthropicAdapter
+    adapter = AnthropicAdapter()
+    config = {
+        "model": "claude-sonnet-4-20250514",
+        "system_prompt": "You are a helpful assistant.",
+        "user_prompt": "Hello",
+        "api_key": "test-key",
+        "base_url": "https://api.anthropic.com",
+    }
+    nonces = set()
+    for _ in range(5):
+        payload = adapter.build_payload(config)
+        system_text = payload["system"][0]["text"]
+        # 提取 nonce 值
+        nonce = system_text.split("[nonce:")[1].rstrip("]")
+        nonces.add(nonce)
+    assert len(nonces) == 5  # 5 个不同的 nonce
+
+
+def test_openai_chat_default_breaks_cache():
+    """OpenAI Chat 适配器默认破坏缓存"""
+    from app.protocols.openai_chat import OpenAIChatAdapter
+    adapter = OpenAIChatAdapter()
+    config = {
+        "model": "gpt-4",
+        "system_prompt": "You are helpful.",
+        "user_prompt": "Hello",
+        "api_key": "test-key",
+        "base_url": "https://api.openai.com",
+    }
+    payload = adapter.build_payload(config)
+    system_msg = payload["messages"][0]["content"]
+    assert "[nonce:" in system_msg
+
+
+def test_openai_chat_cache_test_preserves_prompt():
+    """OpenAI Chat 适配器 cache_test=True 不修改 prompt"""
+    from app.protocols.openai_chat import OpenAIChatAdapter
+    adapter = OpenAIChatAdapter()
+    config = {
+        "model": "gpt-4",
+        "system_prompt": "You are helpful.",
+        "user_prompt": "Hello",
+        "api_key": "test-key",
+        "base_url": "https://api.openai.com",
+        "cache_test": True,
+    }
+    payload = adapter.build_payload(config)
+    system_msg = payload["messages"][0]["content"]
+    assert system_msg == "You are helpful."
+
+
+def test_openai_responses_default_breaks_cache():
+    """OpenAI Responses 适配器默认破坏缓存"""
+    from app.protocols.openai_responses import OpenAIResponsesAdapter
+    adapter = OpenAIResponsesAdapter()
+    config = {
+        "model": "gpt-5",
+        "system_prompt": "You are helpful.",
+        "user_prompt": "Hello",
+        "api_key": "test-key",
+        "base_url": "https://api.openai.com",
+    }
+    payload = adapter.build_payload(config)
+    assert "[nonce:" in payload["instructions"]
+
+
+def test_openai_responses_cache_test_preserves_prompt():
+    """OpenAI Responses 适配器 cache_test=True 不修改 prompt"""
+    from app.protocols.openai_responses import OpenAIResponsesAdapter
+    adapter = OpenAIResponsesAdapter()
+    config = {
+        "model": "gpt-5",
+        "system_prompt": "You are helpful.",
+        "user_prompt": "Hello",
+        "api_key": "test-key",
+        "base_url": "https://api.openai.com",
+        "cache_test": True,
+    }
+    payload = adapter.build_payload(config)
+    assert payload["instructions"] == "You are helpful."
