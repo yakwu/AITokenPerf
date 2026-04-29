@@ -33,7 +33,7 @@ from app.db import get_settings, save_settings
 from app.db import get_sites_summary as db_get_sites_summary
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
 from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
-from app.db import save_channel_diagnostic, get_channel_diagnostic, list_channel_diagnostics
+from app.db import save_channel_diagnostic, get_channel_diagnostic, list_channel_diagnostics, list_diagnostic_filter_options
 from app.channel_diagnostics import run_cache_diagnostics
 from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
 from app.auth import _is_public_path
@@ -1047,6 +1047,19 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
         "response_cache": result.report.get("response_cache", {}),
         "proxy_cache": result.report.get("proxy_cache", {}),
     }
+
+
+@app.get("/api/channel-diagnostics/filter-options")
+async def diagnostic_filter_options_handler(
+    profile_name: str | None = Query(None),
+    model: str | None = Query(None),
+    status: str | None = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    """返回级联筛选选项"""
+    return await list_diagnostic_filter_options(
+        user["user_id"], profile_name=profile_name, model=model, status=status,
+    )
 
 
 @app.get("/api/channel-diagnostics/{diag_id}")

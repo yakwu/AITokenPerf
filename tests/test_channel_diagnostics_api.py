@@ -171,3 +171,43 @@ async def test_list_channel_diagnostics_with_filters(client):
     assert data["total"] == 2
     assert data["has_more"] is True
     assert len(data["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_filter_options_endpoint(client):
+    """filter-options 端点返回级联筛选选项"""
+    headers = await auth_headers(client)
+
+    await client.post("/api/profiles/save", json={
+        "name": "fo-test", "base_url": "https://api.anthropic.com",
+        "api_key": "sk-test", "api_key_action": "replace",
+        "models": ["m1"], "provider": "anthropic",
+    }, headers=headers)
+
+    from app.channel_diagnostics import CacheDiagnosticResult
+
+    mock_result = CacheDiagnosticResult(
+        status="passed", overall_risk="low", confidence=0.85,
+        probes=[], report={"prompt_cache": {"status": "supported", "hit_rate": 0.8}},
+    )
+
+    with patch("app.server.run_cache_diagnostics", new_callable=AsyncMock, return_value=mock_result):
+        await client.post("/api/channel-diagnostics", json={"profile_name": "fo-test", "model": "m1"}, headers=headers)
+        await client.post("/api/channel-diagnostics", json={"profile_name": "fo-test", "model": "m2"}, headers=headers)
+
+    # 无筛选
+    resp = await client.get("/api/channel-diagnostics/filter-options", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "m1" in data["models"]
+    assert "m2" in data["models"]
+    assert "fo-test" in data["profile_names"]
+
+    # 级联：按 profile_name 筛选
+    resp = await client.get("/api/channel-diagnostics/filter-options?profile_name=fo-test", headers=headers)
+    data = resp.json()
+    assert sorted(data["models"]) == ["m1", "m2"]
+
+    # 用户隔离
+    resp = await client.get("/api/channel-diagnostics/filter-options", headers={"Authorization": "Bearer invalid"})
+    assert resp.status_code == 401
