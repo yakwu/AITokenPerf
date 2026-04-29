@@ -1,5 +1,14 @@
 <template>
   <section class="tab-content active">
+    <!-- Tab Switcher -->
+    <div class="tab-switcher" style="margin-bottom:16px">
+      <button class="tab-btn" :class="{ active: activeTab === 'bench' }" @click="activeTab = 'bench'">基准测试</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'diag' }" @click="activeTab = 'diag'; loadDiagHistory()">诊断历史</button>
+    </div>
+
+    <!-- Bench Tab Content -->
+    <template v-if="activeTab === 'bench'">
+
     <!-- Toolbar -->
     <div class="history-toolbar">
       <div class="search-input-wrap">
@@ -159,6 +168,90 @@
         <button class="btn btn-ghost btn-sm" :disabled="page >= totalPages" @click="goToPage(page + 1)">下一页</button>
       </div>
     </div>
+
+    </template>
+
+    <!-- Diagnostic History Tab -->
+    <template v-if="activeTab === 'diag'">
+      <div class="diag-history">
+        <!-- 筛选栏 -->
+        <div class="filter-chips" style="margin-bottom:16px">
+          <FilterDropdown v-model="diagFilterProfile" :options="diagFilterOptions.profile_names" all-label="全部站点" wide @update:modelValue="onDiagFilterChange" />
+          <FilterDropdown v-model="diagFilterModel" :options="diagFilterOptions.models" all-label="全部模型" wide @update:modelValue="onDiagFilterChange" />
+          <FilterDropdown v-model="diagFilterStatus" :options="diagStatusOptions" all-label="全部状态" @update:modelValue="onDiagFilterChange" />
+        </div>
+
+        <!-- 列表 -->
+        <div class="card" style="padding:0;overflow:hidden">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:150px">时间</th>
+                  <th>站点</th>
+                  <th>模型</th>
+                  <th style="width:120px">状态</th>
+                  <th style="width:80px">置信度</th>
+                  <th style="width:40px"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-if="!diagItems.length && !diagLoading">
+                  <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无诊断记录</td></tr>
+                </template>
+                <template v-for="item in diagItems" :key="item.id">
+                  <!-- 摘要行 -->
+                  <tr class="history-row" :class="{ expanded: diagExpandedId === item.id }" style="cursor:pointer" @click="toggleDiagExpand(item.id)">
+                    <td>{{ fmtTimestamp(item.created_at) }}</td>
+                    <td>{{ item.profile_name }}</td>
+                    <td style="font-family:var(--font-mono);font-size:12px">{{ item.model }}</td>
+                    <td>
+                      <span :style="'background:' + diagStatusColor(item.status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
+                        {{ diagStatusLabel(item.status) }}
+                      </span>
+                    </td>
+                    <td>{{ item.confidence != null ? (item.confidence * 100).toFixed(0) + '%' : '-' }}</td>
+                    <td style="text-align:center;font-size:11px;color:var(--text-tertiary)">{{ diagExpandedId === item.id ? '▲' : '▼' }}</td>
+                  </tr>
+                  <!-- 展开详情 -->
+                  <tr v-if="diagExpandedId === item.id">
+                    <td colspan="6" style="padding:0">
+                      <div style="padding:16px 20px;background:var(--bg-secondary)">
+                        <div v-if="diagDetailLoading && !diagDetailCache[item.id]" style="text-align:center;padding:20px;color:var(--text-tertiary)">
+                          <span class="result-loading-spinner" style="width:16px;height:16px;border-width:2px;margin-right:8px"></span>
+                          加载中...
+                        </div>
+                        <div v-else-if="diagDetailError && !diagDetailCache[item.id]" style="text-align:center;padding:20px">
+                          <span style="color:var(--danger)">加载失败</span>
+                          <button class="btn btn-ghost btn-sm" style="margin-left:8px" @click.stop="retryDiagDetail()">重试</button>
+                        </div>
+                        <DiagnosticCard
+                          v-else-if="diagDetailCache[item.id]"
+                          :report="diagDetailCache[item.id].report_json"
+                          :status="diagDetailCache[item.id].status"
+                          :overall-risk="diagDetailCache[item.id].overall_risk"
+                          :confidence="diagDetailCache[item.id].confidence"
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 加载更多 -->
+        <div v-if="diagHasMore" style="text-align:center;margin-top:12px">
+          <button class="btn btn-ghost" @click="loadMoreDiag()" :disabled="diagLoading">
+            {{ diagLoading ? '加载中...' : '加载更多' }}
+          </button>
+        </div>
+        <div v-if="diagTotal > 0" style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-tertiary)">
+          共 {{ diagTotal }} 条诊断记录
+        </div>
+      </div>
+    </template>
   </section>
 </template>
 
@@ -177,6 +270,9 @@ import { renderResultDetail } from '../utils/resultDetail.js';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 import FilterDropdown from '../components/FilterDropdown.vue';
+import { listChannelDiagnostics, getChannelDiagnostic, getDiagnosticFilterOptions } from '../api/index.js';
+import DiagnosticCard from '../components/DiagnosticCard.vue';
+import { diagStatusColor, diagStatusLabel } from '../utils/diagnosticUtils.js';
 
 const store = useAppStore();
 const timeRangeStore = useTimeRangeStore();
@@ -202,6 +298,29 @@ let deleteTimer = null;
 
 // Detail HTML caches
 const detailHtml = reactive({});
+
+// ---- Diagnostic History State ----
+const activeTab = ref('bench');
+
+const diagItems = ref([]);
+const diagTotal = ref(0);
+const diagOffset = ref(0);
+const diagPageSize = 20;
+const diagHasMore = computed(() => diagOffset.value + diagPageSize < diagTotal.value);
+const diagLoading = ref(false);
+
+// 筛选
+const diagFilterProfile = ref('');
+const diagFilterModel = ref('');
+const diagFilterStatus = ref('');
+const diagFilterOptions = ref({ profile_names: [], models: [] });
+const diagStatusOptions = ['passed', 'warning', 'no_usage_fields', 'no_cache', 'inconclusive', 'error'];
+
+// 展开详情
+const diagExpandedId = ref(null);
+const diagDetailCache = ref({});
+const diagDetailLoading = ref(false);
+const diagDetailError = ref(false);
 
 // ---- Computed ----
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
@@ -318,11 +437,11 @@ function successRateStyle(rate) {
 
 function diagTooltip(r) {
   const statusMap = {
-    passed: '缓存正常',
-    warning: '需关注',
-    critical: '高风险',
+    passed: 'Claude 缓存命中',
+    warning: '缓存证据异常',
     inconclusive: '无法判断',
-    no_usage_fields: '渠道未返回缓存数据',
+    no_usage_fields: '未返回缓存 usage',
+    no_cache: '未达到缓存阈值',
     error: '诊断失败',
   };
   const s = statusMap[r.channel_diagnostic_status] || '未知';
@@ -518,6 +637,77 @@ async function confirmDelete(filename) {
   refresh();
 }
 
+// ---- Diagnostic History Functions ----
+async function loadDiagHistory(reset = true) {
+  if (diagLoading.value) return;
+  diagLoading.value = true;
+  if (reset) {
+    diagOffset.value = 0;
+    diagExpandedId.value = null;
+    diagDetailCache.value = {};
+  }
+  try {
+    const params = { limit: diagPageSize, offset: diagOffset.value };
+    if (diagFilterProfile.value) params.profile_name = diagFilterProfile.value;
+    if (diagFilterModel.value) params.model = diagFilterModel.value;
+    if (diagFilterStatus.value) params.status = diagFilterStatus.value;
+    const data = await listChannelDiagnostics(params);
+    if (reset) {
+      diagItems.value = data.items;
+    } else {
+      diagItems.value.push(...data.items);
+    }
+    diagTotal.value = data.total;
+  } finally {
+    diagLoading.value = false;
+  }
+}
+
+async function loadDiagFilterOptions() {
+  const params = {};
+  if (diagFilterProfile.value) params.profile_name = diagFilterProfile.value;
+  if (diagFilterModel.value) params.model = diagFilterModel.value;
+  if (diagFilterStatus.value) params.status = diagFilterStatus.value;
+  diagFilterOptions.value = await getDiagnosticFilterOptions(params);
+}
+
+function onDiagFilterChange() {
+  loadDiagFilterOptions();
+  loadDiagHistory(true);
+}
+
+function loadMoreDiag() {
+  diagOffset.value += diagPageSize;
+  loadDiagHistory(false);
+}
+
+async function toggleDiagExpand(id) {
+  if (diagExpandedId.value === id) {
+    diagExpandedId.value = null;
+    return;
+  }
+  diagExpandedId.value = id;
+  if (diagDetailCache.value[id]) return;
+
+  diagDetailLoading.value = true;
+  diagDetailError.value = false;
+  try {
+    const detail = await getChannelDiagnostic(id);
+    diagDetailCache.value[id] = detail;
+  } catch {
+    diagDetailError.value = true;
+  } finally {
+    diagDetailLoading.value = false;
+  }
+}
+
+function retryDiagDetail() {
+  if (diagExpandedId.value) {
+    delete diagDetailCache.value[diagExpandedId.value];
+    toggleDiagExpand(diagExpandedId.value);
+  }
+}
+
 function openCompare() {
   const list = filtered.value;
   const selected = [...compareSet].map(i => list[i]).filter(Boolean);
@@ -690,6 +880,7 @@ onMounted(() => {
     refresh();
   }
   store.refreshFn = refresh;
+  loadDiagFilterOptions();
 });
 
 onUnmounted(() => {
@@ -718,4 +909,30 @@ watch(() => timeRangeStore.hours, () => {
 .diag-icon.diag-inconclusive { background: var(--text-tertiary); }
 .diag-icon.diag-no_usage_fields { background: var(--info); }
 .diag-icon.diag-error { background: var(--danger); }
+
+.tab-switcher {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+}
+.tab-btn:hover {
+  color: var(--text);
+}
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
 </style>
