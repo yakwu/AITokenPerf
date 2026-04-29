@@ -202,7 +202,7 @@
                 <template v-for="item in diagItems" :key="item.id">
                   <!-- 摘要行 -->
                   <tr class="history-row" :class="{ expanded: diagExpandedId === item.id }" style="cursor:pointer" @click="toggleDiagExpand(item.id)">
-                    <td>{{ fmtTimestamp(item.created_at) }}</td>
+                    <td>{{ fmtDiagTimestamp(item.created_at) }}</td>
                     <td>{{ item.profile_name }}</td>
                     <td style="font-family:var(--font-mono);font-size:12px">{{ item.model }}</td>
                     <td>
@@ -321,6 +321,18 @@ const diagExpandedId = ref(null);
 const diagDetailCache = ref({});
 const diagDetailLoading = ref(false);
 const diagDetailError = ref(false);
+
+function fmtDiagTimestamp(ts) {
+  if (!ts) return '-';
+  // handles both "2026-04-30 09:17:00" and "2026-04-30T09:17:00+08:00"
+  const d = new Date(ts.replace(' ', 'T'));
+  if (isNaN(d)) return ts;
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${mo}-${day} ${h}:${mi}`;
+}
 
 // ---- Computed ----
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
