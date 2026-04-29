@@ -210,8 +210,6 @@ function probeTokenCheck(probe) {
   return null;
 }
 
-// Named exports for reuse by other components (e.g. HistoryView)
-export { diagStatusColor, diagStatusLabel }
 </script>
 
 <style scoped>

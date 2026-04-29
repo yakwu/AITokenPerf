@@ -53,6 +53,8 @@
         <button class="tab-btn" :class="{ active: activeTab === 'diag' }" @click="activeTab = 'diag'">渠道诊断</button>
       </div>
 
+      <!-- Tab Content -->
+      <div class="tab-content-area">
       <!-- Benchmark Tab -->
       <template v-if="activeTab === 'bench'">
       <div class="form-grid">
@@ -149,7 +151,7 @@
         <div class="diag-tab-content">
           <div class="create-form-notice">
             <span style="color:var(--info)">i</span>
-            <span>诊断使用内置 prompt 测试缓存支持，不使用上方的提示词配置。预计消耗 ~10 请求、~25K tokens</span>
+            <span>仅支持 Anthropic 协议。会用内置内容自动测试 6 次，约消耗 25K tokens</span>
           </div>
 
           <div class="btn-group" style="margin-top:16px">
@@ -158,54 +160,33 @@
             </button>
             <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
               <span class="result-loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></span>
-              正在诊断 {{ diagCurrentModel }} ({{ diagProgress.done }}/{{ diagProgress.total }})
+              诊断中 ({{ diagProgress.done }}/{{ diagProgress.total }})
             </button>
           </div>
 
           <!-- Diagnostic Results -->
           <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
-            <div v-for="(result, model) in diagResults" :key="model" class="diag-result-card">
+            <div v-for="model in selectedModels" :key="model" class="diag-result-card" :class="{ 'diag-pending': diagResults[model]?.status === 'pending' }">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
                 <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
-                <span :style="'background:' + diagStatusColor(result.status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
-                  {{ diagStatusLabel(result.status) }}
+                <span v-if="diagResults[model]?.status === 'pending'" style="color:var(--text-tertiary);font-size:11px">等待中</span>
+                <span v-else-if="diagResults[model]?.status === 'running'" style="display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px">
+                  <span class="result-loading-spinner" style="width:12px;height:12px;border-width:2px"></span>
+                  诊断中...
                 </span>
               </div>
-              <div style="display:flex;gap:16px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-                <span v-if="result.cache_hit_rate != null">命中率: <strong>{{ (result.cache_hit_rate * 100).toFixed(1) }}%</strong></span>
-                <span v-if="result.confidence != null">置信度: <strong>{{ (result.confidence * 100).toFixed(0) }}%</strong></span>
-              </div>
-              <div v-if="result.status === 'no_usage_fields'" style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">
-                该渠道未返回 cache_read_input_tokens 字段，无法确认缓存是否真实生效。
-              </div>
-
-              <!-- Probe Details -->
-              <div v-if="result.probes && result.probes.length" class="diag-probes">
-                <div v-for="probe in result.probes" :key="probe.name" class="diag-probe-row">
-                  <span class="diag-probe-name">{{ diagProbeLabel(probe.name) }}</span>
-                  <span class="diag-probe-latency">{{ probe.latency_ms ? (probe.latency_ms).toFixed(0) + 'ms' : '-' }}</span>
-                  <span class="diag-probe-tokens">
-                    <template v-if="probe.usage?.cache_read_input_tokens > 0">
-                      <span style="color:var(--success)">cache {{ probe.usage.cache_read_input_tokens }}</span>
-                    </template>
-                    <template v-else-if="probe.usage?.cache_creation_input_tokens > 0">
-                      <span style="color:var(--info)">创建 {{ probe.usage.cache_creation_input_tokens }}</span>
-                    </template>
-                    <template v-else>
-                      <span style="color:var(--text-tertiary)">无缓存</span>
-                    </template>
-                  </span>
-                </div>
-              </div>
-
-              <!-- Response Cache -->
-              <div v-if="result.response_cache && result.response_cache.status !== 'not_detected'" style="margin-top:6px;font-size:11px;color:var(--warning)">
-                检测到响应缓存: {{ result.response_cache.status }}
-              </div>
+              <DiagnosticCard
+                v-if="diagResults[model] && diagResults[model].status !== 'pending' && diagResults[model].status !== 'running'"
+                :report="diagResults[model]"
+                :status="diagResults[model].status"
+                :overall-risk="diagResults[model].overall_risk"
+                :confidence="diagResults[model].confidence"
+              />
             </div>
           </div>
         </div>
       </template>
+      </div><!-- /tab-content-area -->
 
       <ConnectivityProgress
         :running="connTest.running.value"
@@ -358,6 +339,7 @@ import { api, createChannelDiagnostic } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { useBenchSSE } from '../composables/useBenchSSE.js';
 import ConnectivityProgress from './ConnectivityProgress.vue';
+import DiagnosticCard from './DiagnosticCard.vue';
 import { useConnectivityTest } from '../composables/useConnectivityTest.js';
 import { renderResultDetail } from '../utils/resultDetail.js';
 import { fmtTime, fmtPct, fmtNum, escHtml } from '../utils/formatters.js';
@@ -594,13 +576,20 @@ async function runDiagnostics() {
     return;
   }
   diagRunning.value = true;
-  diagResults.value = {};
+  // 先把所有模型标记为 pending，让用户看到完整队列
+  const initResults = {};
+  for (const model of selectedModels.value) {
+    initResults[model] = { status: 'pending' };
+  }
+  diagResults.value = initResults;
   diagProgress.value = { done: 0, total: selectedModels.value.length };
   toast('开始缓存诊断...', 'info');
 
   for (let i = 0; i < selectedModels.value.length; i++) {
     const model = selectedModels.value[i];
     diagCurrentModel.value = model;
+    // 标记当前模型为 running
+    diagResults.value[model] = { status: 'running' };
     try {
       const result = await createChannelDiagnostic({
         profile_name: props.profile.name,
@@ -620,27 +609,6 @@ async function runDiagnostics() {
   diagCurrentModel.value = '';
   diagRunning.value = false;
   toast('缓存诊断完成', 'success');
-}
-
-function diagStatusColor(status) {
-  const map = { passed: 'var(--success)', warning: 'var(--warning)', critical: 'var(--danger)', inconclusive: 'var(--text-tertiary)', no_usage_fields: 'var(--info)', error: 'var(--danger)' };
-  return map[status] || 'var(--text-tertiary)';
-}
-
-function diagStatusLabel(status) {
-  const map = { passed: '缓存正常', warning: '需关注', critical: '高风险', inconclusive: '无法判断', no_usage_fields: '渠道未返回缓存数据', error: '诊断失败' };
-  return map[status] || status;
-}
-
-function diagProbeLabel(name) {
-  const map = {
-    cold_prefix: '冷启动基准',
-    warm_prefix: '缓存命中',
-    warm_append: '追加前缀',
-    breaker_prefix: '前缀破坏',
-    repeat_identical: '重复请求',
-  };
-  return map[name] || name;
 }
 
 function runWithSSE(runId) {
@@ -1016,6 +984,13 @@ onUnmounted(() => {
   border-bottom-color: var(--accent);
 }
 
+/* ---- Tab Content Area ---- */
+.tab-content-area {
+  padding-left: 16px;
+  border-left: 2px solid var(--border-subtle, var(--border));
+  margin-left: 2px;
+}
+
 /* ---- Diagnostics Tab ---- */
 .diag-tab-content {
   padding: 4px 0;
@@ -1041,35 +1016,172 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 
+.diag-pending {
+  opacity: 0.5;
+}
+
 .diag-probes {
   border-top: 1px solid var(--border-subtle);
   padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diag-probe-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.diag-probe-card:hover {
+  border-color: var(--border, #d0d0d0);
+}
+.diag-probe-anomaly {
+  background: rgba(239, 68, 68, 0.03);
 }
 
 .diag-probe-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 0;
+  padding: 8px 10px;
   font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.diag-probe-row:hover {
+  background: var(--bg-secondary, #fafafa);
 }
 
-.diag-probe-name {
-  width: 80px;
-  flex-shrink: 0;
-  color: var(--text-tertiary);
+.diag-probe-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
   font-size: 11px;
-}
-
-.diag-probe-latency {
-  width: 60px;
+  font-weight: 600;
+  color: #fff;
   flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
+  min-width: 56px;
+  justify-content: center;
 }
 
 .diag-probe-tokens {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.diag-token-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+.diag-token-read {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--success, #22c55e);
+}
+.diag-token-create {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--info, #3b82f6);
+}
+.diag-token-none {
+  background: var(--bg-secondary, #f5f5f5);
+  color: var(--text-tertiary);
+}
+
+.diag-probe-latency {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-left: 2px;
+}
+
+.diag-check-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.diag-raw-toggle {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  margin-left: auto;
+}
+
+.diag-raw-usage {
+  padding: 0 10px 10px 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+.diag-detail-section {
+  margin-bottom: 6px;
+}
+.diag-detail-section:last-child {
+  margin-bottom: 0;
+}
+.diag-detail-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.diag-raw-usage pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--bg-secondary, #f5f5f5);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  overflow-x: auto;
+  max-height: 200px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diag-token-verify {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 0;
+}
+.diag-verify-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.diag-verify-label {
+  color: var(--text-tertiary);
+  width: 40px;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.diag-verify-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.diag-verify-arrow {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+.diag-verify-status {
+  font-weight: 600;
   font-size: 11px;
 }
 
