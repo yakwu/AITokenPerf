@@ -74,6 +74,26 @@ async def test_list_channel_diagnostics(client):
             report_json={"schema_version": 1},
         )
 
-    results = await list_channel_diagnostics(user_id=1, limit=10)
-    assert len(results) == 3
-    assert results[0]["profile_name"] == "profile-2"  # 最新在前
+    items, total = await list_channel_diagnostics(user_id=1, limit=10)
+    assert total == 3
+    assert len(items) == 3
+    assert items[0]["profile_name"] == "profile-2"  # 最新在前
+
+
+@pytest.mark.asyncio
+async def test_list_channel_diagnostics_summary_only(client):
+    """列表查询不返回 report_json"""
+    from app.db import save_channel_diagnostic, list_channel_diagnostics
+
+    await save_channel_diagnostic(
+        user_id=1, profile_name="p1", model="m1",
+        status="passed", overall_risk="low", confidence=0.8,
+        report_json={"prompt_cache": {"status": "supported"}},
+    )
+
+    items, total = await list_channel_diagnostics(user_id=1)
+    assert total == 1
+    assert "report_json" not in items[0]
+    assert items[0]["profile_name"] == "p1"
+    assert items[0]["model"] == "m1"
+    assert items[0]["status"] == "passed"

@@ -1478,16 +1478,47 @@ async def get_channel_diagnostic(diag_id: int, user_id: int) -> dict | None:
         return _diag_row_to_dict(r)
 
 
-async def list_channel_diagnostics(user_id: int, limit: int = 20, offset: int = 0) -> list[dict]:
-    """按用户列出诊断记录，最新在前"""
+_LIST_DIAG_COLS = "id, profile_name, model, status, overall_risk, confidence, created_at"
+
+
+async def list_channel_diagnostics(
+    user_id: int,
+    limit: int = 20,
+    offset: int = 0,
+    profile_name: str | None = None,
+    model: str | None = None,
+    status: str | None = None,
+) -> tuple[list[dict], int]:
+    """按用户列出诊断记录（摘要），返回 (items, total)"""
+    where = ["user_id = :uid"]
+    params: dict = {"uid": user_id, "limit": limit, "offset": offset}
+    if profile_name:
+        where.append("profile_name = :pn")
+        params["pn"] = profile_name
+    if model:
+        where.append("model = :model")
+        params["model"] = model
+    if status:
+        where.append("status = :status")
+        params["status"] = status
+    where_sql = " AND ".join(where)
+
     async with engine.begin() as conn:
+        count_row = await conn.execute(
+            text(f"SELECT COUNT(*) FROM channel_diagnostics WHERE {where_sql}"),
+            params,
+        )
+        total = count_row.fetchone()[0]
+
         rows = await conn.execute(
-            text("""
-                SELECT * FROM channel_diagnostics
-                WHERE user_id = :uid
+            text(f"""
+                SELECT {_LIST_DIAG_COLS} FROM channel_diagnostics
+                WHERE {where_sql}
                 ORDER BY id DESC
                 LIMIT :limit OFFSET :offset
             """),
-            {"uid": user_id, "limit": limit, "offset": offset},
+            params,
         )
-        return [_diag_row_to_dict(r) for r in rows.fetchall()]
+        items = [dict(r._mapping) for r in rows.fetchall()]
+
+    return items, total
