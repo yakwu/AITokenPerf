@@ -78,6 +78,11 @@ export const listChannelDiagnostics = (params = {}) => {
   return api('/api/channel-diagnostics' + (qs ? '?' + qs : ''));
 };
 
+export const getDiagnosticFilterOptions = (params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  return api('/api/channel-diagnostics/filter-options' + (qs ? '?' + qs : ''));
+};
+
 // Settings
 export const updateProfileApi = (data) => api('/api/user/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const changePasswordApi = (data) => api('/api/user/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
