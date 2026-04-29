@@ -46,7 +46,7 @@ HistoryView 页面顶部增加 Tab 切换器：
 筛选逻辑：任一下拉框变化时，重新调用列表接口（传入所有当前筛选条件），同时刷新其他下拉框的可选值（通过 filter-options 接口传入当前筛选条件实现级联）。
 
 **列表**：
-- 每行显示：诊断时间、站点名称、模型、状态标签（带颜色）、命中率、置信度
+- 每行显示：诊断时间、站点名称、模型、状态标签（带颜色）、置信度（命中率仅在展开详情中显示）
 - 按时间倒序排列
 - 底部「加载更多」按钮（每页 20 条），当 `has_more === false` 时隐藏
 
@@ -75,6 +75,7 @@ HistoryView 页面顶部增加 Tab 切换器：
 
 重写 `list_channel_diagnostics()` 查询：
 - SELECT 只取摘要列：`id, profile_name, model, status, overall_risk, confidence, created_at`（不读 `report_json`）
+- 命中率（cache_hit_rate）存储在 `report_json` 内部，不在摘要列中。列表行不显示命中率，只在展开详情中通过完整报告渲染
 - 增加可选 WHERE 条件：`profile_name`、`model`、`status`
 - 返回值改为 `(items: list[dict], total: int)`，其中 `total` 为满足筛选条件的总行数（独立 COUNT(*) 查询）
 
@@ -123,7 +124,7 @@ HistoryView 页面顶部增加 Tab 切换器：
 | `frontend/src/components/DiagnosticCard.vue` | **新建**，从 SiteTestTab 提取诊断详情卡片组件 |
 | `frontend/src/components/SiteTestTab.vue` | 改用 DiagnosticCard 组件 |
 | `frontend/src/views/HistoryView.vue` | 新增诊断历史 Tab、筛选栏、列表、展开详情、修复 status 映射 |
-| `frontend/src/utils/resultDetail.js` | 诊断摘要区块改用 DiagnosticCard 或保持现状（HTML 渲染场景不同） |
+| `frontend/src/utils/resultDetail.js` | 本次不迁移。仅统一 SiteTestTab 与诊断历史页的诊断详情渲染；History 结果详情中的诊断摘要区块保持现有 HTML 渲染方式 |
 | `tests/test_channel_diagnostics_db.py` | 新增：组合筛选、COUNT 返回值、filter_options 级联、用户隔离 |
 | `tests/test_channel_diagnostics_api.py` | 新增：筛选参数、total/has_more 响应格式、filter-options 端点、用户隔离 |
 
@@ -132,3 +133,4 @@ HistoryView 页面顶部增加 Tab 切换器：
 - 不修改 SiteTestTab 的渠道诊断运行逻辑（只改详情渲染为引用新组件）
 - 不将诊断结果关联到基准测试历史记录（YAGNI）
 - 不添加删除诊断记录的功能（暂不需要）
+- 不迁移 resultDetail.js 中的诊断摘要区块（保持现有 HTML 渲染，后续有需要再统一）
