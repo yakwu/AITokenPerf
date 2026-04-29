@@ -1062,11 +1062,17 @@ async def get_channel_diagnostic_handler(diag_id: int, user: dict = Depends(get_
 async def list_channel_diagnostics_handler(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    profile_name: str | None = Query(None),
+    model: str | None = Query(None),
+    status: str | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
     """列出诊断记录"""
-    items, total = await list_channel_diagnostics(user["user_id"], limit=limit, offset=offset)
-    return {"items": items, "total": total}
+    items, total = await list_channel_diagnostics(
+        user["user_id"], limit=limit, offset=offset,
+        profile_name=profile_name, model=model, status=status,
+    )
+    return {"items": items, "total": total, "has_more": offset + limit < total}
 
 
 # ---- Run Center Routes ----

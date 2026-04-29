@@ -119,3 +119,55 @@ async def test_get_channel_diagnostic(client):
     assert data["id"] == diag_id
     assert data["model"] == "claude-opus-4-6"
     assert data["report_json"]["dimensions"]["cache"]["prompt_cache"]["hit_rate"] == 0.8
+
+
+@pytest.mark.asyncio
+async def test_list_channel_diagnostics_with_filters(client):
+    """列表端点支持筛选参数，返回 total/has_more"""
+    headers = await auth_headers(client)
+
+    # 创建 profile
+    await client.post("/api/profiles/save", json={
+        "name": "list-test", "base_url": "https://api.anthropic.com",
+        "api_key": "sk-test", "api_key_action": "replace",
+        "models": ["m1"], "provider": "anthropic",
+    }, headers=headers)
+
+    from app.channel_diagnostics import CacheDiagnosticResult
+
+    mock_result = CacheDiagnosticResult(
+        status="passed", overall_risk="low", confidence=0.85,
+        probes=[], report={"prompt_cache": {"status": "supported", "hit_rate": 0.8}},
+    )
+
+    # 插入 2 条记录
+    with patch("app.server.run_cache_diagnostics", new_callable=AsyncMock, return_value=mock_result):
+        await client.post("/api/channel-diagnostics", json={"profile_name": "list-test", "model": "m1"}, headers=headers)
+        mock_result.status = "warning"
+        await client.post("/api/channel-diagnostics", json={"profile_name": "list-test", "model": "m1"}, headers=headers)
+
+    # 无筛选
+    resp = await client.get("/api/channel-diagnostics", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["has_more"] is False
+    assert len(data["items"]) == 2
+
+    # 按状态筛选
+    resp = await client.get("/api/channel-diagnostics?status=warning", headers=headers)
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["items"][0]["status"] == "warning"
+
+    # 按模型筛选
+    resp = await client.get("/api/channel-diagnostics?model=m1", headers=headers)
+    data = resp.json()
+    assert data["total"] == 2
+
+    # 分页 has_more
+    resp = await client.get("/api/channel-diagnostics?limit=1", headers=headers)
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["has_more"] is True
+    assert len(data["items"]) == 1
