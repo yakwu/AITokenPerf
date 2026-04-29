@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -334,11 +335,13 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
 
         task.total_levels = len(concurrency_levels)
 
-        connector = aiohttp_lib.TCPConnector(
-            limit=config.get("connector_limit", 1200),
-            force_close=False,
-            enable_cleanup_closed=True,
-        )
+        connector_kwargs = {
+            "limit": config.get("connector_limit", 1200),
+            "force_close": False,
+        }
+        if sys.version_info < (3, 12, 7) or (3, 13, 0) <= sys.version_info < (3, 13, 1):
+            connector_kwargs["enable_cleanup_closed"] = True
+        connector = aiohttp_lib.TCPConnector(**connector_kwargs)
 
         async with aiohttp_lib.ClientSession(connector=connector) as session:
             for idx, level in enumerate(concurrency_levels):
@@ -977,6 +980,7 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
         "api_key": profile.get("api_key", ""),
         "model": model,
         "protocol": profile.get("protocol", ""),
+        "provider": profile.get("provider", ""),
         "api_version": profile.get("api_version", "2023-06-01"),
         "custom_endpoint": profile.get("custom_endpoint", False),
     }
@@ -999,11 +1003,18 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
                 "name": p.name,
                 "status": p.status,
                 "latency_ms": p.latency_ms,
+                "sent_chars": p.sent_chars,
+                "expected_system_tokens": p.expected_system_tokens,
+                "expected_user_tokens": p.expected_user_tokens,
+                "expected_total_tokens": p.expected_total_tokens,
                 "usage": {
                     "input_tokens": p.input_tokens,
                     "cache_read_input_tokens": p.cache_read_tokens,
                     "cache_creation_input_tokens": p.cache_creation_tokens,
                 },
+                "raw_usage": p.raw_usage,
+                "request_preview": p.request_preview,
+                "response_preview": p.response_preview,
             }
             for p in result.probes
         ],
@@ -1027,12 +1038,14 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
         "overall_risk": result.overall_risk,
         "confidence": result.confidence,
         "cache_hit_rate": cache_hit_rate,
+        "run_tag": result.run_tag,
         "summary": {
             "cache": result.report.get("prompt_cache", {}).get("status", "inconclusive"),
         },
         "probes": report_dict.get("probes", []),
         "prompt_cache": result.report.get("prompt_cache", {}),
         "response_cache": result.report.get("response_cache", {}),
+        "proxy_cache": result.report.get("proxy_cache", {}),
     }
 
 
@@ -1052,8 +1065,8 @@ async def list_channel_diagnostics_handler(
     user: dict = Depends(get_current_user),
 ):
     """列出诊断记录"""
-    results = await list_channel_diagnostics(user["user_id"], limit=limit, offset=offset)
-    return {"items": results, "total": len(results)}
+    items, total = await list_channel_diagnostics(user["user_id"], limit=limit, offset=offset)
+    return {"items": items, "total": total}
 
 
 # ---- Run Center Routes ----

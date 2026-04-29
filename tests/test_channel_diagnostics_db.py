@@ -97,3 +97,51 @@ async def test_list_channel_diagnostics_summary_only(client):
     assert items[0]["profile_name"] == "p1"
     assert items[0]["model"] == "m1"
     assert items[0]["status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_list_channel_diagnostics_filter_by_status(client):
+    """按状态筛选诊断记录"""
+    from app.db import save_channel_diagnostic, list_channel_diagnostics
+
+    await save_channel_diagnostic(user_id=1, profile_name="p1", model="m1",
+        status="passed", overall_risk="low", confidence=0.8, report_json={})
+    await save_channel_diagnostic(user_id=1, profile_name="p2", model="m1",
+        status="warning", overall_risk="medium", confidence=0.5, report_json={})
+
+    items, total = await list_channel_diagnostics(user_id=1, status="passed")
+    assert total == 1
+    assert items[0]["status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_list_channel_diagnostics_filter_by_profile(client):
+    """按站点筛选诊断记录"""
+    from app.db import save_channel_diagnostic, list_channel_diagnostics
+
+    await save_channel_diagnostic(user_id=1, profile_name="site-a", model="m1",
+        status="passed", overall_risk="low", confidence=0.8, report_json={})
+    await save_channel_diagnostic(user_id=1, profile_name="site-b", model="m1",
+        status="passed", overall_risk="low", confidence=0.8, report_json={})
+
+    items, total = await list_channel_diagnostics(user_id=1, profile_name="site-a")
+    assert total == 1
+    assert items[0]["profile_name"] == "site-a"
+
+
+@pytest.mark.asyncio
+async def test_list_channel_diagnostics_filter_combined(client):
+    """组合筛选"""
+    from app.db import save_channel_diagnostic, list_channel_diagnostics
+
+    await save_channel_diagnostic(user_id=1, profile_name="site-a", model="m1",
+        status="passed", overall_risk="low", confidence=0.8, report_json={})
+    await save_channel_diagnostic(user_id=1, profile_name="site-a", model="m2",
+        status="warning", overall_risk="medium", confidence=0.5, report_json={})
+    await save_channel_diagnostic(user_id=1, profile_name="site-b", model="m1",
+        status="passed", overall_risk="low", confidence=0.9, report_json={})
+
+    items, total = await list_channel_diagnostics(user_id=1, profile_name="site-a", model="m1")
+    assert total == 1
+    assert items[0]["profile_name"] == "site-a"
+    assert items[0]["model"] == "m1"
