@@ -1522,3 +1522,45 @@ async def list_channel_diagnostics(
         items = [dict(r._mapping) for r in rows.fetchall()]
 
     return items, total
+
+
+async def list_diagnostic_filter_options(
+    user_id: int,
+    profile_name: str | None = None,
+    model: str | None = None,
+    status: str | None = None,
+) -> dict:
+    """返回级联筛选后的去重选项"""
+    where = ["user_id = :uid"]
+    params: dict = {"uid": user_id}
+    if profile_name:
+        where.append("profile_name = :pn")
+        params["pn"] = profile_name
+    if model:
+        where.append("model = :model")
+        params["model"] = model
+    if status:
+        where.append("status = :status")
+        params["status"] = status
+    where_sql = " AND ".join(where)
+
+    async with engine.begin() as conn:
+        rows = await conn.execute(
+            text(f"""
+                SELECT DISTINCT profile_name FROM channel_diagnostics
+                WHERE {where_sql} ORDER BY profile_name
+            """),
+            params,
+        )
+        profile_names = [r[0] for r in rows.fetchall()]
+
+        rows = await conn.execute(
+            text(f"""
+                SELECT DISTINCT model FROM channel_diagnostics
+                WHERE {where_sql} ORDER BY model
+            """),
+            params,
+        )
+        models = [r[0] for r in rows.fetchall()]
+
+    return {"profile_names": profile_names, "models": models}

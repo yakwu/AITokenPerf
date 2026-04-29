@@ -145,3 +145,34 @@ async def test_list_channel_diagnostics_filter_combined(client):
     assert total == 1
     assert items[0]["profile_name"] == "site-a"
     assert items[0]["model"] == "m1"
+
+
+@pytest.mark.asyncio
+async def test_list_diagnostic_filter_options(client):
+    """返回去重的筛选选项，支持级联"""
+    from app.db import save_channel_diagnostic, list_diagnostic_filter_options, create_user
+
+    # 创建第二个用户用于测试用户隔离
+    other_uid = await create_user("other@example.com", "hash", "Other")
+
+    await save_channel_diagnostic(user_id=1, profile_name="site-a", model="m1", status="passed", overall_risk="low", confidence=0.8, report_json={})
+    await save_channel_diagnostic(user_id=1, profile_name="site-a", model="m2", status="warning", overall_risk="medium", confidence=0.5, report_json={})
+    await save_channel_diagnostic(user_id=1, profile_name="site-b", model="m1", status="passed", overall_risk="low", confidence=0.9, report_json={})
+    await save_channel_diagnostic(user_id=other_uid, profile_name="other", model="m3", status="passed", overall_risk="low", confidence=0.5, report_json={})
+
+    # 无筛选 — 返回当前用户的全部去重值
+    opts = await list_diagnostic_filter_options(user_id=1)
+    assert sorted(opts["profile_names"]) == ["site-a", "site-b"]
+    assert sorted(opts["models"]) == ["m1", "m2"]
+
+    # 级联：选了 site-a 后，模型只返回 site-a 下的
+    opts = await list_diagnostic_filter_options(user_id=1, profile_name="site-a")
+    assert sorted(opts["models"]) == ["m1", "m2"]
+
+    # 级联：选了 site-b 后，模型只有 m1
+    opts = await list_diagnostic_filter_options(user_id=1, profile_name="site-b")
+    assert opts["models"] == ["m1"]
+
+    # 用户隔离
+    opts = await list_diagnostic_filter_options(user_id=other_uid)
+    assert opts["profile_names"] == ["other"]
