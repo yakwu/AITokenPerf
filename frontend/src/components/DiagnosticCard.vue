@@ -1,113 +1,83 @@
 <template>
   <div class="diag-result-card" :class="{ 'diag-pending': status === 'pending' }">
-    <!-- Category-based rendering (new) -->
-    <template v-if="categories && categories.length">
-      <!-- 渐变头部 -->
-      <div class="diag-header" :class="'diag-header--' + (overallStatus || status)">
-        <div class="diag-header-main">
-          <div class="diag-header-status">
-            {{ overallStatusLabel || diagStatusLabel(overallStatus || status) }}
-          </div>
-          <div v-if="confidence != null" class="diag-header-confidence">
-            置信度 {{ (confidence * 100).toFixed(0) }}%
-          </div>
+    <!-- 渐变头部 -->
+    <div class="diag-header" :class="'diag-header--' + (overallStatus || status)">
+      <div class="diag-header-main">
+        <div class="diag-header-status">
+          {{ overallStatusLabel || diagStatusLabel(overallStatus || status) }}
         </div>
-        <div class="diag-header-stats" v-if="categories && categories.length">
-          <div class="diag-header-stat">
-            <div class="diag-header-stat-value">{{ categories.length }}</div>
-            <div class="diag-header-stat-label">类别</div>
-          </div>
-          <div class="diag-header-stat">
-            <div class="diag-header-stat-value">{{ totalProbes }}</div>
-            <div class="diag-header-stat-label">探针</div>
-          </div>
+        <div v-if="confidence != null" class="diag-header-confidence">
+          置信度 {{ (confidence * 100).toFixed(0) }}%
         </div>
       </div>
-
-      <!-- Category sections -->
-      <div v-for="cat in categories" :key="cat.category" class="diag-category-section" style="border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:6px;overflow:hidden">
-        <div class="diag-cat-header" @click="toggleCategory(cat.category)" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;user-select:none;font-size:12px">
-          <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0" :style="'background:' + categoryStatusColor(cat.status)"></span>
-          <span style="font-weight:600">{{ categoryLabel(cat.category) }}</span>
-          <span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">{{ cat.probes?.length || 0 }} 个探针</span>
-          <span style="font-size:9px;color:var(--text-tertiary)">{{ expandedCategories.has(cat.category) ? '▲' : '▼' }}</span>
+      <div class="diag-header-stats" v-if="categories && categories.length">
+        <div class="diag-header-stat">
+          <div class="diag-header-stat-value">{{ categories.length }}</div>
+          <div class="diag-header-stat-label">类别</div>
         </div>
-        <div v-if="expandedCategories.has(cat.category)" style="padding:0 10px 10px;border-top:1px solid var(--border-subtle)">
-          <div v-for="probe in (cat.probes || [])" :key="probe.name" style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border-subtle)">
-            <span style="min-width:100px;color:var(--text-secondary)">{{ probeDisplayName(probe.name) }}</span>
-            <span style="flex:1;font-size:11px;color:var(--text-tertiary)">{{ probe.detail || '' }}</span>
-            <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ probe.latency_ms ? (probe.latency_ms / 1000).toFixed(1) + 's' : '' }}</span>
-            <span :style="'font-weight:600;font-size:11px;color:' + (probe.status === 'passed' ? 'var(--success)' : 'var(--danger)')">
-              {{ probe.status === 'passed' ? '✓' : '✗' }}
-            </span>
-          </div>
-          <!-- Cache-specific summary -->
-          <div v-if="cat.category === 'cache' && cat.summary?.hit_rate != null" style="margin-top:6px;font-size:11px;color:var(--text-secondary)">
-            命中率: {{ (cat.summary.hit_rate * 100).toFixed(1) }}%
-            <span v-if="cat.summary.prompt_cache_status"> · 状态: {{ cat.summary.prompt_cache_status }}</span>
-          </div>
-          <!-- Proxy warning -->
-          <div v-if="cat.summary?.proxy_cache?.status === 'detected'" style="margin-top:4px;font-size:11px;color:var(--warning);padding:4px 6px;background:var(--warning-bg,#fff8e1);border-radius:4px">
-            检测到代理层缓存干扰: {{ cat.summary.proxy_cache.evidence }}
-          </div>
+        <div class="diag-header-stat">
+          <div class="diag-header-stat-value">{{ totalProbes }}</div>
+          <div class="diag-header-stat-label">探针</div>
         </div>
       </div>
-    </template>
+    </div>
 
-    <!-- Legacy rendering (backward compatible) -->
-    <template v-else>
-      <!-- Status badge -->
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-        <span :style="'background:' + diagStatusColor(status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
-          {{ diagStatusLabel(status) }}
-        </span>
-        <span v-if="confidence != null" style="font-size:12px;color:var(--text-secondary)">置信度: <strong>{{ (confidence * 100).toFixed(0) }}%</strong></span>
+    <!-- 类别状态网格 -->
+    <div class="diag-categories-grid" v-if="categories && categories.length">
+      <div
+        v-for="cat in categories"
+        :key="cat.category"
+        class="diag-category-card"
+        :class="{ 'diag-category-card--expanded': expandedCategories.has(cat.category) }"
+        @click="toggleCategory(cat.category)"
+      >
+        <div class="diag-category-card-header">
+          <div class="diag-category-dot" :style="{ background: categoryStatusColor(cat.status) }"></div>
+          <div class="diag-category-name">{{ categoryLabel(cat.category) }}</div>
+          <div class="diag-category-stats">
+            {{ cat.probes?.filter(p => p.status === 'passed').length || 0 }}/{{ cat.probes?.length || 0 }} 通过
+          </div>
+        </div>
+        <div class="diag-category-detail">
+          <template v-if="cat.category === 'cache' && cat.summary?.hit_rate != null">
+            命中率 {{ (cat.summary.hit_rate * 100).toFixed(0) }}%
+          </template>
+          <template v-else-if="cat.probes?.length">
+            {{ (cat.probes.reduce((sum, p) => sum + (p.latency_ms || 0), 0) / 1000).toFixed(1) }}s
+          </template>
+        </div>
       </div>
+    </div>
 
-      <!-- Cache hit rate -->
-      <div v-if="report?.cache_hit_rate != null" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-        缓存命中率: <strong>{{ (report.cache_hit_rate * 100).toFixed(1) }}%</strong>
-      </div>
-
-      <!-- Proxy warning -->
-      <div v-if="report?.proxy_cache_status === 'detected'" style="font-size:11px;color:var(--warning);padding:6px 8px;background:var(--warning-bg,#fff8e1);border-radius:4px;margin-bottom:8px">
-        检测到代理层缓存干扰: {{ report.proxy_cache_evidence }}
-      </div>
-
-      <!-- Probe details -->
-      <div v-if="report?.probes?.length" style="margin-top:8px">
-        <div v-for="probe in report.probes" :key="probe.name" style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border-subtle)">
-          <span style="min-width:100px;color:var(--text-secondary)">{{ diagProbeLabel(probe.name) }}</span>
-          <span style="flex:1;font-size:11px;color:var(--text-tertiary)">{{ probe.detail || '' }}</span>
-          <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ probe.latency_ms ? (probe.latency_ms / 1000).toFixed(1) + 's' : '' }}</span>
-          <span :style="'font-weight:600;font-size:11px;color:' + (probe.status === 'passed' ? 'var(--success)' : 'var(--danger)')">
+    <!-- 展开的探针详情 -->
+    <div v-if="expandedCategories.size > 0" class="diag-probes-detail">
+      <div v-for="cat in categories" :key="cat.category + '-detail'" v-show="expandedCategories.has(cat.category)">
+        <div class="diag-probes-category-title">{{ categoryLabel(cat.category) }}</div>
+        <div v-for="probe in (cat.probes || [])" :key="probe.name" class="diag-probe-row">
+          <span class="diag-probe-name">{{ probeDisplayName(probe.name) }}</span>
+          <span class="diag-probe-detail">{{ probe.detail || '' }}</span>
+          <span class="diag-probe-latency">{{ probe.latency_ms ? (probe.latency_ms / 1000).toFixed(1) + 's' : '' }}</span>
+          <span class="diag-probe-status" :class="'diag-probe-status--' + probe.status">
             {{ probe.status === 'passed' ? '✓' : '✗' }}
           </span>
         </div>
+        <!-- 缓存特殊信息 -->
+        <div v-if="cat.category === 'cache' && cat.summary?.hit_rate != null" class="diag-cache-summary">
+          命中率: {{ (cat.summary.hit_rate * 100).toFixed(1) }}%
+          <span v-if="cat.summary.prompt_cache_status"> · 状态: {{ cat.summary.prompt_cache_status }}</span>
+        </div>
+        <div v-if="cat.summary?.proxy_cache?.status === 'detected'" class="diag-proxy-warning">
+          检测到代理层缓存干扰: {{ cat.summary.proxy_cache.evidence }}
+        </div>
       </div>
-
-      <!-- Run tag -->
-      <div v-if="report?.run_tag" style="margin-top:8px;font-size:10px;color:var(--text-tertiary)">
-        运行标识: {{ report.run_tag }}
-      </div>
-
-      <!-- Response cache warning -->
-      <div v-if="report?.response_cache_detected" style="margin-top:6px;font-size:11px;color:var(--warning);padding:4px 6px;background:var(--warning-bg,#fff8e1);border-radius:4px">
-        检测到响应缓存: 完全相同的请求返回了缓存响应
-      </div>
-    </template>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import {
-  diagStatusColor,
   diagStatusLabel,
-  diagStatusTooltip,
-  diagProbeLabel,
-  probeTokenColor,
-  probeTokenCheck,
   categoryLabel,
   probeDisplayName,
   categoryStatusColor,
@@ -122,7 +92,7 @@ const props = defineProps({
   overallStatus: { type: String, default: '' },
 })
 
-const expandedCategories = ref(new Set(['connectivity', 'streaming', 'context', 'tool_use', 'structured', 'cache']))
+const expandedCategories = ref(new Set())
 
 function toggleCategory(catId) {
   const s = new Set(expandedCategories.value)
@@ -215,11 +185,149 @@ const totalProbes = computed(() => {
   opacity: 0.5;
 }
 
-.diag-cat-header:hover {
-  background: var(--border-subtle);
+/* 类别状态网格 */
+.diag-categories-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  margin: 0;
 }
 
-.diag-category-section:last-child {
-  margin-bottom: 0;
+.diag-category-card {
+  background: var(--bg);
+  padding: 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diag-category-card:hover {
+  background: var(--surface-raised);
+}
+
+.diag-category-card--expanded {
+  background: var(--surface-raised);
+}
+
+.diag-category-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.diag-category-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.diag-category-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.diag-category-stats {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.diag-category-detail {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding-left: 26px;
+}
+
+/* 探针详情 */
+.diag-probes-detail {
+  border-top: 1px solid var(--border);
+  padding: 16px;
+}
+
+.diag-probes-category-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.diag-probe-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+
+.diag-probe-name {
+  min-width: 120px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.diag-probe-detail {
+  flex: 1;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.diag-probe-latency {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  min-width: 40px;
+  text-align: right;
+}
+
+.diag-probe-status {
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.diag-probe-status--passed {
+  color: var(--success);
+}
+
+.diag-probe-status--failed {
+  color: var(--danger);
+}
+
+.diag-cache-summary {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: var(--radius);
+}
+
+.diag-proxy-warning {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--warning);
+  padding: 8px 12px;
+  background: var(--warning-bg, #fff8e1);
+  border-radius: var(--radius);
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .diag-categories-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .diag-categories-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
