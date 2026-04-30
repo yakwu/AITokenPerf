@@ -1,5 +1,47 @@
 <template>
   <div class="site-test-tab">
+    <!-- Model Selection (shared across tabs) -->
+    <div class="form-group form-group--full" style="margin-bottom:12px">
+      <label class="form-label">选择模型 <span class="info-tip" data-tip="从站点已配置的模型中选择一个或多个进行测试">?</span></label>
+      <div class="combobox" ref="modelComboboxRef">
+        <div class="model-tags-input" @click="modelDropdownOpen = true">
+          <span v-for="(m, i) in selectedModels" :key="m" class="model-tag">
+            {{ m }}
+            <button type="button" class="model-tag-remove" @click.stop="removeModel(i)">&times;</button>
+          </span>
+          <input
+            class="model-tag-search"
+            v-model="modelSearch"
+            :placeholder="selectedModels.length ? '' : '选择模型（可多选）'"
+            @focus="modelDropdownOpen = true"
+            @keydown.enter.prevent="addModelFromSearch()"
+            @keydown.backspace="onModelBackspace()"
+            @keydown.escape="modelDropdownOpen = false"
+            autocomplete="off"
+            ref="modelSearchInputRef"
+            :disabled="running"
+          >
+        </div>
+        <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+        </button>
+        <div class="combobox-dropdown" v-show="modelDropdownOpen">
+          <template v-for="m in filteredModels" :key="m">
+            <div class="combobox-option" :class="{ active: selectedModels.includes(m) }" @mousedown.prevent="toggleModel(m)">
+              <span v-if="selectedModels.includes(m)" style="color:var(--accent);margin-right:4px">&#10003;</span>
+              {{ m }}
+            </div>
+          </template>
+          <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">
+            无匹配模型
+          </div>
+          <div class="combobox-empty" v-show="!profileModels.length && !modelSearch">
+            站点未配置模型，请先在配置 Tab 中添加模型
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Internal Tabs -->
     <div class="site-test-internal-tabs">
       <button class="site-test-internal-tab" :class="{ active: activeTab === 'test' }" @click="activeTab = 'test'">性能测试</button>
@@ -13,58 +55,6 @@
         <div class="card-title">测试配置</div>
       </div>
 
-      <!-- Model Selection (tag-style combobox) — shared above tabs -->
-      <div class="form-group form-group--full" style="margin-bottom:16px">
-        <label class="form-label">选择模型 <span class="info-tip" data-tip="从站点已配置的模型中选择一个或多个进行测试">?</span></label>
-        <div class="combobox" ref="modelComboboxRef">
-          <div class="model-tags-input" @click="modelDropdownOpen = true">
-            <span v-for="(m, i) in selectedModels" :key="m" class="model-tag">
-              {{ m }}
-              <button type="button" class="model-tag-remove" @click.stop="removeModel(i)">&times;</button>
-            </span>
-            <input
-              class="model-tag-search"
-              v-model="modelSearch"
-              :placeholder="selectedModels.length ? '' : '选择模型（可多选）'"
-              @focus="modelDropdownOpen = true"
-              @keydown.enter.prevent="addModelFromSearch()"
-              @keydown.backspace="onModelBackspace()"
-              @keydown.escape="modelDropdownOpen = false"
-              autocomplete="off"
-              ref="modelSearchInputRef"
-              :disabled="running"
-            >
-          </div>
-          <button class="combobox-toggle" type="button" @click.stop="modelDropdownOpen = !modelDropdownOpen" @mousedown.prevent>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-          </button>
-          <div class="combobox-dropdown" v-show="modelDropdownOpen">
-            <template v-for="m in filteredModels" :key="m">
-              <div class="combobox-option" :class="{ active: selectedModels.includes(m) }" @mousedown.prevent="toggleModel(m)">
-                <span v-if="selectedModels.includes(m)" style="color:var(--accent);margin-right:4px">&#10003;</span>
-                {{ m }}
-              </div>
-            </template>
-            <div class="combobox-empty" v-show="!filteredModels.length && modelSearch">
-              无匹配模型
-            </div>
-            <div class="combobox-empty" v-show="!profileModels.length && !modelSearch">
-              站点未配置模型，请先在配置 Tab 中添加模型
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab Switcher -->
-      <div class="tab-switcher">
-        <button class="tab-btn" :class="{ active: activeTab === 'bench' }" @click="activeTab = 'bench'">基准测试</button>
-        <button class="tab-btn" :class="{ active: activeTab === 'diag' }" @click="activeTab = 'diag'">渠道诊断</button>
-      </div>
-
-      <!-- Tab Content -->
-      <div class="tab-content-area">
-      <!-- Benchmark Tab -->
-      <template v-if="activeTab === 'bench'">
       <div class="form-grid">
         <!-- Mode Selection -->
         <div class="form-group">
@@ -152,49 +142,69 @@
           连通性验证 <span style="font-weight:400;color:var(--text-tertiary)">(单请求)</span>
         </button>
       </div>
-      </template>
+    </div>
+    </template>
 
-      <!-- Diagnostics Tab -->
-      <template v-if="activeTab === 'diag'">
-        <div class="diag-tab-content">
-          <div class="create-form-notice">
-            <span style="color:var(--info)">i</span>
-            <span>仅支持 Anthropic 协议。会用内置内容自动测试 6 次，约消耗 25K tokens</span>
+    <!-- Diagnostics Tab -->
+    <template v-if="activeTab === 'diag'">
+      <div class="diag-tab-content">
+        <div class="create-form-notice">
+          <span style="color:var(--info)">i</span>
+          <span>仅支持 Anthropic 协议。选择要测试的类别，点击开始诊断</span>
+        </div>
+
+        <!-- Category Selector -->
+        <div class="diag-category-selector" style="margin-top:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:13px;font-weight:600">测试类别</span>
+            <button class="btn btn-ghost btn-sm" @click="diagCategories = allDiagCategories.map(c => c.id)">全选</button>
+            <button class="btn btn-ghost btn-sm" @click="diagCategories = []">全不选</button>
           </div>
-
-          <div class="btn-group" style="margin-top:16px">
-            <button class="btn btn-ghost" v-show="!diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length" style="color:var(--accent)">
-              开始诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型)</span>
-            </button>
-            <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
-              <span class="result-loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></span>
-              诊断中 ({{ diagProgress.done }}/{{ diagProgress.total }})
-            </button>
-          </div>
-
-          <!-- Diagnostic Results -->
-          <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
-            <div v-for="model in selectedModels" :key="model" class="diag-result-card" :class="{ 'diag-pending': diagResults[model]?.status === 'pending' }">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
-                <span v-if="diagResults[model]?.status === 'pending'" style="color:var(--text-tertiary);font-size:11px">等待中</span>
-                <span v-else-if="diagResults[model]?.status === 'running'" style="display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px">
-                  <span class="result-loading-spinner" style="width:12px;height:12px;border-width:2px"></span>
-                  诊断中...
-                </span>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+            <label v-for="cat in allDiagCategories" :key="cat.id" class="diag-category-item" style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-size:12px;transition:border-color 0.15s">
+              <input type="checkbox" :value="cat.id" v-model="diagCategories" style="accent-color:var(--accent)">
+              <div>
+                <div style="font-weight:600">{{ cat.label }}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">{{ cat.desc }}</div>
               </div>
-              <DiagnosticCard
-                v-if="diagResults[model] && diagResults[model].status !== 'pending' && diagResults[model].status !== 'running'"
-                :report="diagResults[model]"
-                :status="diagResults[model].status"
-                :overall-risk="diagResults[model].overall_risk"
-                :confidence="diagResults[model].confidence"
-              />
-            </div>
+            </label>
           </div>
         </div>
-      </template>
-      </div><!-- /tab-content-area -->
+
+        <div class="btn-group" style="margin-top:16px">
+          <button class="btn btn-ghost" v-show="!diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length || !diagCategories.length" style="color:var(--accent)">
+            开始诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型, {{ diagCategories.length }} 个类别)</span>
+          </button>
+          <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
+            <span class="result-loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></span>
+            诊断中 ({{ diagProgress.done }}/{{ diagProgress.total }})
+          </button>
+        </div>
+
+        <!-- Diagnostic Results -->
+        <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
+          <div v-for="model in selectedModels" :key="model" class="diag-result-card" :class="{ 'diag-pending': diagResults[model]?.status === 'pending' }">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
+              <span v-if="diagResults[model]?.status === 'pending'" style="color:var(--text-tertiary);font-size:11px">等待中</span>
+              <span v-else-if="diagResults[model]?.status === 'running'" style="display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px">
+                <span class="result-loading-spinner" style="width:12px;height:12px;border-width:2px"></span>
+                诊断中...
+              </span>
+            </div>
+            <DiagnosticCard
+              v-if="diagResults[model] && diagResults[model].status !== 'pending' && diagResults[model].status !== 'running'"
+              :report="diagResults[model]"
+              :status="diagResults[model].status"
+              :overall-risk="diagResults[model].overall_risk"
+              :confidence="diagResults[model].confidence"
+              :categories="diagResults[model].categories"
+              :overall-status="diagResults[model].overall_status"
+            />
+          </div>
+        </div>
+      </div>
+    </template>
 
       <ConnectivityProgress
         :running="connTest.running.value"
@@ -248,7 +258,6 @@
           </div>
         </div>
       </div>
-    </div>
 
     <!-- Live Results: Two-column model card layout -->
     <div class="test-results" v-if="modelResults.length > 0" ref="resultsRef">
@@ -338,68 +347,6 @@
         </div>
       </div>
     </div>
-    </template>
-
-    <!-- Diag Tab -->
-    <template v-if="activeTab === 'diag'">
-      <div class="diag-tab-content">
-        <div class="create-form-notice">
-          <span style="color:var(--info)">i</span>
-          <span>仅支持 Anthropic 协议。选择要测试的类别，点击开始诊断</span>
-        </div>
-
-        <!-- Category Selector -->
-        <div class="diag-category-selector" style="margin-top:12px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span style="font-size:13px;font-weight:600">测试类别</span>
-            <button class="btn btn-ghost btn-sm" @click="diagCategories = allDiagCategories.map(c => c.id)">全选</button>
-            <button class="btn btn-ghost btn-sm" @click="diagCategories = []">全不选</button>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
-            <label v-for="cat in allDiagCategories" :key="cat.id" class="diag-category-item" style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-size:12px;transition:border-color 0.15s">
-              <input type="checkbox" :value="cat.id" v-model="diagCategories" style="accent-color:var(--accent)">
-              <div>
-                <div style="font-weight:600">{{ cat.label }}</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">{{ cat.desc }}</div>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <div class="btn-group" style="margin-top:16px">
-          <button class="btn btn-ghost" v-show="!diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length || !diagCategories.length" style="color:var(--accent)">
-            开始诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型, {{ diagCategories.length }} 个类别)</span>
-          </button>
-          <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
-            <span class="result-loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></span>
-            诊断中 ({{ diagProgress.done }}/{{ diagProgress.total }})
-          </button>
-        </div>
-
-        <!-- Diagnostic Results -->
-        <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
-          <div v-for="model in selectedModels" :key="model" class="diag-result-card" :class="{ 'diag-pending': diagResults[model]?.status === 'pending' }">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
-              <span v-if="diagResults[model]?.status === 'pending'" style="color:var(--text-tertiary);font-size:11px">等待中</span>
-              <span v-else-if="diagResults[model]?.status === 'running'" style="display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px">
-                <span class="result-loading-spinner" style="width:12px;height:12px;border-width:2px"></span>
-                诊断中...
-              </span>
-            </div>
-            <DiagnosticCard
-              v-if="diagResults[model] && diagResults[model].status !== 'pending' && diagResults[model].status !== 'running'"
-              :report="diagResults[model]"
-              :status="diagResults[model].status"
-              :overall-risk="diagResults[model].overall_risk"
-              :confidence="diagResults[model].confidence"
-              :categories="diagResults[model].categories"
-              :overall-status="diagResults[model].overall_status"
-            />
-          </div>
-        </div>
-      </div>
-    </template>
   </div>
 </template>
 
