@@ -86,7 +86,6 @@ import {
 const props = defineProps({
   report: { type: Object, default: null },
   status: { type: String, default: 'pending' },
-  overallRisk: { type: String, default: '' },
   confidence: { type: Number, default: null },
   categories: { type: Array, default: null },
   overallStatus: { type: String, default: '' },
