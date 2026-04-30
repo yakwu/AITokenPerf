@@ -11,7 +11,7 @@ from httpx import AsyncClient, ASGITransport
 _tmpdir = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmpdir}/test.db"
 os.environ["LOG_MODE"] = "stdout"
-os.environ["JWT_SECRET"] = "test-secret-key"
+os.environ["JWT_SECRET"] = "test-secret-key-with-at-least-32-bytes"
 
 import asyncio  # noqa: E402
 
