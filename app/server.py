@@ -5,7 +5,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -30,11 +29,11 @@ from app.db import save_result as db_save_result, get_results as db_get_results
 from app.db import get_results_aggregated as db_get_results_aggregated
 from app.db import get_result_by_filename, delete_result as db_delete_result
 from app.db import get_settings, save_settings
+from app.db import save_channel_diagnostic, get_channel_diagnostic, list_channel_diagnostics, list_diagnostic_filter_options
+from app.diagnostics import run_diagnostics, get_available_categories
 from app.db import get_sites_summary as db_get_sites_summary
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
 from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
-from app.db import save_channel_diagnostic, get_channel_diagnostic, list_channel_diagnostics, list_diagnostic_filter_options
-from app.channel_diagnostics import run_cache_diagnostics
 from app.auth import get_current_user, require_admin, hash_password, verify_password, create_jwt_token, decode_jwt_token
 from app.auth import _is_public_path
 from app.config import (
@@ -50,7 +49,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 CONNECTION_KEYS = ("base_url", "api_key", "model", "api_version", "provider", "protocol", "custom_endpoint")
 BENCHMARK_KEYS = ("mode", "concurrency_levels", "duration", "max_tokens",
-                   "timeout", "connector_limit", "system_prompt", "user_prompt", "cache_test")
+                   "timeout", "connector_limit", "system_prompt", "user_prompt")
 
 
 @dataclass
@@ -335,13 +334,11 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
 
         task.total_levels = len(concurrency_levels)
 
-        connector_kwargs = {
-            "limit": config.get("connector_limit", 1200),
-            "force_close": False,
-        }
-        if sys.version_info < (3, 12, 7) or (3, 13, 0) <= sys.version_info < (3, 13, 1):
-            connector_kwargs["enable_cleanup_closed"] = True
-        connector = aiohttp_lib.TCPConnector(**connector_kwargs)
+        connector = aiohttp_lib.TCPConnector(
+            limit=config.get("connector_limit", 1200),
+            force_close=False,
+            enable_cleanup_closed=True,
+        )
 
         async with aiohttp_lib.ClientSession(connector=connector) as session:
             for idx, level in enumerate(concurrency_levels):
@@ -967,6 +964,7 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
         return JSONResponse({"error": "profile_name is required"}, status_code=400)
 
     model = (body.get("model") or "").strip()
+    categories = body.get("categories")  # optional list of category strings
 
     profile = await _get_user_profile_by_name(user["user_id"], profile_name)
     if not profile:
@@ -986,29 +984,57 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
     }
 
     try:
-        result = await run_cache_diagnostics(diag_config)
+        result = await run_diagnostics(diag_config, categories=categories)
     except Exception as e:
         log.exception("Channel diagnostics failed")
         return JSONResponse({"error": f"Diagnostics failed: {str(e)}"}, status_code=500)
 
+    # Build the new categories-based response
     report_dict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile_name": profile_name,
         "model": model,
-        "dimensions": {
-            "cache": result.report,
-        },
+        "categories": [
+            {
+                "category": cat.category,
+                "display_name": cat.display_name,
+                "status": cat.status,
+                "summary": cat.summary,
+                "probes": [
+                    {
+                        "name": p.name,
+                        "display_name": p.display_name,
+                        "status": p.status,
+                        "latency_ms": p.latency_ms,
+                        "ttft_ms": p.ttft_ms,
+                        "detail": p.detail,
+                        "usage": {
+                            "input_tokens": p.input_tokens,
+                            "output_tokens": p.output_tokens,
+                            "cache_read_input_tokens": p.cache_read_tokens,
+                            "cache_creation_input_tokens": p.cache_creation_tokens,
+                        },
+                        "raw_usage": p.raw_usage,
+                        "request_preview": p.request_preview,
+                        "response_preview": p.response_preview,
+                    }
+                    for p in cat.probes
+                ],
+            }
+            for cat in result.categories
+        ],
+        # Backward-compatible flat probes list
         "probes": [
             {
                 "name": p.name,
+                "display_name": p.display_name,
                 "status": p.status,
                 "latency_ms": p.latency_ms,
-                "sent_chars": p.sent_chars,
-                "expected_system_tokens": p.expected_system_tokens,
-                "expected_user_tokens": p.expected_user_tokens,
-                "expected_total_tokens": p.expected_total_tokens,
+                "ttft_ms": p.ttft_ms,
+                "detail": p.detail,
                 "usage": {
                     "input_tokens": p.input_tokens,
+                    "output_tokens": p.output_tokens,
                     "cache_read_input_tokens": p.cache_read_tokens,
                     "cache_creation_input_tokens": p.cache_creation_tokens,
                 },
@@ -1016,7 +1042,7 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
                 "request_preview": p.request_preview,
                 "response_preview": p.response_preview,
             }
-            for p in result.probes
+            for cat in result.categories for p in cat.probes
         ],
     }
 
@@ -1024,28 +1050,32 @@ async def create_channel_diagnostic(request: Request, user: dict = Depends(get_c
         user_id=user["user_id"],
         profile_name=profile_name,
         model=model,
-        status=result.status,
+        status=result.overall_status,
         overall_risk=result.overall_risk,
         confidence=result.confidence,
         report_json=report_dict,
     )
 
-    cache_hit_rate = result.report.get("prompt_cache", {}).get("hit_rate", 0)
+    # Backward-compatible cache summary
+    cache_category = next(
+        (cat for cat in result.categories if cat.category == "cache"), None
+    )
+    cache_hit_rate = 0
+    if cache_category:
+        cache_hit_rate = cache_category.summary.get("prompt_cache", {}).get("hit_rate", 0)
 
     return {
         "diagnostic_id": diag_id,
-        "status": result.status,
+        "status": result.overall_status,
         "overall_risk": result.overall_risk,
         "confidence": result.confidence,
         "cache_hit_rate": cache_hit_rate,
         "run_tag": result.run_tag,
         "summary": {
-            "cache": result.report.get("prompt_cache", {}).get("status", "inconclusive"),
+            "cache": cache_category.status if cache_category else "inconclusive",
         },
-        "probes": report_dict.get("probes", []),
-        "prompt_cache": result.report.get("prompt_cache", {}),
-        "response_cache": result.report.get("response_cache", {}),
-        "proxy_cache": result.report.get("proxy_cache", {}),
+        "categories": report_dict["categories"],
+        "probes": report_dict["probes"],
     }
 
 

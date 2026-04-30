@@ -1,5 +1,13 @@
 <template>
   <div class="site-test-tab">
+    <!-- Internal Tabs -->
+    <div class="site-test-internal-tabs">
+      <button class="site-test-internal-tab" :class="{ active: activeTab === 'test' }" @click="activeTab = 'test'">性能测试</button>
+      <button class="site-test-internal-tab" :class="{ active: activeTab === 'diag' }" @click="activeTab = 'diag'">诊断</button>
+    </div>
+
+    <!-- Test Tab -->
+    <template v-if="activeTab === 'test'">
     <div class="card">
       <div class="card-header">
         <div class="card-title">测试配置</div>
@@ -330,6 +338,70 @@
         </div>
       </div>
     </div>
+    </template>
+
+    <!-- Diag Tab -->
+    <template v-if="activeTab === 'diag'">
+      <div class="diag-tab-content">
+        <div class="create-form-notice">
+          <span style="color:var(--info)">i</span>
+          <span>仅支持 Anthropic 协议。选择要测试的类别，点击开始诊断</span>
+        </div>
+
+        <!-- Category Selector -->
+        <div class="diag-category-selector" style="margin-top:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:13px;font-weight:600">测试类别</span>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-ghost btn-sm" @click="diagCategories = allDiagCategories.map(c => c.id)">全选</button>
+              <button class="btn btn-ghost btn-sm" @click="diagCategories = []">全不选</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+            <label v-for="cat in allDiagCategories" :key="cat.id" class="diag-category-item" style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-size:12px;transition:border-color 0.15s">
+              <input type="checkbox" :value="cat.id" v-model="diagCategories" style="accent-color:var(--accent)">
+              <div>
+                <div style="font-weight:600">{{ cat.label }}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">{{ cat.desc }}</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="btn-group" style="margin-top:16px">
+          <button class="btn btn-ghost" v-show="!diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length || !diagCategories.length" style="color:var(--accent)">
+            开始诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型, {{ diagCategories.length }} 个类别)</span>
+          </button>
+          <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
+            <span class="result-loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></span>
+            诊断中 ({{ diagProgress.done }}/{{ diagProgress.total }})
+          </button>
+        </div>
+
+        <!-- Diagnostic Results -->
+        <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
+          <div v-for="model in selectedModels" :key="model" class="diag-result-card" :class="{ 'diag-pending': diagResults[model]?.status === 'pending' }">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
+              <span v-if="diagResults[model]?.status === 'pending'" style="color:var(--text-tertiary);font-size:11px">等待中</span>
+              <span v-else-if="diagResults[model]?.status === 'running'" style="display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px">
+                <span class="result-loading-spinner" style="width:12px;height:12px;border-width:2px"></span>
+                诊断中...
+              </span>
+            </div>
+            <DiagnosticCard
+              v-if="diagResults[model] && diagResults[model].status !== 'pending' && diagResults[model].status !== 'running'"
+              :report="diagResults[model]"
+              :status="diagResults[model].status"
+              :overall-risk="diagResults[model].overall_risk"
+              :confidence="diagResults[model].confidence"
+              :categories="diagResults[model].categories"
+              :overall-status="diagResults[model].overall_status"
+            />
+          </div>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -442,6 +514,21 @@ const diagRunning = ref(false);
 const diagResults = ref({}); // { modelName: result }
 const diagCurrentModel = ref('');
 const diagProgress = ref({ done: 0, total: 0 });
+
+// ---- Diagnostics state ----
+const activeTab = ref('test');
+const diagCategories = ref(['connectivity', 'streaming', 'context', 'tool_use', 'structured', 'cache'])
+const allDiagCategories = [
+  { id: 'connectivity', label: '连通性', desc: '基础连通验证' },
+  { id: 'streaming', label: '流式传输', desc: '流式长输出' },
+  { id: 'context', label: '多轮上下文', desc: '6轮对话' },
+  { id: 'tool_use', label: '工具调用', desc: 'function calling' },
+  { id: 'structured', label: '结构化输出', desc: 'JSON 输出' },
+  { id: 'cache', label: 'Prompt Cache', desc: '缓存诊断' },
+]
+const diagRunning = ref(false)
+const diagProgress = ref({ done: 0, total: 0 })
+const diagResults = ref({})
 
 // ---- Running state ----
 const running = ref(false);
@@ -693,6 +780,61 @@ async function stopBench() {
   }
   running.value = false;
   toast('正在停止...', 'info');
+}
+
+// ---- Diagnostics ----
+async function runDiagnostics() {
+  if (!selectedModels.value.length) {
+    toast('请至少选择一个模型', 'info')
+    return
+  }
+  if (!diagCategories.value.length) {
+    toast('请至少选择一个测试类别', 'info')
+    return
+  }
+  if (!props.profile.base_url) {
+    toast('站点缺少目标地址', 'error')
+    return
+  }
+
+  diagRunning.value = true
+  diagProgress.value = { done: 0, total: selectedModels.value.length }
+  diagResults.value = {}
+  // Initialize pending state for all models
+  for (const m of selectedModels.value) {
+    diagResults.value[m] = { status: 'pending' }
+  }
+
+  try {
+    // Run diagnostics for each model sequentially
+    for (const model of selectedModels.value) {
+      diagResults.value[model] = { ...diagResults.value[model], status: 'running' }
+      try {
+        const res = await api('/api/diagnostics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile_name: props.profile.name,
+            model,
+            categories: diagCategories.value,
+          }),
+        })
+        if (res.error) {
+          diagResults.value[model] = { status: 'error', error: res.error }
+        } else {
+          diagResults.value[model] = res
+        }
+      } catch (e) {
+        diagResults.value[model] = { status: 'error', error: e.message }
+      }
+      diagProgress.value.done++
+    }
+    toast('诊断完成！', 'success')
+  } catch (e) {
+    toast(`诊断失败: ${e.message}`, 'error')
+  }
+
+  diagRunning.value = false
 }
 
 function stopSSE() {
@@ -1194,5 +1336,67 @@ onUnmounted(() => {
   .result-core-metrics {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+/* ---- Internal Tabs ---- */
+.site-test-internal-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.site-test-internal-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.site-test-internal-tab:hover {
+  color: var(--text-primary);
+}
+
+.site-test-internal-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---- Diagnostics Tab ---- */
+.diag-tab-content {
+  animation: fadeIn 0.15s ease;
+}
+
+.create-form-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+}
+
+.diag-category-item:hover {
+  border-color: var(--accent) !important;
+}
+
+.diag-result-card {
+  background: var(--surface-raised, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.diag-result-card.diag-pending {
+  opacity: 0.5;
 }
 </style>
