@@ -22,7 +22,7 @@ const mockDiagnosticsResponse = {
       ],
     },
     {
-      category: 'multi_turn',
+      category: 'context',
       status: 'passed',
       probes: [
         { name: '上下文保持', status: 'passed', detail: '上下文正常', latency_ms: 150000 },
@@ -36,14 +36,14 @@ const mockDiagnosticsResponse = {
       ],
     },
     {
-      category: 'structured_output',
+      category: 'structured',
       status: 'passed',
       probes: [
         { name: 'JSON 输出', status: 'passed', detail: 'JSON 格式正确', latency_ms: 180000 },
       ],
     },
     {
-      category: 'prompt_cache',
+      category: 'cache',
       status: 'passed',
       probes: [
         { name: '缓存命中', status: 'passed', detail: '缓存正常', latency_ms: 50000 },
