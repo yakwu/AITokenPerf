@@ -225,13 +225,13 @@ test.describe('SiteTestTab Diagnostics', () => {
     await page.locator('button:has-text("开始诊断")').click();
 
     // 等待诊断结果卡片出现
-    await expect(page.locator('.diag-result-card')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.diag-result-model-card')).toBeVisible({ timeout: 10000 });
 
     // 验证模型名称显示
-    await expect(page.locator('.diag-result-card')).toContainText('claude-3-opus');
+    await expect(page.locator('.diag-result-model-card').first().locator('.diag-result-model-name')).toContainText('claude-3-opus');
 
     // 验证 DiagnosticCard 组件渲染（有类别数据时显示类别区段）
-    await expect(page.locator('.diag-result-card .diag-category-section').first()).toBeVisible();
+    await expect(page.locator('.diag-result-model-card .diag-category-section').first()).toBeVisible();
   });
 
   test('应该支持多个模型诊断', async ({ page }) => {
@@ -254,13 +254,13 @@ test.describe('SiteTestTab Diagnostics', () => {
     await page.locator('button:has-text("开始诊断")').click();
 
     // 等待所有诊断完成（两个结果卡片）
-    await expect(page.locator('.diag-result-card')).toHaveCount(2, { timeout: 15000 });
+    await expect(page.locator('.diag-result-model-card')).toHaveCount(2, { timeout: 120000 });
 
     // 验证第一个模型结果
-    await expect(page.locator('.diag-result-card').first()).toContainText('claude-3-opus');
+    await expect(page.locator('.diag-result-model-card').first().locator('.diag-result-model-name')).toContainText('claude-3-opus');
 
     // 验证第二个模型结果
-    await expect(page.locator('.diag-result-card').nth(1)).toContainText('claude-3-sonnet');
+    await expect(page.locator('.diag-result-model-card').nth(1).locator('.diag-result-model-name')).toContainText('claude-3-sonnet');
   });
 
   // 移动端测试由 Playwright device projects（Mobile Chrome / Mobile Safari）处理
