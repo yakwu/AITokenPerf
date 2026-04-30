@@ -2,12 +2,26 @@
   <div class="diag-result-card" :class="{ 'diag-pending': status === 'pending' }">
     <!-- Category-based rendering (new) -->
     <template v-if="categories && categories.length">
-      <!-- Overall bar -->
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-        <span :style="'background:' + diagStatusColor(overallStatus || status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
-          {{ overallStatusLabel || diagStatusLabel(overallStatus || status) }}
-        </span>
-        <span v-if="confidence != null" style="font-size:12px;color:var(--text-secondary)">置信度: <strong>{{ (confidence * 100).toFixed(0) }}%</strong></span>
+      <!-- 渐变头部 -->
+      <div class="diag-header" :class="'diag-header--' + (overallStatus || status)">
+        <div class="diag-header-main">
+          <div class="diag-header-status">
+            {{ overallStatusLabel || diagStatusLabel(overallStatus || status) }}
+          </div>
+          <div v-if="confidence != null" class="diag-header-confidence">
+            置信度 {{ (confidence * 100).toFixed(0) }}%
+          </div>
+        </div>
+        <div class="diag-header-stats" v-if="categories && categories.length">
+          <div class="diag-header-stat">
+            <div class="diag-header-stat-value">{{ categories.length }}</div>
+            <div class="diag-header-stat-label">类别</div>
+          </div>
+          <div class="diag-header-stat">
+            <div class="diag-header-stat-value">{{ totalProbes }}</div>
+            <div class="diag-header-stat-label">探针</div>
+          </div>
+        </div>
       </div>
 
       <!-- Category sections -->
@@ -121,15 +135,80 @@ const overallStatusLabel = computed(() => {
   const map = { passed: '全部通过', warning: '部分存疑', failed: '存在失败', error: '诊断出错' }
   return map[props.overallStatus] || props.overallStatus
 })
+
+const totalProbes = computed(() => {
+  if (!props.categories) return 0
+  return props.categories.reduce((sum, cat) => sum + (cat.probes?.length || 0), 0)
+})
 </script>
 
 <style scoped>
 .diag-result-card {
   background: var(--surface-raised, var(--bg));
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
   font-size: 12px;
+}
+
+/* 渐变头部 */
+.diag-header {
+  padding: 20px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.diag-header--passed {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+}
+
+.diag-header--warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.diag-header--failed,
+.diag-header--error {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.diag-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diag-header-status {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.diag-header-confidence {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.diag-header-stats {
+  display: flex;
+  gap: 24px;
+}
+
+.diag-header-stat {
+  text-align: center;
+}
+
+.diag-header-stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.diag-header-stat-label {
+  font-size: 11px;
+  opacity: 0.9;
+  margin-top: 4px;
 }
 
 .diag-result-card.diag-pending {
