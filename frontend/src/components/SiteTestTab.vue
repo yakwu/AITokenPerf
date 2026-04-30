@@ -287,27 +287,33 @@
 
         <!-- Category Selector -->
         <div class="diag-category-selector" style="margin-top:12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <span style="font-size:13px;font-weight:600">测试类别</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <span style="font-size:14px;font-weight:600">测试类别</span>
             <div style="display:flex;gap:8px">
               <button class="btn btn-ghost btn-sm" @click="diagCategories = allDiagCategories.map(c => c.id)">全选</button>
               <button class="btn btn-ghost btn-sm" @click="diagCategories = []">全不选</button>
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
-            <label v-for="cat in allDiagCategories" :key="cat.id" class="diag-category-item" style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-size:12px;transition:border-color 0.15s">
-              <input type="checkbox" :value="cat.id" v-model="diagCategories" style="accent-color:var(--accent)">
-              <div>
-                <div style="font-weight:600">{{ cat.label }}</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">{{ cat.desc }}</div>
+          <div class="diag-category-grid">
+            <label
+              v-for="cat in allDiagCategories"
+              :key="cat.id"
+              class="diag-category-option"
+              :class="{ 'diag-category-option--selected': diagCategories.includes(cat.id) }"
+            >
+              <input type="checkbox" :value="cat.id" v-model="diagCategories" class="diag-category-checkbox">
+              <div class="diag-category-option-content">
+                <div class="diag-category-option-label">{{ cat.label }}</div>
+                <div class="diag-category-option-desc">{{ cat.desc }}</div>
               </div>
             </label>
           </div>
         </div>
 
         <div class="btn-group" style="margin-top:16px">
-          <button class="btn btn-ghost" v-show="!diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length || !diagCategories.length" style="color:var(--accent)">
-            开始诊断 <span style="font-weight:400;color:var(--text-tertiary)">({{ selectedModels.length }} 个模型, {{ diagCategories.length }} 个类别)</span>
+          <button class="btn btn-primary" v-show="!diagRunning" @click="runDiagnostics()" :disabled="!selectedModels.length || !diagCategories.length">
+            开始诊断
+            <span style="font-weight:400;opacity:0.9">({{ selectedModels.length }} 个模型, {{ diagCategories.length }} 个类别)</span>
           </button>
           <button class="btn btn-ghost" v-show="diagRunning" disabled style="color:var(--text-tertiary)">
             <span class="result-loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:6px"></span>
@@ -1038,8 +1044,70 @@ onUnmounted(() => {
   border: 1px solid var(--border-subtle);
 }
 
-.diag-category-item:hover {
-  border-color: var(--accent) !important;
+/* 诊断类别选择器 */
+.diag-category-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.diag-category-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--bg);
+}
+
+.diag-category-option:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg, #eff6ff);
+}
+
+.diag-category-option--selected {
+  border-color: var(--accent);
+  background: var(--accent-bg, #eff6ff);
+}
+
+.diag-category-checkbox {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.diag-category-option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diag-category-option-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.diag-category-option-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .diag-category-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .diag-category-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .diag-result-card {
