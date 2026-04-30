@@ -1,17 +1,17 @@
 <template>
   <div class="diag-result-card" :class="{ 'diag-pending': status === 'pending' }">
     <!-- Category-based rendering (new) -->
-    <template v-if="categories && categories.length">
+    <template v-if="effectiveCategories && effectiveCategories.length">
       <!-- Overall bar -->
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-        <span :style="'background:' + diagStatusColor(overallStatus || status) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
-          {{ overallStatusLabel || diagStatusLabel(overallStatus || status) }}
+        <span :style="'background:' + diagStatusColor(effectiveOverallStatus) + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'">
+          {{ overallStatusLabel || diagStatusLabel(effectiveOverallStatus) }}
         </span>
         <span v-if="confidence != null" style="font-size:12px;color:var(--text-secondary)">置信度: <strong>{{ (confidence * 100).toFixed(0) }}%</strong></span>
       </div>
 
       <!-- Category sections -->
-      <div v-for="cat in categories" :key="cat.category" class="diag-category-section" style="border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:6px;overflow:hidden">
+      <div v-for="cat in effectiveCategories" :key="cat.category" class="diag-category-section" style="border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:6px;overflow:hidden">
         <div class="diag-cat-header" @click="toggleCategory(cat.category)" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;user-select:none;font-size:12px">
           <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0" :style="'background:' + categoryStatusColor(cat.status)"></span>
           <span style="font-weight:600">{{ categoryLabel(cat.category) }}</span>
@@ -161,6 +161,18 @@ const props = defineProps({
 })
 
 const expandedCategories = ref(new Set(['connectivity', 'streaming', 'context', 'tool_use', 'structured', 'cache']))
+
+const effectiveCategories = computed(() => {
+  if (props.categories && props.categories.length) return props.categories
+  if (props.report?.categories?.length) return props.report.categories
+  return null
+})
+
+const effectiveOverallStatus = computed(() => {
+  if (props.overallStatus) return props.overallStatus
+  if (props.report?.overall_status) return props.report.overall_status
+  return props.status
+})
 const expandedProbes = ref(new Set())
 
 function toggleCategory(catId) {
@@ -191,9 +203,10 @@ function probeStatusIcon(status) {
 }
 
 const overallStatusLabel = computed(() => {
-  if (!props.overallStatus) return ''
+  const s = effectiveOverallStatus.value
+  if (!s) return ''
   const map = { passed: '全部通过', warning: '部分存疑', failed: '存在失败', error: '诊断出错' }
-  return map[props.overallStatus] || props.overallStatus
+  return map[s] || s
 })
 </script>
 
