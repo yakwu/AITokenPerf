@@ -173,12 +173,9 @@ import { useAppStore } from '../stores/app.js';
 import { useTimeRangeStore } from '../stores/timeRange.js';
 import { toast } from '../composables/useToast.js';
 import {
-  fmtTime, fmtTimestamp, fmtPct, fmtNum, fmtBigNum, fmtCostShort,
-  escHtml, qualityColorStyle, latencyColorStyle
+  fmtTime, fmtTimestamp, fmtPct, fmtNum, fmtCostShort,
 } from '../utils/formatters.js';
 import { renderResultDetail } from '../utils/resultDetail.js';
-import { Chart, registerables } from 'chart.js';
-Chart.register(...registerables);
 import FilterDropdown from '../components/FilterDropdown.vue';
 
 const store = useAppStore();
@@ -314,11 +311,6 @@ const compareData = computed(() => {
 });
 
 // ---- Helpers ----
-function successRateStyle(rate) {
-  if (rate == null) return '';
-  return rate >= 95 ? 'color:var(--success)' : rate >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
-}
-
 function successRateClass(rate) {
   if (rate == null) return '';
   return rate >= 95 ? 'success' : rate >= 80 ? 'warning' : 'danger';
@@ -408,23 +400,6 @@ function rerunAtSite(r) {
   router.push('/sites/' + encodeURIComponent(profileName));
 }
 
-function getCompareCellClass(metric, records) {
-  if (metric.higherIsBetter === null) return '';
-  const vals = records.map(r => metric.getValue(r));
-  const current = metric.getValue(records[arguments[2]]);
-  if (current == null) return '';
-  const nonNull = vals.filter(v => v != null);
-  if (nonNull.length < 2) return '';
-  if (metric.higherIsBetter) {
-    const best = Math.max(...nonNull);
-    if (current === best) return 'compare-best';
-  } else {
-    const best = Math.min(...nonNull);
-    if (current === best) return 'compare-best';
-  }
-  return '';
-}
-
 function getPctDiff(metric, records, idx) {
   if (metric.higherIsBetter === null) return null;
   const vals = records.map(r => metric.getValue(r));
@@ -443,13 +418,6 @@ function getPctDiff(metric, records, idx) {
   const diff = ((current - best) / Math.abs(best)) * 100;
   if (Math.abs(diff) < 0.1) return null;
   return diff > 0 ? `+${diff.toFixed(0)}%` : `${diff.toFixed(0)}%`;
-}
-
-function removeCompareItem(idx) {
-  compareSet.delete(idx);
-  if (compareSet.size < 2) {
-    showCompareView.value = false;
-  }
 }
 
 function compareTagLabel(r) {
@@ -491,7 +459,7 @@ function isPositiveDiff(metric, records, idx) {
 
 function rerunResult(r) {
   const c = r.config || {};
-  const profileName = c.profile_name || c.profile_name || '';
+  const profileName = c.profile_name || '';
   if (profileName) {
     router.push(`/sites/${encodeURIComponent(profileName)}`);
   } else {
@@ -520,115 +488,10 @@ async function confirmDelete(filename) {
   refresh();
 }
 
-function openCompare() {
-  const list = filtered.value;
-  const selected = [...compareSet].map(i => list[i]).filter(Boolean);
-  if (selected.length < 2) { toast('请至少选择 2 条记录', 'info'); return; }
-
-  const el = document.getElementById('compareContent');
-  let html = '<div class="table-wrap"><table class="pct-table"><thead><tr><th style="text-transform:none">指标</th>';
-  selected.forEach(r => {
-    const c = r.config || {};
-    const taskLabel = r.schedule_name || '';
-    const nameLabel = c.profile_name || c.model || '?';
-    html += `<th style="text-transform:none">${taskLabel ? '<div style="font-size:11px;color:var(--accent);margin-bottom:2px;font-weight:600">' + escHtml(taskLabel) + '</div>' : ''}${escHtml(nameLabel)}<br><small style="font-weight:400;text-transform:none">${escHtml(String(c.concurrency || '?'))}c · ${escHtml(fmtTimestamp(r.timestamp).slice(5))}</small></th>`;
-  });
-  html += '</tr></thead><tbody>';
-
-  const rows = [
-    ['成功率', r => fmtPct(r.summary?.success_rate), r => r.summary?.success_rate, true],
-    ['吞吐量', r => fmtNum(r.summary?.throughput_rps) + ' /s', r => r.summary?.throughput_rps, true],
-    ['Token 速率', r => fmtNum(r.summary?.token_throughput_tps, 0) + ' t/s', r => r.summary?.token_throughput_tps, true],
-    ['TTFT P50', r => fmtTime(r.percentiles?.TTFT?.P50), r => r.percentiles?.TTFT?.P50, false],
-    ['TTFT P95', r => fmtTime(r.percentiles?.TTFT?.P95), r => r.percentiles?.TTFT?.P95, false],
-    ['TTFT P99', r => fmtTime(r.percentiles?.TTFT?.P99), r => r.percentiles?.TTFT?.P99, false],
-    ['TPOT P50', r => fmtTime(r.percentiles?.TPOT?.P50), r => r.percentiles?.TPOT?.P50, false],
-    ['TPOT P95', r => fmtTime(r.percentiles?.TPOT?.P95), r => r.percentiles?.TPOT?.P95, false],
-    ['E2E P50', r => fmtTime(r.percentiles?.E2E?.P50), r => r.percentiles?.E2E?.P50, false],
-    ['E2E P95', r => fmtTime(r.percentiles?.E2E?.P95), r => r.percentiles?.E2E?.P95, false],
-    ['E2E P99', r => fmtTime(r.percentiles?.E2E?.P99), r => r.percentiles?.E2E?.P99, false],
-    ['平均输出 Tokens', r => fmtNum(r.summary?.avg_output_tokens, 0), r => r.summary?.avg_output_tokens, null],
-    ['输入 Tokens (P50)', r => fmtNum(r.summary?.input_tokens?.P50, 0), r => r.summary?.input_tokens?.P50, null],
-    ['输出 Tokens (P50)', r => fmtNum(r.summary?.output_tokens?.P50, 0), r => r.summary?.output_tokens?.P50, null],
-    ['总输入 Tokens', r => fmtBigNum(r.summary?.total_input_tokens), r => r.summary?.total_input_tokens, null],
-    ['总输出 Tokens', r => fmtBigNum(r.summary?.total_output_tokens), r => r.summary?.total_output_tokens, null],
-  ];
-
-  rows.forEach(([label, fmtFn, valFn, higherIsBetter]) => {
-    html += `<tr><td>${label}</td>`;
-    let bestIdx = -1, worstIdx = -1;
-    if (higherIsBetter !== null && selected.length >= 2) {
-      const vals = selected.map(r => valFn(r) ?? null);
-      const hasAny = vals.some(v => v != null);
-      if (hasAny) {
-        const nonNull = vals.map((v, i) => [v, i]).filter(([v]) => v != null);
-        if (nonNull.length >= 2) {
-          nonNull.sort((a, b) => higherIsBetter ? b[0] - a[0] : a[0] - b[0]);
-          bestIdx = nonNull[0][1];
-          worstIdx = nonNull[nonNull.length - 1][1];
-          if (bestIdx === worstIdx) { bestIdx = -1; worstIdx = -1; }
-        }
-      }
-    }
-    selected.forEach((r, i) => {
-      let cls = '';
-      if (i === bestIdx) cls = ' class="compare-best"';
-      else if (i === worstIdx) cls = ' class="compare-worst"';
-      html += `<td${cls}>${fmtFn(r)}</td>`;
-    });
-    html += '</tr>';
-  });
-
-  html += '</tbody></table></div>';
-  html += `<div style="margin-top:20px"><div class="card-title" style="margin-bottom:4px">TTFT & E2E 对比</div><div class="chart-container"><canvas id="compareChart"></canvas></div></div>`;
-
-  el.innerHTML = html;
-  document.getElementById('compareOverlay').classList.add('open');
-
-  setTimeout(() => {
-    const canvas = document.getElementById('compareChart');
-    if (!canvas) return;
-    const labels = selected.map(r => {
-      const name = r.schedule_name || r.config?.profile_name || r.config?.model || '?';
-      return `${name.slice(-16)} ${r.config?.concurrency || '?'}c`;
-    });
-    new Chart(canvas, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [
-            { label: 'TTFT P50', data: selected.map(r => r.percentiles?.TTFT?.P50 || 0), backgroundColor: '#3B7DD644', borderColor: '#3B7DD6', borderWidth: 2, borderRadius: 4 },
-            { label: 'TTFT P95', data: selected.map(r => r.percentiles?.TTFT?.P95 || 0), backgroundColor: '#F59E3B44', borderColor: '#F59E3B', borderWidth: 2, borderRadius: 4 },
-            { label: 'E2E P50', data: selected.map(r => r.percentiles?.E2E?.P50 || 0), backgroundColor: '#E85D2644', borderColor: '#E85D26', borderWidth: 2, borderRadius: 4 },
-            { label: 'E2E P95', data: selected.map(r => r.percentiles?.E2E?.P95 || 0), backgroundColor: '#D63B3B44', borderColor: '#D63B3B', borderWidth: 2, borderRadius: 4 },
-          ]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'top', labels: { font: { family: "'DM Sans'" }, usePointStyle: true, pointStyle: 'rectRounded' } },
-            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtTime(ctx.parsed.y)}` } }
-          },
-          scales: {
-            y: { title: { display: true, text: 'Seconds' }, grid: { color: '#F0EEE9' }, ticks: { callback: v => fmtTime(v) } },
-            x: { grid: { display: false } }
-          }
-        }
-      });
-  }, 50);
-}
-
 function _showDetailOverlay(detail) {
   window.showDetailOverlay(renderResultDetail(detail));
 }
 
-function closeDetailOverlay() {
-  document.getElementById('detailOverlay')?.classList.remove('open');
-}
-
-function closeCompare() {
-  document.getElementById('compareOverlay')?.classList.remove('open');
-}
 
 // ---- Auto-compare from multi-bench results ----
 function tryAutoCompare() {
@@ -668,11 +531,9 @@ function tryAutoExpand() {
 
   if (foundIdx >= 0) {
     if (foundChildIdx >= 0) {
-      // Child in a group: expand group then show child detail
-      toggleGroupExpand(foundIdx);
-      nextTick(() => {
-        toggleGroupChildDetail(foundIdx, foundChildIdx);
-      });
+      // TODO: group expansion not yet implemented (toggleGroupExpand/toggleGroupChildDetail don't exist)
+      // Fallback: expand the parent record
+      toggleDetail(foundIdx);
     } else {
       toggleDetail(foundIdx);
     }
