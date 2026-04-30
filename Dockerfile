@@ -14,6 +14,9 @@ RUN bun run build
 # ---- 运行阶段 ----
 FROM python:3.12-slim
 
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
     ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
