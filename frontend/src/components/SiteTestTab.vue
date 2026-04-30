@@ -147,6 +147,10 @@
 
     <!-- Diagnostics Tab -->
     <template v-if="activeTab === 'diag'">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">渠道诊断</div>
+      </div>
       <div class="diag-tab-content">
         <div class="create-form-notice">
           <span style="color:var(--info)">i</span>
@@ -204,6 +208,7 @@
           </div>
         </div>
       </div>
+    </div>
     </template>
 
       <ConnectivityProgress
