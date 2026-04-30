@@ -515,8 +515,7 @@ const diagResults = ref({}); // { modelName: result }
 const diagCurrentModel = ref('');
 const diagProgress = ref({ done: 0, total: 0 });
 
-// ---- Diagnostics state ----
-const activeTab = ref('test');
+// ---- Diagnostics categories ----
 const diagCategories = ref(['connectivity', 'streaming', 'context', 'tool_use', 'structured', 'cache'])
 const allDiagCategories = [
   { id: 'connectivity', label: '连通性', desc: '基础连通验证' },
@@ -526,9 +525,6 @@ const allDiagCategories = [
   { id: 'structured', label: '结构化输出', desc: 'JSON 输出' },
   { id: 'cache', label: 'Prompt Cache', desc: '缓存诊断' },
 ]
-const diagRunning = ref(false)
-const diagProgress = ref({ done: 0, total: 0 })
-const diagResults = ref({})
 
 // ---- Running state ----
 const running = ref(false);
@@ -662,6 +658,10 @@ async function runDiagnostics() {
     toast('请至少选择一个模型', 'info');
     return;
   }
+  if (!diagCategories.value.length) {
+    toast('请至少选择一个测试类别', 'info');
+    return;
+  }
   diagRunning.value = true;
   // 先把所有模型标记为 pending，让用户看到完整队列
   const initResults = {};
@@ -780,61 +780,6 @@ async function stopBench() {
   }
   running.value = false;
   toast('正在停止...', 'info');
-}
-
-// ---- Diagnostics ----
-async function runDiagnostics() {
-  if (!selectedModels.value.length) {
-    toast('请至少选择一个模型', 'info')
-    return
-  }
-  if (!diagCategories.value.length) {
-    toast('请至少选择一个测试类别', 'info')
-    return
-  }
-  if (!props.profile.base_url) {
-    toast('站点缺少目标地址', 'error')
-    return
-  }
-
-  diagRunning.value = true
-  diagProgress.value = { done: 0, total: selectedModels.value.length }
-  diagResults.value = {}
-  // Initialize pending state for all models
-  for (const m of selectedModels.value) {
-    diagResults.value[m] = { status: 'pending' }
-  }
-
-  try {
-    // Run diagnostics for each model sequentially
-    for (const model of selectedModels.value) {
-      diagResults.value[model] = { ...diagResults.value[model], status: 'running' }
-      try {
-        const res = await api('/api/diagnostics', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            profile_name: props.profile.name,
-            model,
-            categories: diagCategories.value,
-          }),
-        })
-        if (res.error) {
-          diagResults.value[model] = { status: 'error', error: res.error }
-        } else {
-          diagResults.value[model] = res
-        }
-      } catch (e) {
-        diagResults.value[model] = { status: 'error', error: e.message }
-      }
-      diagProgress.value.done++
-    }
-    toast('诊断完成！', 'success')
-  } catch (e) {
-    toast(`诊断失败: ${e.message}`, 'error')
-  }
-
-  diagRunning.value = false
 }
 
 function stopSSE() {
