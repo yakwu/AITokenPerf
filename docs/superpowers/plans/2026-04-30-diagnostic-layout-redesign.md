@@ -1104,7 +1104,619 @@ git commit -m "feat: 完成诊断报表和历史布局重新设计"
 
 ---
 
+## Task 9: Playwright E2E 测试基础设置
+
+**Files:**
+- Create: `frontend/playwright.config.ts`
+- Create: `frontend/e2e/diagnostic-card.spec.ts`
+- Create: `frontend/e2e/history-view.spec.ts`
+- Create: `frontend/e2e/site-test-diag.spec.ts`
+- Modify: `frontend/package.json`
+
+- [ ] **Step 1: 创建 Playwright 配置文件**
+
+```typescript
+// frontend/playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:5173',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+    {
+      name: 'Mobile Chrome',
+      use: { ...devices['Pixel 5'] },
+    },
+    {
+      name: 'Mobile Safari',
+      use: { ...devices['iPhone 12'] },
+    },
+  ],
+  webServer: {
+    command: 'bun run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+- [ ] **Step 2: 添加 E2E 测试脚本到 package.json**
+
+在 `frontend/package.json` 的 `scripts` 中添加：
+
+```json
+{
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
+  }
+}
+```
+
+- [ ] **Step 3: 提交基础设置**
+
+```bash
+git add frontend/playwright.config.ts frontend/package.json
+git commit -m "test: 添加 Playwright E2E 测试基础配置"
+```
+
+---
+
+## Task 10: DiagnosticCard E2E 测试
+
+**Files:**
+- Create: `frontend/e2e/diagnostic-card.spec.ts`
+
+- [ ] **Step 1: 编写 DiagnosticCard E2E 测试**
+
+```typescript
+// frontend/e2e/diagnostic-card.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('DiagnosticCard', () => {
+  test.beforeEach(async ({ page }) => {
+    // 导航到站点详情页
+    await page.goto('/sites/test-site');
+    // 切换到诊断 Tab
+    await page.click('button:has-text("诊断")');
+  });
+
+  test('应该显示类别选择器', async ({ page }) => {
+    // 验证类别选择器存在
+    await expect(page.locator('.diag-category-grid')).toBeVisible();
+
+    // 验证所有类别都显示
+    const categories = page.locator('.diag-category-option');
+    await expect(categories).toHaveCount(6);
+
+    // 验证类别名称
+    await expect(page.locator('text=连通性')).toBeVisible();
+    await expect(page.locator('text=流式传输')).toBeVisible();
+    await expect(page.locator('text=多轮上下文')).toBeVisible();
+    await expect(page.locator('text=工具调用')).toBeVisible();
+    await expect(page.locator('text=结构化输出')).toBeVisible();
+    await expect(page.locator('text=Prompt Cache')).toBeVisible();
+  });
+
+  test('应该支持全选和全不选', async ({ page }) => {
+    // 点击全选
+    await page.click('button:has-text("全选")');
+
+    // 验证所有 checkbox 都被选中
+    const checkboxes = page.locator('.diag-category-checkbox');
+    for (let i = 0; i < 6; i++) {
+      await expect(checkboxes.nth(i)).toBeChecked();
+    }
+
+    // 点击全不选
+    await page.click('button:has-text("全不选")');
+
+    // 验证所有 checkbox 都未选中
+    for (let i = 0; i < 6; i++) {
+      await expect(checkboxes.nth(i)).not.toBeChecked();
+    }
+  });
+
+  test('应该支持点击类别卡片切换选中状态', async ({ page }) => {
+    // 点击连通性类别卡片
+    const connectivityCard = page.locator('.diag-category-option').first();
+    await connectivityCard.click();
+
+    // 验证 checkbox 被选中
+    await expect(connectivityCard.locator('input[type="checkbox"]')).toBeChecked();
+
+    // 再次点击取消选中
+    await connectivityCard.click();
+    await expect(connectivityCard.locator('input[type="checkbox"]')).not.toBeChecked();
+  });
+
+  test('应该显示诊断结果卡片', async ({ page }) => {
+    // 选择模型和类别
+    await page.click('button:has-text("全选")');
+
+    // 点击开始诊断
+    await page.click('button:has-text("开始诊断")');
+
+    // 等待诊断完成
+    await expect(page.locator('.diag-result-model-card')).toBeVisible({ timeout: 60000 });
+
+    // 验证 DiagnosticCard 显示
+    await expect(page.locator('.diag-result-card')).toBeVisible();
+
+    // 验证渐变头部存在
+    await expect(page.locator('.diag-header')).toBeVisible();
+
+    // 验证类别网格存在
+    await expect(page.locator('.diag-categories-grid')).toBeVisible();
+  });
+
+  test('应该支持展开和折叠类别详情', async ({ page }) => {
+    // 选择模型和类别
+    await page.click('button:has-text("全选")');
+
+    // 点击开始诊断
+    await page.click('button:has-text("开始诊断")');
+
+    // 等待诊断完成
+    await expect(page.locator('.diag-result-card')).toBeVisible({ timeout: 60000 });
+
+    // 点击类别卡片展开详情
+    const categoryCard = page.locator('.diag-category-card').first();
+    await categoryCard.click();
+
+    // 验证探针详情显示
+    await expect(page.locator('.diag-probes-detail')).toBeVisible();
+
+    // 再次点击折叠
+    await categoryCard.click();
+
+    // 验证探针详情隐藏
+    await expect(page.locator('.diag-probes-detail')).not.toBeVisible();
+  });
+
+  test('应该在移动端正确显示', async ({ page }) => {
+    // 设置移动端视口
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    // 验证类别选择器正确显示
+    await expect(page.locator('.diag-category-grid')).toBeVisible();
+
+    // 验证类别卡片垂直堆叠（移动端应该是单列）
+    const cards = page.locator('.diag-category-option');
+    const firstCard = await cards.first().boundingBox();
+    const secondCard = await cards.nth(1).boundingBox();
+
+    // 移动端应该是垂直堆叠（y 坐标不同）
+    expect(firstCard?.y).not.toBe(secondCard?.y);
+  });
+});
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+cd frontend && npx playwright test e2e/diagnostic-card.spec.ts --project=chromium
+```
+
+预期：测试失败，因为组件还没有实现新设计
+
+- [ ] **Step 3: 提交测试文件**
+
+```bash
+git add frontend/e2e/diagnostic-card.spec.ts
+git commit -m "test(DiagnosticCard): 添加 E2E 测试用例"
+```
+
+---
+
+## Task 11: HistoryView E2E 测试
+
+**Files:**
+- Create: `frontend/e2e/history-view.spec.ts`
+
+- [ ] **Step 1: 编写 HistoryView E2E 测试**
+
+```typescript
+// frontend/e2e/history-view.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('HistoryView', () => {
+  test.beforeEach(async ({ page }) => {
+    // 导航到历史记录页面
+    await page.goto('/history');
+  });
+
+  test('应该显示历史记录卡片列表', async ({ page }) => {
+    // 验证卡片容器存在
+    await expect(page.locator('.history-cards-container')).toBeVisible();
+
+    // 验证至少有一条记录
+    const cards = page.locator('.history-card');
+    await expect(cards.first()).toBeVisible();
+  });
+
+  test('应该显示关键指标', async ({ page }) => {
+    // 等待卡片加载
+    await expect(page.locator('.history-card').first()).toBeVisible();
+
+    // 验证关键指标显示
+    const firstCard = page.locator('.history-card').first();
+    await expect(firstCard.locator('text=成功率')).toBeVisible();
+    await expect(firstCard.locator('text=TTFT P50')).toBeVisible();
+    await expect(firstCard.locator('text=吞吐量')).toBeVisible();
+  });
+
+  test('应该支持搜索功能', async ({ page }) => {
+    // 输入搜索关键词
+    await page.fill('input[placeholder*="搜索"]', 'claude');
+
+    // 等待筛选结果
+    await page.waitForTimeout(500);
+
+    // 验证所有显示的卡片都包含搜索关键词
+    const cards = page.locator('.history-card');
+    const count = await cards.count();
+    for (let i = 0; i < count; i++) {
+      const text = await cards.nth(i).textContent();
+      expect(text?.toLowerCase()).toContain('claude');
+    }
+  });
+
+  test('应该支持筛选功能', async ({ page }) => {
+    // 点击模型筛选
+    await page.click('button:has-text("全部模型")');
+
+    // 选择一个模型
+    await page.click('.filter-option:has-text("claude-3-opus")');
+
+    // 等待筛选结果
+    await page.waitForTimeout(500);
+
+    // 验证所有显示的卡片都是选中的模型
+    const cards = page.locator('.history-card');
+    const count = await cards.count();
+    for (let i = 0; i < count; i++) {
+      await expect(cards.nth(i).locator('.history-card-model-name')).toContainText('claude-3-opus');
+    }
+  });
+
+  test('应该支持分页功能', async ({ page }) => {
+    // 验证分页控件存在
+    await expect(page.locator('text=共')).toBeVisible();
+
+    // 如果有多页，测试翻页
+    const nextButton = page.locator('button:has-text("下一页")');
+    if (await nextButton.isEnabled()) {
+      // 点击下一页
+      await nextButton.click();
+
+      // 验证页面变化
+      await page.waitForTimeout(500);
+
+      // 验证页码变化
+      await expect(page.locator('button.btn-primary:has-text("2")')).toBeVisible();
+    }
+  });
+
+  test('应该支持对比功能', async ({ page }) => {
+    // 选择两条记录
+    const checkboxes = page.locator('.compare-check');
+    await checkboxes.first().check();
+    await checkboxes.nth(1).check();
+
+    // 点击对比按钮
+    await page.click('button:has-text("对比")');
+
+    // 验证对比视图显示
+    await expect(page.locator('.compare-table')).toBeVisible();
+  });
+
+  test('应该支持展开详情', async ({ page }) => {
+    // 点击第一条记录
+    await page.locator('.history-card').first().click();
+
+    // 验证详情展开
+    await expect(page.locator('.history-card-detail').first()).toBeVisible();
+
+    // 再次点击折叠
+    await page.locator('.history-card').first().click();
+
+    // 验证详情折叠
+    await expect(page.locator('.history-card-detail').first()).not.toBeVisible();
+  });
+
+  test('应该支持删除功能', async ({ page }) => {
+    // 点击删除按钮
+    await page.locator('.history-card').first().locator('button:has-text("✕")').click();
+
+    // 验证确认删除提示
+    await expect(page.locator('text=确认删除')).toBeVisible();
+
+    // 等待 3 秒后自动取消
+    await page.waitForTimeout(3500);
+
+    // 验证确认删除提示消失
+    await expect(page.locator('text=确认删除')).not.toBeVisible();
+  });
+
+  test('应该在移动端正确显示', async ({ page }) => {
+    // 设置移动端视口
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    // 验证卡片正确显示
+    await expect(page.locator('.history-card').first()).toBeVisible();
+
+    // 验证关键指标垂直排列
+    const firstCard = page.locator('.history-card').first();
+    const metrics = firstCard.locator('.history-card-metric');
+    const firstMetric = await metrics.first().boundingBox();
+    const secondMetric = await metrics.nth(1).boundingBox();
+
+    // 移动端应该是垂直排列（y 坐标不同）
+    expect(firstMetric?.y).not.toBe(secondMetric?.y);
+  });
+});
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+cd frontend && npx playwright test e2e/history-view.spec.ts --project=chromium
+```
+
+预期：测试失败，因为组件还没有实现新设计
+
+- [ ] **Step 3: 提交测试文件**
+
+```bash
+git add frontend/e2e/history-view.spec.ts
+git commit -m "test(HistoryView): 添加 E2E 测试用例"
+```
+
+---
+
+## Task 12: SiteTestTab 诊断 Tab E2E 测试
+
+**Files:**
+- Create: `frontend/e2e/site-test-diag.spec.ts`
+
+- [ ] **Step 1: 编写 SiteTestTab 诊断 Tab E2E 测试**
+
+```typescript
+// frontend/e2e/site-test-diag.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('SiteTestTab 诊断 Tab', () => {
+  test.beforeEach(async ({ page }) => {
+    // 导航到站点详情页
+    await page.goto('/sites/test-site');
+    // 切换到诊断 Tab
+    await page.click('button:has-text("诊断")');
+  });
+
+  test('应该显示诊断 Tab 内容', async ({ page }) => {
+    // 验证提示信息显示
+    await expect(page.locator('text=仅支持 Anthropic 协议')).toBeVisible();
+
+    // 验证类别选择器显示
+    await expect(page.locator('.diag-category-grid')).toBeVisible();
+
+    // 验证开始诊断按钮显示
+    await expect(page.locator('button:has-text("开始诊断")')).toBeVisible();
+  });
+
+  test('应该支持类别选择', async ({ page }) => {
+    // 点击连通性类别
+    await page.locator('.diag-category-option').first().click();
+
+    // 验证 checkbox 被选中
+    await expect(page.locator('.diag-category-option').first().locator('input[type="checkbox"]')).toBeChecked();
+
+    // 验证按钮文本更新
+    await expect(page.locator('button:has-text("开始诊断")')).toContainText('1 个类别');
+  });
+
+  test('应该支持全选和全不选', async ({ page }) => {
+    // 点击全选
+    await page.click('button:has-text("全选")');
+
+    // 验证所有 checkbox 都被选中
+    const checkboxes = page.locator('.diag-category-checkbox');
+    for (let i = 0; i < 6; i++) {
+      await expect(checkboxes.nth(i)).toBeChecked();
+    }
+
+    // 验证按钮文本更新
+    await expect(page.locator('button:has-text("开始诊断")')).toContainText('6 个类别');
+
+    // 点击全不选
+    await page.click('button:has-text("全不选")');
+
+    // 验证所有 checkbox 都未选中
+    for (let i = 0; i < 6; i++) {
+      await expect(checkboxes.nth(i)).not.toBeChecked();
+    }
+
+    // 验证按钮被禁用
+    await expect(page.locator('button:has-text("开始诊断")')).toBeDisabled();
+  });
+
+  test('应该显示诊断进度', async ({ page }) => {
+    // 选择类别
+    await page.click('button:has-text("全选")');
+
+    // 点击开始诊断
+    await page.click('button:has-text("开始诊断")');
+
+    // 验证进度显示
+    await expect(page.locator('text=诊断中')).toBeVisible();
+
+    // 验证 spinner 显示
+    await expect(page.locator('.result-loading-spinner')).toBeVisible();
+  });
+
+  test('应该显示诊断结果', async ({ page }) => {
+    // 选择类别
+    await page.click('button:has-text("全选")');
+
+    // 点击开始诊断
+    await page.click('button:has-text("开始诊断")');
+
+    // 等待诊断完成
+    await expect(page.locator('.diag-result-model-card')).toBeVisible({ timeout: 60000 });
+
+    // 验证结果卡片显示
+    await expect(page.locator('.diag-result-card')).toBeVisible();
+
+    // 验证模型名称显示
+    await expect(page.locator('.diag-result-model-name')).toBeVisible();
+  });
+
+  test('应该支持多个模型诊断', async ({ page }) => {
+    // 选择多个模型（如果有的话）
+    const modelTags = page.locator('.model-tag');
+    const modelCount = await modelTags.count();
+
+    if (modelCount > 1) {
+      // 选择类别
+      await page.click('button:has-text("全选")');
+
+      // 点击开始诊断
+      await page.click('button:has-text("开始诊断")');
+
+      // 等待所有模型诊断完成
+      await expect(page.locator('.diag-result-model-card')).toHaveCount(modelCount, { timeout: 120000 });
+    }
+  });
+
+  test('应该在移动端正确显示', async ({ page }) => {
+    // 设置移动端视口
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    // 验证类别选择器正确显示
+    await expect(page.locator('.diag-category-grid')).toBeVisible();
+
+    // 验证类别卡片垂直堆叠（移动端应该是单列）
+    const cards = page.locator('.diag-category-option');
+    const firstCard = await cards.first().boundingBox();
+    const secondCard = await cards.nth(1).boundingBox();
+
+    // 移动端应该是垂直堆叠（y 坐标不同）
+    expect(firstCard?.y).not.toBe(secondCard?.y);
+  });
+});
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+cd frontend && npx playwright test e2e/site-test-diag.spec.ts --project=chromium
+```
+
+预期：测试失败，因为组件还没有实现新设计
+
+- [ ] **Step 3: 提交测试文件**
+
+```bash
+git add frontend/e2e/site-test-diag.spec.ts
+git commit -m "test(SiteTestTab): 添加诊断 Tab E2E 测试用例"
+```
+
+---
+
+## Task 13: E2E 测试集成和验证
+
+**Files:**
+- Modify: `frontend/e2e/diagnostic-card.spec.ts`
+- Modify: `frontend/e2e/history-view.spec.ts`
+- Modify: `frontend/e2e/site-test-diag.spec.ts`
+
+- [ ] **Step 1: 运行所有 E2E 测试**
+
+```bash
+cd frontend && npx playwright test --project=chromium
+```
+
+预期：所有测试都应该通过
+
+- [ ] **Step 2: 生成测试报告**
+
+```bash
+cd frontend && npx playwright show-report
+```
+
+在浏览器中查看测试报告，验证：
+1. 所有测试用例都通过
+2. 测试覆盖率满足要求
+3. 没有失败的测试
+
+- [ ] **Step 3: 修复失败的测试**
+
+如果有测试失败，分析原因并修复：
+- 如果是测试代码问题，修改测试
+- 如果是组件实现问题，修改组件代码
+
+- [ ] **Step 4: 运行跨浏览器测试**
+
+```bash
+cd frontend && npx playwright test --project=firefox
+cd frontend && npx playwright test --project=webkit
+```
+
+验证所有浏览器都通过测试
+
+- [ ] **Step 5: 运行移动端测试**
+
+```bash
+cd frontend && npx playwright test --project="Mobile Chrome"
+cd frontend && npx playwright test --project="Mobile Safari"
+```
+
+验证移动端测试通过
+
+- [ ] **Step 6: 最终提交**
+
+```bash
+git add -A
+git commit -m "test: 完成 Playwright E2E 测试集成"
+```
+
+---
+
 ## 实施顺序
+
+建议按以下顺序实施：
+
+1. **Task 1-3: DiagnosticCard 改进** - 核心组件，影响其他组件
+2. **Task 4-5: HistoryView 改进** - 独立页面，可并行开发
+3. **Task 6-7: SiteTestTab 改进** - 依赖 DiagnosticCard
+4. **Task 8: 集成测试** - 验证所有功能
+5. **Task 9-13: E2E 测试** - TDD 方式，先写测试再实现
+
+每个 Task 完成后都应该提交，确保代码可追溯。
 
 建议按以下顺序实施：
 
