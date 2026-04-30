@@ -231,7 +231,23 @@ test.describe('HistoryView', () => {
 
   // 移动端测试由 Playwright device projects（Mobile Chrome / Mobile Safari）处理
   // 在非 device project 中跳过此测试，无需手动 setViewportSize
-  test('应该在移动端正确显示', async () => {
-    test.skip();
+  test('应该在移动端正确显示', async ({ page }) => {
+    // 仅在非移动端 device project 中跳过
+    const project = test.info().project.name;
+    if (!project.includes('Mobile')) {
+      test.skip();
+    }
+
+    // 验证卡片正确显示
+    await expect(page.locator('.history-card').first()).toBeVisible();
+
+    // 验证关键指标垂直排列
+    const firstCard = page.locator('.history-card').first();
+    const metrics = firstCard.locator('.history-card-metric');
+    const firstMetric = await metrics.first().boundingBox();
+    const secondMetric = await metrics.nth(1).boundingBox();
+
+    // 移动端应该是垂直排列（y 坐标不同）
+    expect(firstMetric?.y).not.toBe(secondMetric?.y);
   });
 });
