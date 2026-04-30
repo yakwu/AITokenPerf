@@ -324,8 +324,13 @@ const diagDetailError = ref(false);
 
 function fmtDiagTimestamp(ts) {
   if (!ts) return '-';
-  // handles both "2026-04-30 09:17:00" and "2026-04-30T09:17:00+08:00"
-  const d = new Date(ts.replace(' ', 'T'));
+  // SQLite datetime('now') stores UTC without suffix — append Z so JS converts to local
+  let d;
+  if (ts.includes('T') && (ts.includes('+') || ts.includes('Z'))) {
+    d = new Date(ts);
+  } else {
+    d = new Date(ts.replace(' ', 'T') + 'Z');
+  }
   if (isNaN(d)) return ts;
   const mo = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
