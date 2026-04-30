@@ -86,7 +86,7 @@ test.describe('HistoryView', () => {
     });
 
     // Mock API 响应
-    await page.route('**/api/results?**', (route) => {
+    await page.route(/\/api\/results\?/, (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -94,7 +94,7 @@ test.describe('HistoryView', () => {
       });
     });
 
-    await page.route('**/api/results/**', (route) => {
+    await page.route(/\/api\/results\/[^?]+/, (route) => {
       if (route.request().method() === 'DELETE') {
         route.fulfill({
           status: 200,
@@ -140,8 +140,8 @@ test.describe('HistoryView', () => {
     // 输入搜索关键词
     await page.fill('.search-input-wrap input.form-input', 'claude-3-opus');
 
-    // 等待筛选结果
-    await page.waitForTimeout(500);
+    // 等待网络请求完成
+    await page.waitForLoadState('networkidle');
 
     // 验证所有显示的卡片都包含搜索关键词
     const cards = page.locator('.history-card');
@@ -159,8 +159,8 @@ test.describe('HistoryView', () => {
     // 选择一个模型
     await page.locator('.combobox-option:has-text("claude-3-opus")').click();
 
-    // 等待筛选结果
-    await page.waitForTimeout(500);
+    // 等待网络请求完成
+    await page.waitForLoadState('networkidle');
 
     // 验证所有显示的卡片都是选中的模型
     const cards = page.locator('.history-card');
@@ -180,8 +180,8 @@ test.describe('HistoryView', () => {
       // 点击下一页
       await nextButton.click();
 
-      // 等待页面变化
-      await page.waitForTimeout(500);
+      // 等待网络请求完成
+      await page.waitForLoadState('networkidle');
 
       // 验证页码变化
       await expect(page.locator('.pagination button.btn-primary:has-text("2")')).toBeVisible();
@@ -216,14 +216,16 @@ test.describe('HistoryView', () => {
   });
 
   test('应该支持删除功能', async ({ page }) => {
+    await page.clock.install();
+
     // 点击删除按钮
     await page.locator('.history-card').first().locator('.del-btn').click();
 
     // 验证确认删除提示
     await expect(page.locator('.delete-undo:has-text("确认删除")')).toBeVisible();
 
-    // 等待 3 秒后自动取消
-    await page.waitForTimeout(3500);
+    // 快进 3.5 秒
+    await page.clock.fastForward(3500);
 
     // 验证确认删除提示消失
     await expect(page.locator('.delete-undo:has-text("确认删除")')).not.toBeVisible();
