@@ -322,12 +322,14 @@
         </div>
 
         <!-- Diagnostic Results -->
-        <div v-if="Object.keys(diagResults).length > 0" style="margin-top:16px">
-          <div v-for="model in selectedModels" :key="model" class="diag-result-card" :class="{ 'diag-pending': diagResults[model]?.status === 'pending' }">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">{{ model }}</span>
-              <span v-if="diagResults[model]?.status === 'pending'" style="color:var(--text-tertiary);font-size:11px">等待中</span>
-              <span v-else-if="diagResults[model]?.status === 'running'" style="display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px">
+        <div v-if="Object.keys(diagResults).length > 0" class="diag-results-container">
+          <div v-for="model in selectedModels" :key="model" class="diag-result-model-card">
+            <div class="diag-result-model-header">
+              <span class="diag-result-model-name">{{ model }}</span>
+              <span v-if="diagResults[model]?.status === 'pending'" class="diag-result-status diag-result-status--pending">
+                等待中
+              </span>
+              <span v-else-if="diagResults[model]?.status === 'running'" class="diag-result-status diag-result-status--running">
                 <span class="result-loading-spinner" style="width:12px;height:12px;border-width:2px"></span>
                 诊断中...
               </span>
@@ -336,7 +338,6 @@
               v-if="diagResults[model] && diagResults[model].status !== 'pending' && diagResults[model].status !== 'running'"
               :report="diagResults[model]"
               :status="diagResults[model].status"
-              :overall-risk="diagResults[model].overall_risk"
               :confidence="diagResults[model].confidence"
               :categories="diagResults[model].categories"
               :overall-status="diagResults[model].overall_status"
@@ -1110,15 +1111,48 @@ onUnmounted(() => {
   }
 }
 
-.diag-result-card {
-  background: var(--surface-raised, var(--bg));
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-  margin-bottom: 8px;
+/* 诊断结果展示 */
+.diag-results-container {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.diag-result-card.diag-pending {
-  opacity: 0.5;
+.diag-result-model-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.diag-result-model-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.diag-result-model-name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.diag-result-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.diag-result-status--pending {
+  color: var(--text-tertiary);
+}
+
+.diag-result-status--running {
+  color: var(--text-secondary);
 }
 </style>
