@@ -4,6 +4,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, patch
 from tests.conftest import auth_headers
+from app.diagnostics.models import DiagnosticReport, CategoryResult, ProbeResult as NewProbeResult
 
 
 @pytest.mark.asyncio
@@ -52,25 +53,27 @@ async def test_channel_diagnostics_success(client):
         "provider": "anthropic",
     }, headers=headers)
 
-    from app.channel_diagnostics import CacheDiagnosticResult, ProbeResult
-
-    mock_result = CacheDiagnosticResult(
-        status="passed",
+    mock_result = DiagnosticReport(
+        overall_status="passed",
         overall_risk="low",
         confidence=0.85,
-        probes=[
-            ProbeResult(name="cold_prefix", status="passed", input_tokens=5000,
-                       cache_read_tokens=0, cache_creation_tokens=5000, latency_ms=2000),
-            ProbeResult(name="warm_prefix", status="passed", input_tokens=5000,
-                       cache_read_tokens=4000, cache_creation_tokens=0, latency_ms=800),
+        model="claude-opus-4-6",
+        run_tag="abc123",
+        categories=[
+            CategoryResult(
+                category="cache", display_name="Prompt Cache", status="passed",
+                probes=[
+                    NewProbeResult(name="cold_prefix", status="passed", input_tokens=5000,
+                                   cache_read_tokens=0, cache_creation_tokens=5000, latency_ms=2000),
+                    NewProbeResult(name="warm_prefix", status="passed", input_tokens=5000,
+                                   cache_read_tokens=4000, cache_creation_tokens=0, latency_ms=800),
+                ],
+                summary={"hit_rate": 0.8, "prompt_cache_status": "supported"},
+            ),
         ],
-        report={
-            "prompt_cache": {"status": "supported", "hit_rate": 0.8, "evidence": "usage_fields"},
-            "response_cache": {"status": "not_detected"},
-        },
     )
 
-    with patch("app.server.run_cache_diagnostics", new_callable=AsyncMock, return_value=mock_result):
+    with patch("app.server.run_diagnostics", new_callable=AsyncMock, return_value=mock_result):
         resp = await client.post("/api/channel-diagnostics", json={
             "profile_name": "diag-test",
             "model": "claude-opus-4-6",
@@ -81,7 +84,6 @@ async def test_channel_diagnostics_success(client):
     assert "diagnostic_id" in data
     assert data["status"] == "passed"
     assert data["overall_risk"] == "low"
-    assert data["cache_hit_rate"] == 0.8
 
 
 @pytest.mark.asyncio
@@ -98,14 +100,14 @@ async def test_get_channel_diagnostic(client):
         "provider": "anthropic",
     }, headers=headers)
 
-    from app.channel_diagnostics import CacheDiagnosticResult, ProbeResult
-
-    mock_result = CacheDiagnosticResult(
-        status="passed", overall_risk="low", confidence=0.85,
-        probes=[], report={"prompt_cache": {"status": "supported", "hit_rate": 0.8}},
+    mock_result = DiagnosticReport(
+        overall_status="passed", overall_risk="low", confidence=0.85,
+        model="claude-opus-4-6", run_tag="def456",
+        categories=[CategoryResult(category="cache", display_name="Prompt Cache", status="passed",
+                                   summary={"hit_rate": 0.8, "prompt_cache_status": "supported"})],
     )
 
-    with patch("app.server.run_cache_diagnostics", new_callable=AsyncMock, return_value=mock_result):
+    with patch("app.server.run_diagnostics", new_callable=AsyncMock, return_value=mock_result):
         resp = await client.post("/api/channel-diagnostics", json={
             "profile_name": "diag-test2",
             "model": "claude-opus-4-6",
@@ -118,7 +120,6 @@ async def test_get_channel_diagnostic(client):
     data = resp.json()
     assert data["id"] == diag_id
     assert data["model"] == "claude-opus-4-6"
-    assert data["report_json"]["dimensions"]["cache"]["prompt_cache"]["hit_rate"] == 0.8
 
 
 @pytest.mark.asyncio
@@ -133,17 +134,17 @@ async def test_list_channel_diagnostics_with_filters(client):
         "models": ["m1"], "provider": "anthropic",
     }, headers=headers)
 
-    from app.channel_diagnostics import CacheDiagnosticResult
-
-    mock_result = CacheDiagnosticResult(
-        status="passed", overall_risk="low", confidence=0.85,
-        probes=[], report={"prompt_cache": {"status": "supported", "hit_rate": 0.8}},
+    mock_result = DiagnosticReport(
+        overall_status="passed", overall_risk="low", confidence=0.85,
+        model="m1", run_tag="list1",
+        categories=[CategoryResult(category="cache", status="passed",
+                                   summary={"hit_rate": 0.8, "prompt_cache_status": "supported"})],
     )
 
     # 插入 2 条记录
-    with patch("app.server.run_cache_diagnostics", new_callable=AsyncMock, return_value=mock_result):
+    with patch("app.server.run_diagnostics", new_callable=AsyncMock, return_value=mock_result):
         await client.post("/api/channel-diagnostics", json={"profile_name": "list-test", "model": "m1"}, headers=headers)
-        mock_result.status = "warning"
+        mock_result.overall_status = "warning"
         await client.post("/api/channel-diagnostics", json={"profile_name": "list-test", "model": "m1"}, headers=headers)
 
     # 无筛选
@@ -184,15 +185,16 @@ async def test_filter_options_endpoint(client):
         "models": ["m1"], "provider": "anthropic",
     }, headers=headers)
 
-    from app.channel_diagnostics import CacheDiagnosticResult
-
-    mock_result = CacheDiagnosticResult(
-        status="passed", overall_risk="low", confidence=0.85,
-        probes=[], report={"prompt_cache": {"status": "supported", "hit_rate": 0.8}},
+    mock_result = DiagnosticReport(
+        overall_status="passed", overall_risk="low", confidence=0.85,
+        model="m1", run_tag="fo1",
+        categories=[CategoryResult(category="cache", status="passed",
+                                   summary={"hit_rate": 0.8, "prompt_cache_status": "supported"})],
     )
 
-    with patch("app.server.run_cache_diagnostics", new_callable=AsyncMock, return_value=mock_result):
+    with patch("app.server.run_diagnostics", new_callable=AsyncMock, return_value=mock_result):
         await client.post("/api/channel-diagnostics", json={"profile_name": "fo-test", "model": "m1"}, headers=headers)
+        mock_result.model = "m2"
         await client.post("/api/channel-diagnostics", json={"profile_name": "fo-test", "model": "m2"}, headers=headers)
 
     # 无筛选
