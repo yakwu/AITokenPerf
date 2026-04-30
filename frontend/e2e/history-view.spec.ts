@@ -80,9 +80,14 @@ const mockResultsResponse = {
 
 test.describe('HistoryView', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock localStorage token (组件需要 token 才会加载数据)
+    // Mock localStorage token + user (App.vue 需要 store.user 才渲染 router-view)
     await page.addInitScript(() => {
       localStorage.setItem('token', 'test-token');
+      localStorage.setItem('user', JSON.stringify({
+        username: 'testuser',
+        role: 'admin',
+        must_change_password: false,
+      }));
     });
 
     // Mock API 响应

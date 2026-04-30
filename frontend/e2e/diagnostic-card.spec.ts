@@ -66,6 +66,16 @@ const mockDiagnosticsResponse = {
 
 test.describe('DiagnosticCard', () => {
   test.beforeEach(async ({ page }) => {
+    // Mock localStorage token + user (App.vue 需要 store.user 才渲染 router-view)
+    await page.addInitScript(() => {
+      localStorage.setItem('token', 'test-token');
+      localStorage.setItem('user', JSON.stringify({
+        username: 'testuser',
+        role: 'admin',
+        must_change_password: false,
+      }));
+    });
+
     // 导航到站点详情页
     await page.goto('/sites/test-site');
     // 切换到诊断 Tab

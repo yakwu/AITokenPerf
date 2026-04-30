@@ -122,8 +122,14 @@ async function mockDiagnosticsAndRun(
 
 test.describe('SiteTestTab Diagnostics', () => {
   test.beforeEach(async ({ page }) => {
+    // Mock localStorage token + user (App.vue 需要 store.user 才渲染 router-view)
     await page.addInitScript(() => {
       localStorage.setItem('token', 'test-token');
+      localStorage.setItem('user', JSON.stringify({
+        username: 'testuser',
+        role: 'admin',
+        must_change_password: false,
+      }));
     });
   });
 
