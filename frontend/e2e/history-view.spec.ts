@@ -90,7 +90,12 @@ test.describe('HistoryView', () => {
       }));
     });
 
-    // Mock API 响应
+    // 拦截其他 API 请求，防止 401 触发拦截器（先注册 catch-all，Playwright 1.59 用最后匹配的 handler）
+    await page.route(/^https?:\/\/localhost:\d+\/api\//, (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    // 具体路由后注册，会覆盖 catch-all（Playwright 1.59 用最后匹配的 handler）
     await page.route(/\/api\/results\?/, (route) => {
       route.fulfill({
         status: 200,
@@ -177,10 +182,10 @@ test.describe('HistoryView', () => {
 
   test('应该支持分页功能', async ({ page }) => {
     // 验证分页信息存在
-    await expect(page.locator('.pagination-info:has-text("共")')).toBeVisible();
+    await expect(page.locator('text=/共 \\d+ 条记录/')).toBeVisible();
 
     // 如果有多页，测试翻页
-    const nextButton = page.locator('.pagination button:has-text("下一页")');
+    const nextButton = page.locator('button:has-text("下一页")');
     if (await nextButton.isEnabled()) {
       // 点击下一页
       await nextButton.click();
@@ -189,7 +194,7 @@ test.describe('HistoryView', () => {
       await page.waitForLoadState('networkidle');
 
       // 验证页码变化
-      await expect(page.locator('.pagination button.btn-primary:has-text("2")')).toBeVisible();
+      await expect(page.locator('button.btn-primary:has-text("2")')).toBeVisible();
     }
   });
 

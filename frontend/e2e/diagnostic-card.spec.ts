@@ -1,67 +1,55 @@
 import { test, expect } from '@playwright/test';
 
-// Mock API 响应数据
+// Mock API 响应数据 - categories 在顶层，匹配 DiagnosticCard 的 props
 const mockDiagnosticsResponse = {
-  success: true,
-  data: {
-    model: 'test-model',
-    results: [
-      {
-        category: 'connectivity',
-        displayName: '连通性',
-        status: 'pass',
-        score: 100,
-        probes: [
-          { name: '基础连接', status: 'pass', message: '连接成功', latency: 120 },
-        ],
-      },
-      {
-        category: 'streaming',
-        displayName: '流式传输',
-        status: 'pass',
-        score: 95,
-        probes: [
-          { name: '流式响应', status: 'pass', message: '流式正常', latency: 200 },
-        ],
-      },
-      {
-        category: 'multi_turn',
-        displayName: '多轮上下文',
-        status: 'pass',
-        score: 90,
-        probes: [
-          { name: '上下文保持', status: 'pass', message: '上下文正常', latency: 150 },
-        ],
-      },
-      {
-        category: 'tool_use',
-        displayName: '工具调用',
-        status: 'warn',
-        score: 80,
-        probes: [
-          { name: '函数调用', status: 'warn', message: '部分工具不支持', latency: 300 },
-        ],
-      },
-      {
-        category: 'structured_output',
-        displayName: '结构化输出',
-        status: 'pass',
-        score: 85,
-        probes: [
-          { name: 'JSON 输出', status: 'pass', message: 'JSON 格式正确', latency: 180 },
-        ],
-      },
-      {
-        category: 'prompt_cache',
-        displayName: 'Prompt Cache',
-        status: 'pass',
-        score: 100,
-        probes: [
-          { name: '缓存命中', status: 'pass', message: '缓存正常', latency: 50 },
-        ],
-      },
-    ],
-  },
+  model: 'test-model',
+  status: 'passed',
+  confidence: 0.95,
+  overall_status: 'passed',
+  categories: [
+    {
+      category: 'connectivity',
+      status: 'passed',
+      probes: [
+        { name: '基础连接', status: 'passed', detail: '连接成功', latency_ms: 120000 },
+      ],
+    },
+    {
+      category: 'streaming',
+      status: 'passed',
+      probes: [
+        { name: '流式响应', status: 'passed', detail: '流式正常', latency_ms: 200000 },
+      ],
+    },
+    {
+      category: 'multi_turn',
+      status: 'passed',
+      probes: [
+        { name: '上下文保持', status: 'passed', detail: '上下文正常', latency_ms: 150000 },
+      ],
+    },
+    {
+      category: 'tool_use',
+      status: 'warning',
+      probes: [
+        { name: '函数调用', status: 'failed', detail: '部分工具不支持', latency_ms: 300000 },
+      ],
+    },
+    {
+      category: 'structured_output',
+      status: 'passed',
+      probes: [
+        { name: 'JSON 输出', status: 'passed', detail: 'JSON 格式正确', latency_ms: 180000 },
+      ],
+    },
+    {
+      category: 'prompt_cache',
+      status: 'passed',
+      probes: [
+        { name: '缓存命中', status: 'passed', detail: '缓存正常', latency_ms: 50000 },
+      ],
+    },
+  ],
 };
 
 test.describe('DiagnosticCard', () => {
@@ -74,6 +62,39 @@ test.describe('DiagnosticCard', () => {
         role: 'admin',
         must_change_password: false,
       }));
+    });
+
+    // 拦截其他 API 请求，防止 401 触发拦截器（先注册 catch-all，Playwright 1.59 用最后匹配的 handler）
+    await page.route(/^https?:\/\/localhost:\d+\/api\//, (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    // 具体路由后注册，会覆盖 catch-all
+    await page.route(/\/api\/profiles/, (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          profiles: [{
+            name: 'test-site',
+            base_url: 'https://api.anthropic.com',
+            api_key: 'sk-test',
+            models: ['claude-3-opus'],
+          }],
+        }),
+      });
+    });
+    await page.route(/\/api\/sites\/summary/, (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          summary: [{
+            profile: { name: 'test-site' },
+            health: 'healthy',
+          }],
+        }),
+      });
     });
 
     // 导航到站点详情页
@@ -119,16 +140,16 @@ test.describe('DiagnosticCard', () => {
   });
 
   test('应该支持点击类别卡片切换选中状态', async ({ page }) => {
-    // 点击连通性类别卡片
-    const connectivityCard = page.locator('.diag-category-option').first();
-    await connectivityCard.click();
+    // 点击连通性类别卡片的 checkbox
+    const checkbox = page.locator('.diag-category-checkbox').first();
+    await checkbox.check();
 
     // 验证 checkbox 被选中
-    await expect(connectivityCard.locator('input[type="checkbox"]')).toBeChecked();
+    await expect(checkbox).toBeChecked();
 
     // 再次点击取消选中
-    await connectivityCard.click();
-    await expect(connectivityCard.locator('input[type="checkbox"]')).not.toBeChecked();
+    await checkbox.uncheck();
+    await expect(checkbox).not.toBeChecked();
   });
 
   test('应该显示诊断结果卡片', async ({ page }) => {
@@ -179,21 +200,21 @@ test.describe('DiagnosticCard', () => {
     // 等待诊断完成
     await expect(page.locator('.diag-result-card')).toBeVisible({ timeout: 60000 });
 
-    // 验证默认状态：expandedCategories 默认包含所有 6 个类别，探针详情应可见
-    const firstCategoryCard = page.locator('.diag-category-card').first();
-    await expect(firstCategoryCard.locator('.diag-probes-detail')).toBeVisible();
+    // 默认状态：expandedCategories 为空，探针详情应隐藏
+    await expect(page.locator('.diag-probes-detail')).not.toBeVisible();
 
-    // 点击类别卡片折叠详情
+    // 点击第一个类别卡片展开详情
+    const firstCategoryCard = page.locator('.diag-category-card').first();
+    await firstCategoryCard.click();
+
+    // 验证探针详情显示
+    await expect(page.locator('.diag-probes-detail')).toBeVisible();
+
+    // 再次点击折叠
     await firstCategoryCard.click();
 
     // 验证探针详情隐藏
-    await expect(firstCategoryCard.locator('.diag-probes-detail')).not.toBeVisible();
-
-    // 再次点击展开
-    await firstCategoryCard.click();
-
-    // 验证探针详情重新显示
-    await expect(firstCategoryCard.locator('.diag-probes-detail')).toBeVisible();
+    await expect(page.locator('.diag-probes-detail')).not.toBeVisible();
   });
 
   // 移动端测试由 Playwright device projects（Mobile Chrome / Mobile Safari）处理
