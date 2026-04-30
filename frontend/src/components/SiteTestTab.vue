@@ -350,12 +350,10 @@
 
         <!-- Category Selector -->
         <div class="diag-category-selector" style="margin-top:12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <span style="font-size:13px;font-weight:600">测试类别</span>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-ghost btn-sm" @click="diagCategories = allDiagCategories.map(c => c.id)">全选</button>
-              <button class="btn btn-ghost btn-sm" @click="diagCategories = []">全不选</button>
-            </div>
+            <button class="btn btn-ghost btn-sm" @click="diagCategories = allDiagCategories.map(c => c.id)">全选</button>
+            <button class="btn btn-ghost btn-sm" @click="diagCategories = []">全不选</button>
           </div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
             <label v-for="cat in allDiagCategories" :key="cat.id" class="diag-category-item" style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-size:12px;transition:border-color 0.15s">
