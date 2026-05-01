@@ -55,58 +55,54 @@
       <div v-if="expandedCategories.size > 0" class="diag-probes-detail">
         <div v-for="cat in effectiveCategories" :key="cat.category + '-detail'" v-show="expandedCategories.has(cat.category)">
           <div class="diag-probes-category-title">{{ categoryLabel(cat.category) }}</div>
-          <div v-for="probe in (cat.probes || [])" :key="probe.name" class="diag-probe-block">
-            <div class="diag-probe-row" @click="toggleProbe(probe.name)">
-              <span class="diag-probe-name">{{ probeDisplayName(probe.name) }}</span>
-              <span class="diag-probe-detail">{{ probe.detail || '' }}</span>
-              <span class="diag-probe-latency">{{ probe.latency_ms ? (probe.latency_ms / 1000).toFixed(1) + 's' : '' }}</span>
-              <span class="diag-probe-status" :class="'diag-probe-status--' + probe.status">
-                {{ probeStatusIcon(probe.status) }}
-              </span>
-            </div>
-            <!-- 探针详细信息（二次展开） -->
-            <div v-if="expandedProbes.has(probe.name)" class="diag-probe-expanded">
-              <div class="probe-metrics">
-                <div class="probe-metric" v-if="probe.latency_ms">
-                  <span class="probe-metric-label">延迟</span>
-                  <span class="probe-metric-value">{{ (probe.latency_ms / 1000).toFixed(2) }}s</span>
-                </div>
-                <div class="probe-metric" v-if="probe.ttft_ms">
-                  <span class="probe-metric-label">TTFT</span>
-                  <span class="probe-metric-value">{{ (probe.ttft_ms / 1000).toFixed(2) }}s</span>
-                </div>
-                <div class="probe-metric" v-if="probe.usage?.input_tokens">
-                  <span class="probe-metric-label">输入 Tokens</span>
-                  <span class="probe-metric-value">{{ probe.usage.input_tokens }}</span>
-                </div>
-                <div class="probe-metric" v-if="probe.usage?.output_tokens">
-                  <span class="probe-metric-label">输出 Tokens</span>
-                  <span class="probe-metric-value">{{ probe.usage.output_tokens }}</span>
-                </div>
-                <div class="probe-metric" v-if="probe.usage?.cache_read_input_tokens">
-                  <span class="probe-metric-label">缓存读取</span>
-                  <span class="probe-metric-value" style="color:var(--success)">{{ probe.usage.cache_read_input_tokens }}</span>
-                </div>
-                <div class="probe-metric" v-if="probe.usage?.cache_creation_input_tokens">
-                  <span class="probe-metric-label">缓存写入</span>
-                  <span class="probe-metric-value">{{ probe.usage.cache_creation_input_tokens }}</span>
-                </div>
+          <!-- 探针卡片网格 -->
+          <div class="diag-probe-grid">
+            <div
+              v-for="probe in (cat.probes || [])"
+              :key="probe.name"
+              class="diag-probe-card"
+              :class="{ 'diag-probe-card--fail': probe.status === 'failed' || probe.status === 'error', 'diag-probe-card--warn': probe.status === 'warning' }"
+            >
+              <!-- 头部：状态标签 + 名称 + 延迟 -->
+              <div class="diag-probe-card-head">
+                <span class="diag-probe-badge" :class="'diag-probe-badge--' + probe.status">
+                  {{ probeStatusText(probe.status) }}
+                </span>
+                <span class="diag-probe-card-name">{{ probeDisplayName(probe.name) }}</span>
+                <span class="diag-probe-card-latency" v-if="probe.latency_ms">{{ (probe.latency_ms / 1000).toFixed(2) }}s</span>
+                <span class="diag-probe-card-latency diag-probe-card-latency--fail" v-else>—</span>
               </div>
-              <div v-if="probe.error" class="probe-section">
-                <div class="probe-section-title" style="color:var(--danger)">错误信息</div>
-                <pre class="probe-pre" style="color:var(--danger)">{{ probe.error }}</pre>
+              <!-- 描述 -->
+              <div class="diag-probe-card-desc" v-if="probe.detail">{{ probe.detail }}</div>
+              <!-- 指标行 -->
+              <div class="diag-probe-card-metrics">
+                <div class="diag-probe-mtr" v-if="probe.ttft_ms"><span>TTFT</span><span class="diag-probe-mtr-val">{{ (probe.ttft_ms / 1000).toFixed(2) }}s</span></div>
+                <div class="diag-probe-mtr" v-if="probe.usage?.input_tokens"><span>输入</span><span class="diag-probe-mtr-val">{{ probe.usage.input_tokens }}t</span></div>
+                <div class="diag-probe-mtr" v-if="probe.usage?.output_tokens"><span>输出</span><span class="diag-probe-mtr-val">{{ probe.usage.output_tokens }}t</span></div>
+                <div class="diag-probe-mtr" v-if="probe.usage?.cache_read_input_tokens"><span>缓存读取</span><span class="diag-probe-mtr-val" style="color:var(--success)">{{ probe.usage.cache_read_input_tokens }}t</span></div>
+                <div class="diag-probe-mtr" v-if="probe.usage?.cache_creation_input_tokens"><span>缓存写入</span><span class="diag-probe-mtr-val">{{ probe.usage.cache_creation_input_tokens }}t</span></div>
               </div>
-              <div v-if="probe.request_preview" class="probe-section">
-                <div class="probe-section-title">请求内容</div>
-                <pre class="probe-pre">{{ probe.request_preview }}</pre>
+              <!-- 展开详情（请求/响应/raw usage/错误） -->
+              <div class="diag-probe-card-toggle" :class="{ 'diag-probe-card-toggle--open': expandedProbes.has(probe.name) }" @click.stop="toggleProbe(probe.name)">
+                {{ expandedProbes.has(probe.name) ? '▾ 收起详情' : '▸ 查看请求与响应' }}
               </div>
-              <div v-if="probe.response_preview" class="probe-section">
-                <div class="probe-section-title">响应内容</div>
-                <pre class="probe-pre">{{ probe.response_preview }}</pre>
-              </div>
-              <div v-if="probe.raw_usage && Object.keys(probe.raw_usage).length" class="probe-section">
-                <div class="probe-section-title">原始 Usage</div>
-                <pre class="probe-pre">{{ JSON.stringify(probe.raw_usage, null, 2) }}</pre>
+              <div v-if="expandedProbes.has(probe.name)" class="diag-probe-card-detail">
+                <div v-if="probe.error" class="diag-probe-section">
+                  <div class="diag-probe-section-title" style="color:var(--danger)">错误信息</div>
+                  <pre class="diag-probe-pre" style="color:var(--danger)">{{ probe.error }}</pre>
+                </div>
+                <div v-if="probe.request_preview" class="diag-probe-section">
+                  <div class="diag-probe-section-title">请求内容</div>
+                  <pre class="diag-probe-pre">{{ probe.request_preview }}</pre>
+                </div>
+                <div v-if="probe.response_preview" class="diag-probe-section">
+                  <div class="diag-probe-section-title">响应内容</div>
+                  <pre class="diag-probe-pre">{{ probe.response_preview }}</pre>
+                </div>
+                <div v-if="probe.raw_usage && Object.keys(probe.raw_usage).length" class="diag-probe-section">
+                  <div class="diag-probe-section-title">原始 Usage</div>
+                  <pre class="diag-probe-pre">{{ JSON.stringify(probe.raw_usage, null, 2) }}</pre>
+                </div>
               </div>
             </div>
           </div>
@@ -218,6 +214,15 @@ function probeStatusColor(status) {
   if (status === 'failed' || status === 'error') return 'var(--danger)'
   if (status === 'warning' || status === 'inconclusive') return 'var(--warning)'
   return 'var(--text-tertiary)'
+}
+
+function probeStatusText(status) {
+  if (status === 'passed') return '通过'
+  if (status === 'failed') return '失败'
+  if (status === 'error') return '错误'
+  if (status === 'warning') return '警告'
+  if (status === 'inconclusive') return '存疑'
+  return '…'
 }
 
 function probeStatusIcon(status) {
@@ -373,106 +378,121 @@ function probeStatusIcon(status) {
   margin-bottom: 12px;
 }
 
-.diag-probe-block {
-  border-bottom: 1px solid var(--border-subtle);
-}
-.diag-probe-block:last-child {
-  border-bottom: none;
-}
-
-.diag-probe-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  font-size: 12px;
-  cursor: pointer;
+/* 探针卡片网格 */
+.diag-probe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
 }
 
-.diag-probe-row:hover {
-  background: var(--surface-raised, var(--bg));
-  margin: 0 -4px;
-  padding: 8px 4px;
-  border-radius: 4px;
-}
-
-.diag-probe-name {
-  min-width: 120px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.diag-probe-detail {
-  flex: 1;
-  color: var(--text-tertiary);
-  font-size: 11px;
-}
-
-.diag-probe-latency {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-tertiary);
-  min-width: 40px;
-  text-align: right;
-}
-
-.diag-probe-status {
-  font-weight: 600;
-  font-size: 14px;
-  min-width: 20px;
-  text-align: center;
-}
-
-.diag-probe-status--passed {
-  color: var(--success);
-}
-
-.diag-probe-status--failed,
-.diag-probe-status--error {
-  color: var(--danger);
-}
-
-.diag-probe-status--warning,
-.diag-probe-status--inconclusive {
-  color: var(--warning);
-}
-
-/* 探针子详情 */
-.diag-probe-expanded {
-  padding: 8px 0 10px;
-  margin-bottom: 4px;
-}
-
-.probe-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.probe-metric {
+.diag-probe-card {
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 
-.probe-metric-label {
+.diag-probe-card--fail {
+  background: var(--danger-bg, #fef2f2);
+  border-color: var(--danger);
+}
+
+.diag-probe-card--warn {
+  background: var(--warning-bg, #fff8e1);
+  border-color: var(--warning);
+}
+
+.diag-probe-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diag-probe-badge {
   font-size: 10px;
-  color: var(--text-tertiary);
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+  flex-shrink: 0;
 }
 
-.probe-metric-value {
-  font-family: var(--font-mono);
-  font-size: 12px;
+.diag-probe-badge--passed { background: var(--success); }
+.diag-probe-badge--warning { background: var(--warning); }
+.diag-probe-badge--failed,
+.diag-probe-badge--error { background: var(--danger); }
+.diag-probe-badge--inconclusive { background: var(--text-tertiary); }
+
+.diag-probe-card-name {
   font-weight: 600;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
-.probe-section {
+.diag-probe-card-latency {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.diag-probe-card-latency--fail {
+  color: var(--danger);
+}
+
+.diag-probe-card-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.diag-probe-card-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.diag-probe-mtr {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.diag-probe-mtr-val {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.diag-probe-card-toggle {
+  font-size: 10px;
+  color: var(--accent);
+  cursor: pointer;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+  margin-top: 2px;
+  user-select: none;
+}
+
+.diag-probe-card-toggle:hover {
+  opacity: 0.8;
+}
+
+.diag-probe-card-detail {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.diag-probe-section {
   margin-top: 8px;
 }
 
-.probe-section-title {
+.diag-probe-section-title {
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -481,7 +501,7 @@ function probeStatusIcon(status) {
   margin-bottom: 4px;
 }
 
-.probe-pre {
+.diag-probe-pre {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
@@ -563,7 +583,7 @@ function probeStatusIcon(status) {
 }
 
 .diag-result-card--compact .diag-probes-detail {
-  padding: 10px 16px;
+  padding: 10px 12px;
 }
 
 .diag-result-card--compact .diag-probes-category-title {
@@ -571,39 +591,48 @@ function probeStatusIcon(status) {
   margin-bottom: 8px;
 }
 
-.diag-result-card--compact .diag-probe-row {
-  padding: 4px 0;
-  font-size: 11px;
+.diag-result-card--compact .diag-probe-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 8px;
 }
 
-.diag-result-card--compact .diag-probe-name {
-  min-width: 90px;
-  font-size: 11px;
+.diag-result-card--compact .diag-probe-card {
+  padding: 10px;
+  gap: 4px;
 }
 
-.diag-result-card--compact .diag-probe-detail {
-  font-size: 10px;
+.diag-result-card--compact .diag-probe-badge {
+  font-size: 9px;
+  padding: 1px 6px;
 }
 
-.diag-result-card--compact .diag-probe-latency {
-  font-size: 10px;
-}
-
-.diag-result-card--compact .diag-probe-status {
+.diag-result-card--compact .diag-probe-card-name {
   font-size: 12px;
 }
 
-.diag-result-card--compact .diag-probe-metrics {
-  gap: 8px;
+.diag-result-card--compact .diag-probe-card-latency {
+  font-size: 14px;
 }
 
-.diag-result-card--compact .diag-probe-metric-value {
-  font-size: 11px;
+.diag-result-card--compact .diag-probe-card-desc {
+  font-size: 10px;
 }
 
-.diag-result-card--compact .diag-probe-metric-label {
+.diag-result-card--compact .diag-probe-mtr {
+  font-size: 10px;
+}
+
+.diag-result-card--compact .diag-probe-card-toggle {
   font-size: 9px;
+  padding-top: 6px;
+}
+
+.diag-result-card--compact .diag-probe-section-title {
+  font-size: 9px;
+}
+
+.diag-result-card--compact .diag-probe-pre {
+  font-size: 10px;
 }
 
 .diag-result-card--compact .diag-cache-summary {
