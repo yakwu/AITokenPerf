@@ -82,11 +82,8 @@
                 <div class="diag-probe-mtr" v-if="probe.usage?.cache_read_input_tokens"><span>缓存读取</span><span class="diag-probe-mtr-val" style="color:var(--success)">{{ probe.usage.cache_read_input_tokens }}t</span></div>
                 <div class="diag-probe-mtr" v-if="probe.usage?.cache_creation_input_tokens"><span>缓存写入</span><span class="diag-probe-mtr-val">{{ probe.usage.cache_creation_input_tokens }}t</span></div>
               </div>
-              <!-- 展开详情（请求/响应/raw usage/错误） -->
-              <div class="diag-probe-card-toggle" :class="{ 'diag-probe-card-toggle--open': expandedProbes.has(probe.name) }" @click.stop="toggleProbe(probe.name)">
-                {{ expandedProbes.has(probe.name) ? '▾ 收起详情' : '▸ 查看请求与响应' }}
-              </div>
-              <div v-if="expandedProbes.has(probe.name)" class="diag-probe-card-detail">
+              <!-- 详情（请求/响应/raw usage/错误） -->
+              <div class="diag-probe-card-detail" v-if="probe.error || probe.request_preview || probe.response_preview || (probe.raw_usage && Object.keys(probe.raw_usage).length)">
                 <div v-if="probe.error" class="diag-probe-section">
                   <div class="diag-probe-section-title" style="color:var(--danger)">错误信息</div>
                   <pre class="diag-probe-pre" style="color:var(--danger)">{{ probe.error }}</pre>
@@ -170,7 +167,6 @@ const props = defineProps({
 })
 
 const expandedCategories = ref(new Set())
-const expandedProbes = ref(new Set())
 
 const effectiveCategories = computed(() => {
   if (props.categories && props.categories.length) return props.categories
@@ -201,12 +197,6 @@ function toggleCategory(catId) {
   const s = new Set(expandedCategories.value)
   if (s.has(catId)) s.delete(catId); else s.add(catId)
   expandedCategories.value = s
-}
-
-function toggleProbe(probeName) {
-  const s = new Set(expandedProbes.value)
-  if (s.has(probeName)) s.delete(probeName); else s.add(probeName)
-  expandedProbes.value = s
 }
 
 function probeStatusColor(status) {
@@ -381,8 +371,20 @@ function probeStatusIcon(status) {
 /* 探针卡片网格 */
 .diag-probe-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .diag-probe-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .diag-probe-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .diag-probe-card {
@@ -466,20 +468,6 @@ function probeStatusIcon(status) {
 .diag-probe-mtr-val {
   font-family: var(--font-mono);
   color: var(--text-secondary);
-}
-
-.diag-probe-card-toggle {
-  font-size: 10px;
-  color: var(--accent);
-  cursor: pointer;
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 8px;
-  margin-top: 2px;
-  user-select: none;
-}
-
-.diag-probe-card-toggle:hover {
-  opacity: 0.8;
 }
 
 .diag-probe-card-detail {
@@ -592,7 +580,6 @@ function probeStatusIcon(status) {
 }
 
 .diag-result-card--compact .diag-probe-grid {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 8px;
 }
 
@@ -622,10 +609,6 @@ function probeStatusIcon(status) {
   font-size: 10px;
 }
 
-.diag-result-card--compact .diag-probe-card-toggle {
-  font-size: 9px;
-  padding-top: 6px;
-}
 
 .diag-result-card--compact .diag-probe-section-title {
   font-size: 9px;
