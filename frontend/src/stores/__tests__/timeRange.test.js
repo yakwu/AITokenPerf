@@ -11,6 +11,13 @@ describe('timeRange store 逻辑', () => {
   const VALID_OPTIONS = [6, 24, 168, null];
 
   beforeEach(() => {
+    vi.stubGlobal('localStorage', {
+      _data: {},
+      getItem(key) { return this._data[key] ?? null },
+      setItem(key, val) { this._data[key] = val },
+      removeItem(key) { delete this._data[key] },
+      clear() { this._data = {} },
+    });
     localStorage.clear();
   });
 
