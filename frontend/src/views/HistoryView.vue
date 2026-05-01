@@ -103,7 +103,7 @@
             <template v-for="(r, idx) in filtered" :key="r.filename || idx">
               <tr
                 class="history-row"
-                :class="{ expanded: expandedRows.has(idx), 'history-row--warn': r.summary?.success_rate != null && r.summary.success_rate < 95 }"
+                :class="{ expanded: expandedRows.has(idx) }"
                 @click="onRowClick(r, idx, $event)"
               >
                 <td><input type="checkbox" class="compare-check" :checked="compareSet.has(idx)" @change="toggleCompare(idx)" @click.stop></td>
@@ -952,10 +952,6 @@ watch(() => timeRangeStore.hours, () => {
 
 .history-row.expanded {
   background: var(--surface-raised, var(--bg-secondary));
-}
-
-.history-row--warn td {
-  border-left: 3px solid var(--warning);
 }
 
 .history-detail-row td {
