@@ -53,23 +53,34 @@ git worktree add -b {type}/issue-{N}-{slug} ../worktrees/issue-{N}
 
 ## 3. 实现
 
-### 简单改动
-直接读写文件，commit 频次高。
+### 复杂度判断
 
-### 复杂改动
-触发 superpowers 全流程：
+满足以下**任一条件**即为复杂改动，**必须使用 superpowers**：
+
+- 新功能或新组件
+- 涉及 3 个及以上文件
+- 需要设计决策（架构选型、布局重构、API 变更）
+- 用户说 "帮我设计" / "重新设计" / "优化一下" 等模糊需求
+
+简单改动（单文件、拼写修复、配置变更）可直接编码。
+
+### 复杂改动 — 必须使用 superpowers
+
+**强规则：先 Invoke brainstorming skill，再 Invoke writing-plans，最后用 subagent-driven-development 执行。**
+
+```bash
+# 第一步：设计方案
+Skill(skill="superpowers:brainstorming")
+
+# 第二步：写实施计划
+Skill(skill="superpowers:writing-plans")
+
+# 第三步：TDD 实现
+Skill(skill="superpowers:subagent-driven-development")
+```
 
 ```
-brainstorming → 设计文档
-      ↓
-writing-plans → 实施计划
-      ↓
-subagent-driven → TDD 实现 + 审查
-      ↓
-finishing-a-development-branch → PR
-```
-
-每个 subagent 任务完成后自动做 spec review + code review。
+每个 subagent 任务完成后自动做 spec review + code review。实现完毕用 `finishing-a-development-branch` 收尾。
 
 ## 4. 提交
 

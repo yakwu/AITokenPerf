@@ -18,8 +18,13 @@
 
 ### 实现流程
 
-- **简单改动**：直接编码
-- **复杂改动**（新功能、重构、多文件）：superpowers 流程（brainstorming → plan → subagent-driven）
+满足任一条件即为复杂改动，**必须使用 superpowers**：
+- 新功能/新组件
+- 涉及 3+ 文件
+- 需要设计决策（架构、布局、API）
+- 模糊需求（"优化一下"/"重新设计"等）
+
+简单改动（单文件修复、配置）可直接编码。
 
 完整流程参见 `.claude/skills/issue-workflow/SKILL.md`
 
