@@ -356,9 +356,6 @@ function probeStatusIcon(status) {
   border-bottom: none;
 }
 
-.diag-probe-item--fail {
-  background: var(--danger-bg, #fef2f2);
-}
 
 .diag-probe-item-main {
   display: flex;
