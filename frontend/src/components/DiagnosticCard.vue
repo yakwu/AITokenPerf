@@ -297,26 +297,27 @@ function probeStatusIcon(status) {
 
 /* 类别区块 */
 .diag-category-block {
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .diag-category-block-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--text-primary);
-  background: var(--surface-raised, var(--bg-secondary));
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  border-bottom: 2px solid var(--border);
 }
 
 .diag-category-block-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -344,7 +345,7 @@ function probeStatusIcon(status) {
 
 .diag-probe-item {
   border-bottom: 1px solid var(--border-subtle);
-  padding: 10px 14px;
+  padding: 10px 16px;
 }
 
 .diag-probe-item:last-child {
@@ -383,8 +384,8 @@ function probeStatusIcon(status) {
 .diag-probe-badge--inconclusive { background: var(--text-tertiary); }
 
 .diag-probe-item-name {
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 500;
+  font-size: 12px;
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -400,8 +401,8 @@ function probeStatusIcon(status) {
 .diag-probe-item-latency {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
 }
@@ -512,16 +513,16 @@ function probeStatusIcon(status) {
 }
 
 .diag-result-card--compact .diag-probe-badge {
-  font-size: 9px;
-  padding: 1px 6px;
+  font-size: 8px;
+  padding: 1px 5px;
 }
 
 .diag-result-card--compact .diag-probe-item-name {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .diag-result-card--compact .diag-probe-item-latency {
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .diag-result-card--compact .diag-probe-item-desc {
