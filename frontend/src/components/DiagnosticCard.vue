@@ -2,8 +2,8 @@
   <div class="diag-result-card" :class="{ 'diag-pending': status === 'pending', 'diag-result-card--compact': compact }">
     <!-- 分类诊断渲染 -->
     <template v-if="effectiveCategories && effectiveCategories.length">
-      <!-- 渐变头部 -->
-      <div class="diag-header" :class="'diag-header--' + (effectiveOverallStatus || status)">
+      <!-- 渐变头部（正常模式） -->
+      <div v-if="!compact" class="diag-header" :class="'diag-header--' + (effectiveOverallStatus || status)">
         <div class="diag-header-main">
           <div class="diag-header-status">
             {{ overallStatusLabel || diagStatusLabel(effectiveOverallStatus || status) }}
@@ -22,6 +22,13 @@
             <div class="diag-header-stat-label">探针</div>
           </div>
         </div>
+      </div>
+
+      <!-- 精简状态条（紧凑模式） -->
+      <div v-if="compact" class="diag-status-bar" :class="'diag-status-bar--' + (effectiveOverallStatus || status)">
+        <span class="diag-status-bar-text">{{ overallStatusLabel || diagStatusLabel(effectiveOverallStatus || status) }}</span>
+        <span class="diag-status-bar-conf" v-if="confidence != null">置信度 {{ (confidence * 100).toFixed(0) }}%</span>
+        <span class="diag-status-bar-meta">{{ effectiveCategories.length }} 类别 · {{ totalProbes }} 探针</span>
       </div>
 
       <!-- 类别区块：每个类别一个卡片，探针是区块内的列表项 -->
@@ -474,34 +481,41 @@ function probeStatusIcon(status) {
   border-radius: var(--radius);
 }
 
-/* 紧凑模式 */
-.diag-result-card--compact .diag-header {
-  padding: 10px 16px;
+/* 精简状态条（紧凑模式） */
+.diag-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  font-size: 12px;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
-.diag-result-card--compact .diag-header-status {
-  font-size: 14px;
+.diag-status-bar--passed { background: #f0fdf4; color: #166534; }
+.diag-status-bar--warning { background: #fffbeb; color: #92400e; }
+.diag-status-bar--failed,
+.diag-status-bar--error { background: #fef2f2; color: #991b1b; }
+
+.diag-status-bar-text {
+  font-weight: 700;
 }
 
-.diag-result-card--compact .diag-header-confidence {
+.diag-status-bar-conf {
+  opacity: 0.8;
+}
+
+.diag-status-bar-meta {
+  margin-left: auto;
   font-size: 11px;
+  opacity: 0.7;
 }
 
-.diag-result-card--compact .diag-header-stats {
-  gap: 14px;
-}
-
-.diag-result-card--compact .diag-header-stat-value {
-  font-size: 20px;
-}
-
-.diag-result-card--compact .diag-header-stat-label {
-  font-size: 10px;
-}
-
+/* 紧凑模式 */
 .diag-result-card--compact .diag-probes-detail {
   padding: 10px;
   gap: 8px;
+  border-top: none;
 }
 
 .diag-result-card--compact .diag-category-block-title {
