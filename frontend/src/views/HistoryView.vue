@@ -74,86 +74,71 @@
       </div>
     </div>
 
-    <!-- Normal card view -->
-    <div v-else class="history-cards-container">
-      <div class="history-cards-list">
-        <template v-if="!filtered.length">
-          <div class="history-empty">暂无记录</div>
-        </template>
-        <template v-for="(r, idx) in filtered" :key="r.filename || idx">
-          <div
-            class="history-card"
-            :class="{
-              'history-card--expanded': expandedRows.has(idx),
-              'history-card--warning': r.summary?.success_rate != null && r.summary.success_rate < 95 && r.summary.success_rate >= 80,
-              'history-card--danger': r.summary?.success_rate != null && r.summary.success_rate < 80
-            }"
-            @click="onRowClick(r, idx, $event)"
-          >
-            <!-- 卡片头部 -->
-            <div class="history-card-header">
-              <div class="history-card-info">
-                <div class="history-card-model">
-                  <span class="history-card-model-name">{{ r.config?.model || '-' }}</span>
-                  <span v-if="r.channel_diagnostic_status" class="diag-icon" :class="'diag-' + r.channel_diagnostic_status" :title="diagTooltip(r)"></span>
-                  <span class="history-card-source" :class="r.schedule_name ? 'history-card-source--schedule' : 'history-card-source--manual'">
-                    {{ r.schedule_name || '手动' }}
-                  </span>
-                </div>
-                <div class="history-card-meta">
-                  {{ r.config?.base_url || '-' }} · {{ fmtTimestamp(r.timestamp) }} · 并发 {{ r.config?.concurrency || '-' }} · {{ r.config?.mode || '-' }}
-                </div>
-              </div>
-              <div class="history-card-metrics">
-                <div class="history-card-metric">
-                  <div class="history-card-metric-value" :class="successRateClass(r.summary?.success_rate)">
-                    {{ fmtPct(r.summary?.success_rate) }}
-                  </div>
-                  <div class="history-card-metric-label">成功率</div>
-                </div>
-                <div class="history-card-metric">
-                  <div class="history-card-metric-value" :class="latencyClass(r.percentiles?.TTFT?.P50, 0.5, 2)">
-                    {{ fmtTime(r.percentiles?.TTFT?.P50) }}
-                  </div>
-                  <div class="history-card-metric-label">TTFT P50</div>
-                </div>
-                <div class="history-card-metric">
-                  <div class="history-card-metric-value" :class="qualityClass(r.summary?.throughput_rps, 20, 5)">
-                    {{ fmtNum(r.summary?.throughput_rps) }}/s
-                  </div>
-                  <div class="history-card-metric-label">吞吐量</div>
-                </div>
-              </div>
-              <div class="history-card-actions">
-                <input type="checkbox" class="compare-check" :checked="compareSet.has(idx)" @change="toggleCompare(idx)" @click.stop>
-                <button v-if="r.config?.profile_name" class="btn btn-ghost btn-sm" @click.stop="rerunAtSite(r)" title="重测">
-                  重测
-                </button>
-                <button class="btn btn-ghost btn-sm" @click.stop="rerunResult(r)" title="重新运行">
-                  ↻
-                </button>
-                <button class="btn btn-ghost btn-sm btn-danger-text del-btn" @click.stop="deleteResult(r.filename || '')" title="删除">
-                  <span v-if="pendingDelete === (r.filename || '')" class="delete-undo">确认删除</span>
-                  <span v-else>✕</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 卡片底部补充信息 -->
-            <div class="history-card-footer">
-              <span>E2E P50: <strong>{{ fmtTime(r.percentiles?.E2E?.P50) }}</strong></span>
-              <span>TTFT P95: <strong>{{ fmtTime(r.percentiles?.TTFT?.P95) }}</strong></span>
-              <span>费用: <strong>{{ fmtCostShort(r.summary?.cost_total_usd) }}</strong></span>
-              <span>请求数: <strong>{{ r.summary?.total_requests || 0 }}</strong></span>
-              <span class="history-card-test-id">Test ID: {{ r.test_id || '-' }}</span>
-            </div>
-
-            <!-- 展开的详情 -->
-            <div v-if="expandedRows.has(idx)" class="history-card-detail">
-              <div v-html="detailHtml[idx]"></div>
-            </div>
-          </div>
-        </template>
+    <!-- Normal table view -->
+    <div v-else class="card" style="padding:0;overflow:hidden">
+      <div class="table-wrap">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th style="width:28px"></th>
+              <th style="width:130px">时间</th>
+              <th style="width:130px">模型</th>
+              <th style="max-width:180px">目标地址</th>
+              <th style="width:50px">并发</th>
+              <th style="width:55px">模式</th>
+              <th style="width:72px">成功率</th>
+              <th style="width:78px">TTFT P50</th>
+              <th style="width:78px">E2E P50</th>
+              <th style="width:72px">吞吐量</th>
+              <th style="width:55px">费用</th>
+              <th style="width:80px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-if="!filtered.length">
+              <tr>
+                <td colspan="12" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
+              </tr>
+            </template>
+            <template v-for="(r, idx) in filtered" :key="r.filename || idx">
+              <tr
+                class="history-row"
+                :class="{ expanded: expandedRows.has(idx), 'history-row--warn': r.summary?.success_rate != null && r.summary.success_rate < 95 }"
+                @click="onRowClick(r, idx, $event)"
+              >
+                <td><input type="checkbox" class="compare-check" :checked="compareSet.has(idx)" @change="toggleCompare(idx)" @click.stop></td>
+                <td style="font-size:12px;white-space:nowrap">{{ fmtTimestamp(r.timestamp) }}</td>
+                <td>
+                  <span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle" :title="r.config?.model">{{ r.config?.model || '-' }}</span>
+                  <span v-if="r.channel_diagnostic_status" class="diag-icon" :class="'diag-' + r.channel_diagnostic_status" :title="diagTooltip(r)" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:4px;vertical-align:middle;flex-shrink:0"></span>
+                </td>
+                <td style="max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-secondary)" :title="r.config?.base_url">{{ r.config?.base_url || '-' }}</td>
+                <td style="font-size:12px">{{ r.config?.concurrency || '-' }}</td>
+                <td style="font-size:12px">{{ r.config?.mode || '-' }}</td>
+                <td :class="successRateClass(r.summary?.success_rate)" style="font-weight:600;font-size:12px">{{ fmtPct(r.summary?.success_rate) }}</td>
+                <td :class="latencyClass(r.percentiles?.TTFT?.P50, 0.5, 2)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtTime(r.percentiles?.TTFT?.P50) }}</td>
+                <td :class="latencyClass(r.percentiles?.E2E?.P50, 2, 10)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
+                <td :class="qualityClass(r.summary?.throughput_rps, 20, 5)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtNum(r.summary?.throughput_rps) }}/s</td>
+                <td style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtCostShort(r.summary?.cost_total_usd) }}</td>
+                <td style="white-space:nowrap;text-align:right">
+                  <span class="history-row-source" v-if="r.schedule_name" :title="r.schedule_name" style="font-size:10px;color:var(--text-tertiary);margin-right:4px">定时</span>
+                  <button v-if="r.config?.profile_name" class="btn btn-ghost btn-sm" @click.stop="rerunAtSite(r)" title="重测" style="padding:2px 6px;font-size:11px">重测</button>
+                  <button class="btn btn-ghost btn-sm" @click.stop="rerunResult(r)" title="重新运行" style="padding:2px 6px;font-size:11px">↻</button>
+                  <button class="btn btn-ghost btn-sm btn-danger-text del-btn" @click.stop="deleteResult(r.filename || '')" title="删除" style="padding:2px 6px;font-size:11px">
+                    <span v-if="pendingDelete === (r.filename || '')" class="delete-undo">确认删除</span>
+                    <span v-else>✕</span>
+                  </button>
+                </td>
+              </tr>
+              <!-- 展开详情 -->
+              <tr v-if="expandedRows.has(idx)" class="history-detail-row">
+                <td colspan="12" style="padding:0">
+                  <div style="padding:12px 16px;background:var(--bg);border-top:1px solid var(--border-subtle)" v-html="detailHtml[idx]"></div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -233,8 +218,10 @@
                           v-else-if="diagDetailCache[item.id]"
                           :report="diagDetailCache[item.id].report_json"
                           :status="diagDetailCache[item.id].status"
-                          :overall-risk="diagDetailCache[item.id].overall_risk"
                           :confidence="diagDetailCache[item.id].confidence"
+                          :categories="diagDetailCache[item.id].categories"
+                          :overall-status="diagDetailCache[item.id].overall_status"
+                          compact
                         />
                       </div>
                     </td>
@@ -930,130 +917,59 @@ watch(() => timeRangeStore.hours, () => {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
-/* 历史记录卡片布局 */
-.history-cards-container {
-  padding: 0;
+/* 历史记录表格 */
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.history-cards-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.history-empty {
-  text-align: center;
-  padding: 40px;
-  color: var(--text-tertiary);
-  font-size: 13px;
-}
-
-.history-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.2s;
-}
-
-.history-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
-}
-
-.history-card--warning {
-  border-color: var(--warning);
-}
-
-.history-card--danger {
-  border-color: var(--danger);
-}
-
-.history-card-header {
-  display: flex;
-  align-items: center;
-  padding: 16px 20px;
-  gap: 20px;
-}
-
-.history-card-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.history-card-model {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.history-card-model-name {
-  font-size: 15px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-}
-
-.history-card-source {
+.history-table th {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.history-card-source--manual {
-  background: var(--accent-bg, #dbeafe);
-  color: var(--accent);
-}
-
-.history-card-source--schedule {
-  background: var(--warning-bg, #fef3c7);
-  color: var(--warning-text, #92400e);
-}
-
-.history-card-meta {
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-card-metrics {
-  display: flex;
-  gap: 20px;
-  align-items: center;
-}
-
-.history-card-metric {
-  text-align: center;
-  min-width: 60px;
-}
-
-.history-card-metric-value {
-  font-size: 22px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  line-height: 1.2;
-}
-
-.history-card-metric-value.success { color: var(--success); }
-.history-card-metric-value.warning { color: var(--warning); }
-.history-card-metric-value.danger { color: var(--danger); }
-
-.history-card-metric-label {
-  font-size: 10px;
+  font-weight: 600;
   color: var(--text-tertiary);
-  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised, var(--bg-secondary));
 }
 
-.history-card-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-shrink: 0;
+.history-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.history-row {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.history-row:hover {
+  background: var(--surface-raised, var(--bg-secondary));
+}
+
+.history-row.expanded {
+  background: var(--surface-raised, var(--bg-secondary));
+}
+
+.history-row--warn td {
+  border-left: 3px solid var(--warning);
+}
+
+.history-detail-row td {
+  background: var(--bg);
+  border-bottom: 2px solid var(--border);
+}
+
+.success { color: var(--success); }
+.warning { color: var(--warning); }
+.danger { color: var(--danger); }
+
+.delete-undo {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .btn-danger-text {
@@ -1064,62 +980,11 @@ watch(() => timeRangeStore.hours, () => {
   background: var(--danger-bg, #fef2f2) !important;
 }
 
-.history-card-footer {
-  background: var(--surface-raised);
-  padding: 10px 20px;
-  display: flex;
-  gap: 24px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  border-top: 1px solid var(--border-subtle);
-  flex-wrap: wrap;
-}
-
-.history-card-footer strong {
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-}
-
-.history-card-test-id {
-  margin-left: auto;
-  color: var(--text-tertiary);
-}
-
-.history-card-detail {
-  border-top: 1px solid var(--border);
-  padding: 16px 20px;
-}
-
-.delete-undo {
-  color: var(--danger);
-  font-weight: 600;
-}
-
 /* 响应式 */
 @media (max-width: 768px) {
-  .history-card-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .history-card-metrics {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .history-card-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .history-card-footer {
-    gap: 12px;
-  }
-
-  .history-card-test-id {
-    margin-left: 0;
-    width: 100%;
+  .history-table th:nth-child(4),
+  .history-table td:nth-child(4) {
+    display: none;
   }
 }
 </style>

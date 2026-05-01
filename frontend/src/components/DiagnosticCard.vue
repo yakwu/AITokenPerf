@@ -1,5 +1,5 @@
 <template>
-  <div class="diag-result-card" :class="{ 'diag-pending': status === 'pending' }">
+  <div class="diag-result-card" :class="{ 'diag-pending': status === 'pending', 'diag-result-card--compact': compact }">
     <!-- 分类诊断渲染 -->
     <template v-if="effectiveCategories && effectiveCategories.length">
       <!-- 渐变头部 -->
@@ -170,6 +170,7 @@ const props = defineProps({
   confidence: { type: Number, default: null },
   categories: { type: Array, default: null },
   overallStatus: { type: String, default: '' },
+  compact: { type: Boolean, default: false },
 })
 
 const expandedCategories = ref(new Set())
@@ -511,6 +512,109 @@ function probeStatusIcon(status) {
   padding: 8px 12px;
   background: var(--warning-bg, #fff8e1);
   border-radius: var(--radius);
+}
+
+/* 紧凑模式 */
+.diag-result-card--compact .diag-header {
+  padding: 10px 16px;
+}
+
+.diag-result-card--compact .diag-header-status {
+  font-size: 14px;
+}
+
+.diag-result-card--compact .diag-header-confidence {
+  font-size: 11px;
+}
+
+.diag-result-card--compact .diag-header-stats {
+  gap: 14px;
+}
+
+.diag-result-card--compact .diag-header-stat-value {
+  font-size: 20px;
+}
+
+.diag-result-card--compact .diag-header-stat-label {
+  font-size: 10px;
+}
+
+.diag-result-card--compact .diag-category-card {
+  padding: 10px 12px;
+  gap: 4px;
+}
+
+.diag-result-card--compact .diag-category-name {
+  font-size: 12px;
+}
+
+.diag-result-card--compact .diag-category-dot {
+  width: 10px;
+  height: 10px;
+}
+
+.diag-result-card--compact .diag-category-stats {
+  font-size: 11px;
+}
+
+.diag-result-card--compact .diag-category-detail {
+  font-size: 10px;
+  padding-left: 18px;
+}
+
+.diag-result-card--compact .diag-probes-detail {
+  padding: 10px 16px;
+}
+
+.diag-result-card--compact .diag-probes-category-title {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.diag-result-card--compact .diag-probe-row {
+  padding: 4px 0;
+  font-size: 11px;
+  gap: 8px;
+}
+
+.diag-result-card--compact .diag-probe-name {
+  min-width: 90px;
+  font-size: 11px;
+}
+
+.diag-result-card--compact .diag-probe-detail {
+  font-size: 10px;
+}
+
+.diag-result-card--compact .diag-probe-latency {
+  font-size: 10px;
+}
+
+.diag-result-card--compact .diag-probe-status {
+  font-size: 12px;
+}
+
+.diag-result-card--compact .diag-probe-metrics {
+  gap: 8px;
+}
+
+.diag-result-card--compact .diag-probe-metric-value {
+  font-size: 11px;
+}
+
+.diag-result-card--compact .diag-probe-metric-label {
+  font-size: 9px;
+}
+
+.diag-result-card--compact .diag-cache-summary {
+  font-size: 10px;
+  padding: 6px 10px;
+  margin-top: 8px;
+}
+
+.diag-result-card--compact .diag-proxy-warning {
+  font-size: 10px;
+  padding: 6px 10px;
 }
 
 /* 响应式 */

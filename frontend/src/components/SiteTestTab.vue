@@ -465,7 +465,7 @@ const selectedConcurrency = ref(1);
 const customConcurrency = ref('');
 const requestsPerLevel = ref('');
 const showAdvanced = ref(false);
-const activeTab = ref('bench'); // 'bench' | 'diag'
+const activeTab = ref('test'); // 'test' | 'diag'
 const cacheTest = ref(false);
 
 // ---- Diagnostics state ----
