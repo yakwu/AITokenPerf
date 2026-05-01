@@ -74,82 +74,86 @@
       </div>
     </div>
 
-    <!-- Normal table view -->
-    <div v-else class="card" style="padding:0;overflow:hidden">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:30px"></th>
-              <th style="width:90px">测试 ID</th>
-              <th style="width:130px" class="sortable" :class="sortKey === 'timestamp' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('timestamp')">时间 <span class="sort-arrow" v-if="sortKey === 'timestamp'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:130px">模型</th>
-              <th style="max-width:200px">目标地址</th>
-              <th style="width:60px" class="sortable" :class="sortKey === 'concurrency' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('concurrency')">并发 <span class="sort-arrow" v-if="sortKey === 'concurrency'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:80px">模式</th>
-              <th style="width:100px">来源</th>
-              <th style="width:72px" class="sortable" :class="sortKey === 'success_rate' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('success_rate')">成功率 <span class="sort-arrow" v-if="sortKey === 'success_rate'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:82px" class="sortable" :class="sortKey === 'ttft' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('ttft')">TTFT P50 <span class="sort-arrow" v-if="sortKey === 'ttft'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:82px" class="sortable" :class="sortKey === 'cost' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('cost')">费用 <span class="sort-arrow" v-if="sortKey === 'cost'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:82px" class="sortable" :class="sortKey === 'e2e' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('e2e')">E2E P50 <span class="sort-arrow" v-if="sortKey === 'e2e'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:100px" class="sortable" :class="sortKey === 'throughput' ? ('active-sort ' + sortDir) : ''" @click="toggleSort('throughput')">吞吐量 <span class="sort-arrow" v-if="sortKey === 'throughput'">{{ sortDir === 'desc' ? '▼' : '▲' }}</span></th>
-              <th style="width:90px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-if="!filtered.length">
-              <tr>
-                <td colspan="14" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
-              </tr>
-            </template>
-            <template v-for="(r, idx) in filtered" :key="r.filename || idx">
-              <!-- Main row -->
-              <tr
-                class="history-row"
-                :class="{ expanded: expandedRows.has(idx), 'error-row': r.summary?.success_rate != null && r.summary.success_rate < 95 }"
-                style="cursor:pointer"
-                @click="onRowClick(r, idx, $event)"
-              >
-                <td><input type="checkbox" class="compare-check" :checked="compareSet.has(idx)" @change="toggleCompare(idx)" @click.stop></td>
-                <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">{{ r.test_id || '-' }}</td>
-                <td>{{ fmtTimestamp(r.timestamp) }}</td>
-                <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.model || ''">
-                  {{ r.config?.model || '-' }}
-                  <span v-if="r.channel_diagnostic_status" class="diag-icon" :class="'diag-' + r.channel_diagnostic_status" :title="diagTooltip(r)" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:4px;vertical-align:middle"></span>
-                </td>
-                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="r.config?.base_url || ''">{{ r.config?.base_url || '-' }}</td>
-                <td>{{ r.config?.concurrency || '-' }}</td>
-                <td>{{ r.config?.mode || '-' }}</td>
-                <td style="font-size:12px;color:var(--text-tertiary);max-width:120px;overflow:hidden;white-space:nowrap">
-                  <template v-if="r.schedule_name">
-                    <span style="display:inline-block;max-width:110px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" :title="r.schedule_name">{{ r.schedule_name }}</span>
-                  </template>
-                  <template v-else><span style="color:var(--accent)">手动</span></template>
-                </td>
-                <td :style="successRateStyle(r.summary?.success_rate) + ';font-weight:600'">{{ fmtPct(r.summary?.success_rate) }}</td>
-                <td :style="latencyColorStyle(r.percentiles?.TTFT?.P50, 0.5, 2) + ';font-weight:600'">{{ fmtTime(r.percentiles?.TTFT?.P50) }}</td>
-                <td style="font-weight:600">{{ fmtCostShort(r.summary?.cost_total_usd) }}</td>
-                <td :style="latencyColorStyle(r.percentiles?.E2E?.P50, 2, 10) + ';font-weight:600'">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
-                <td :style="qualityColorStyle(r.summary?.throughput_rps, 20, 5) + ';font-weight:600'">{{ fmtNum(r.summary?.throughput_rps) }} /s</td>
-                <td style="white-space:nowrap">
-                  <button v-if="r.config?.profile_name" class="del-btn expand-btn" @click.stop="rerunAtSite(r)" title="重测" style="color:var(--warning);font-size:11px">重测</button>
-                  <button class="del-btn expand-btn" @click.stop="rerunResult(r)" title="重新运行" style="color:var(--accent)">&#8635;</button>
-                  <button class="del-btn expand-btn" @click.stop="deleteResult(r.filename || '')" title="删除" style="color:var(--danger)">
-                    <span v-if="pendingDelete === (r.filename || '')" class="delete-undo">确认删除</span>
-                    <span v-else>&#10005;</span>
-                  </button>
-                </td>
-              </tr>
+    <!-- Normal card view -->
+    <div v-else class="history-cards-container">
+      <div class="history-cards-list">
+        <template v-if="!filtered.length">
+          <div class="history-empty">暂无记录</div>
+        </template>
+        <template v-for="(r, idx) in filtered" :key="r.filename || idx">
+          <div
+            class="history-card"
+            :class="{
+              'history-card--expanded': expandedRows.has(idx),
+              'history-card--warning': r.summary?.success_rate != null && r.summary.success_rate < 95 && r.summary.success_rate >= 80,
+              'history-card--danger': r.summary?.success_rate != null && r.summary.success_rate < 80
+            }"
+            @click="onRowClick(r, idx, $event)"
+          >
+            <!-- 卡片头部 -->
+            <div class="history-card-header">
+              <div class="history-card-info">
+                <div class="history-card-model">
+                  <span class="history-card-model-name">{{ r.config?.model || '-' }}</span>
+                  <span v-if="r.channel_diagnostic_status" class="diag-icon" :class="'diag-' + r.channel_diagnostic_status" :title="diagTooltip(r)"></span>
+                  <span class="history-card-source" :class="r.schedule_name ? 'history-card-source--schedule' : 'history-card-source--manual'">
+                    {{ r.schedule_name || '手动' }}
+                  </span>
+                </div>
+                <div class="history-card-meta">
+                  {{ r.config?.base_url || '-' }} · {{ fmtTimestamp(r.timestamp) }} · 并发 {{ r.config?.concurrency || '-' }} · {{ r.config?.mode || '-' }}
+                </div>
+              </div>
+              <div class="history-card-metrics">
+                <div class="history-card-metric">
+                  <div class="history-card-metric-value" :class="successRateClass(r.summary?.success_rate)">
+                    {{ fmtPct(r.summary?.success_rate) }}
+                  </div>
+                  <div class="history-card-metric-label">成功率</div>
+                </div>
+                <div class="history-card-metric">
+                  <div class="history-card-metric-value" :class="latencyClass(r.percentiles?.TTFT?.P50, 0.5, 2)">
+                    {{ fmtTime(r.percentiles?.TTFT?.P50) }}
+                  </div>
+                  <div class="history-card-metric-label">TTFT P50</div>
+                </div>
+                <div class="history-card-metric">
+                  <div class="history-card-metric-value" :class="qualityClass(r.summary?.throughput_rps, 20, 5)">
+                    {{ fmtNum(r.summary?.throughput_rps) }}/s
+                  </div>
+                  <div class="history-card-metric-label">吞吐量</div>
+                </div>
+              </div>
+              <div class="history-card-actions">
+                <input type="checkbox" class="compare-check" :checked="compareSet.has(idx)" @change="toggleCompare(idx)" @click.stop>
+                <button v-if="r.config?.profile_name" class="btn btn-ghost btn-sm" @click.stop="rerunAtSite(r)" title="重测">
+                  重测
+                </button>
+                <button class="btn btn-ghost btn-sm" @click.stop="rerunResult(r)" title="重新运行">
+                  ↻
+                </button>
+                <button class="btn btn-ghost btn-sm btn-danger-text del-btn" @click.stop="deleteResult(r.filename || '')" title="删除">
+                  <span v-if="pendingDelete === (r.filename || '')" class="delete-undo">确认删除</span>
+                  <span v-else>✕</span>
+                </button>
+              </div>
+            </div>
 
-              <!-- Detail row -->
-              <tr class="detail-row" :class="{ open: expandedRows.has(idx) }">
-                <td colspan="14">
-                  <div v-html="detailHtml[idx]"></div>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+            <!-- 卡片底部补充信息 -->
+            <div class="history-card-footer">
+              <span>E2E P50: <strong>{{ fmtTime(r.percentiles?.E2E?.P50) }}</strong></span>
+              <span>TTFT P95: <strong>{{ fmtTime(r.percentiles?.TTFT?.P95) }}</strong></span>
+              <span>费用: <strong>{{ fmtCostShort(r.summary?.cost_total_usd) }}</strong></span>
+              <span>请求数: <strong>{{ r.summary?.total_requests || 0 }}</strong></span>
+              <span class="history-card-test-id">Test ID: {{ r.test_id || '-' }}</span>
+            </div>
+
+            <!-- 展开的详情 -->
+            <div v-if="expandedRows.has(idx)" class="history-card-detail">
+              <div v-html="detailHtml[idx]"></div>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -263,12 +267,9 @@ import { useAppStore } from '../stores/app.js';
 import { useTimeRangeStore } from '../stores/timeRange.js';
 import { toast } from '../composables/useToast.js';
 import {
-  fmtTime, fmtTimestamp, fmtPct, fmtNum, fmtBigNum, fmtCostShort,
-  escHtml, qualityColorStyle, latencyColorStyle
+  fmtTime, fmtTimestamp, fmtPct, fmtNum, fmtCostShort,
 } from '../utils/formatters.js';
 import { renderResultDetail } from '../utils/resultDetail.js';
-import { Chart, registerables } from 'chart.js';
-Chart.register(...registerables);
 import FilterDropdown from '../components/FilterDropdown.vue';
 import { listChannelDiagnostics, getChannelDiagnostic, getDiagnosticFilterOptions } from '../api/index.js';
 import DiagnosticCard from '../components/DiagnosticCard.vue';
@@ -447,9 +448,19 @@ const compareData = computed(() => {
 });
 
 // ---- Helpers ----
-function successRateStyle(rate) {
+function successRateClass(rate) {
   if (rate == null) return '';
-  return rate >= 95 ? 'color:var(--success)' : rate >= 80 ? 'color:var(--warning)' : 'color:var(--danger)';
+  return rate >= 95 ? 'success' : rate >= 80 ? 'warning' : 'danger';
+}
+
+function latencyClass(value, good, warn) {
+  if (value == null) return '';
+  return value <= good ? 'success' : value <= warn ? 'warning' : 'danger';
+}
+
+function qualityClass(value, good, warn) {
+  if (value == null) return '';
+  return value >= good ? 'success' : value >= warn ? 'warning' : 'danger';
 }
 
 function diagTooltip(r) {
@@ -542,23 +553,6 @@ function rerunAtSite(r) {
   router.push('/sites/' + encodeURIComponent(profileName));
 }
 
-function getCompareCellClass(metric, records) {
-  if (metric.higherIsBetter === null) return '';
-  const vals = records.map(r => metric.getValue(r));
-  const current = metric.getValue(records[arguments[2]]);
-  if (current == null) return '';
-  const nonNull = vals.filter(v => v != null);
-  if (nonNull.length < 2) return '';
-  if (metric.higherIsBetter) {
-    const best = Math.max(...nonNull);
-    if (current === best) return 'compare-best';
-  } else {
-    const best = Math.min(...nonNull);
-    if (current === best) return 'compare-best';
-  }
-  return '';
-}
-
 function getPctDiff(metric, records, idx) {
   if (metric.higherIsBetter === null) return null;
   const vals = records.map(r => metric.getValue(r));
@@ -577,13 +571,6 @@ function getPctDiff(metric, records, idx) {
   const diff = ((current - best) / Math.abs(best)) * 100;
   if (Math.abs(diff) < 0.1) return null;
   return diff > 0 ? `+${diff.toFixed(0)}%` : `${diff.toFixed(0)}%`;
-}
-
-function removeCompareItem(idx) {
-  compareSet.delete(idx);
-  if (compareSet.size < 2) {
-    showCompareView.value = false;
-  }
 }
 
 function compareTagLabel(r) {
@@ -625,7 +612,7 @@ function isPositiveDiff(metric, records, idx) {
 
 function rerunResult(r) {
   const c = r.config || {};
-  const profileName = c.profile_name || c.profile_name || '';
+  const profileName = c.profile_name || '';
   if (profileName) {
     router.push(`/sites/${encodeURIComponent(profileName)}`);
   } else {
@@ -827,13 +814,6 @@ function _showDetailOverlay(detail) {
   window.showDetailOverlay(renderResultDetail(detail));
 }
 
-function closeDetailOverlay() {
-  document.getElementById('detailOverlay')?.classList.remove('open');
-}
-
-function closeCompare() {
-  document.getElementById('compareOverlay')?.classList.remove('open');
-}
 
 // ---- Auto-compare from multi-bench results ----
 function tryAutoCompare() {
@@ -873,11 +853,9 @@ function tryAutoExpand() {
 
   if (foundIdx >= 0) {
     if (foundChildIdx >= 0) {
-      // Child in a group: expand group then show child detail
-      toggleGroupExpand(foundIdx);
-      nextTick(() => {
-        toggleGroupChildDetail(foundIdx, foundChildIdx);
-      });
+      // TODO: group expansion not yet implemented (toggleGroupExpand/toggleGroupChildDetail don't exist)
+      // Fallback: expand the parent record
+      toggleDetail(foundIdx);
     } else {
       toggleDetail(foundIdx);
     }
@@ -951,5 +929,197 @@ watch(() => timeRangeStore.hours, () => {
 .tab-btn.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+/* 历史记录卡片布局 */
+.history-cards-container {
+  padding: 0;
+}
+
+.history-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.history-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.history-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.history-card--warning {
+  border-color: var(--warning);
+}
+
+.history-card--danger {
+  border-color: var(--danger);
+}
+
+.history-card-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  gap: 20px;
+}
+
+.history-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-card-model {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.history-card-model-name {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.history-card-source {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.history-card-source--manual {
+  background: var(--accent-bg, #dbeafe);
+  color: var(--accent);
+}
+
+.history-card-source--schedule {
+  background: var(--warning-bg, #fef3c7);
+  color: var(--warning-text, #92400e);
+}
+
+.history-card-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-card-metrics {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.history-card-metric {
+  text-align: center;
+  min-width: 60px;
+}
+
+.history-card-metric-value {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1.2;
+}
+
+.history-card-metric-value.success { color: var(--success); }
+.history-card-metric-value.warning { color: var(--warning); }
+.history-card-metric-value.danger { color: var(--danger); }
+
+.history-card-metric-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.history-card-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.btn-danger-text {
+  color: var(--danger) !important;
+}
+
+.btn-danger-text:hover {
+  background: var(--danger-bg, #fef2f2) !important;
+}
+
+.history-card-footer {
+  background: var(--surface-raised);
+  padding: 10px 20px;
+  display: flex;
+  gap: 24px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.history-card-footer strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.history-card-test-id {
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
+
+.history-card-detail {
+  border-top: 1px solid var(--border);
+  padding: 16px 20px;
+}
+
+.delete-undo {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .history-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .history-card-metrics {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .history-card-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .history-card-footer {
+    gap: 12px;
+  }
+
+  .history-card-test-id {
+    margin-left: 0;
+    width: 100%;
+  }
 }
 </style>
