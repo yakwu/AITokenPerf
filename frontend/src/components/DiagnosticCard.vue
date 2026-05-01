@@ -31,7 +31,7 @@
           :key="cat.category + '-detail'"
                     class="diag-category-block"
         >
-          <div class="diag-category-block-title">
+          <div class="diag-category-block-title" :class="'diag-category-block-title--' + cat.status">
             <span class="diag-category-block-dot" :style="{ background: categoryStatusColor(cat.status) }"></span>
             {{ categoryLabel(cat.category) }}
             <span class="diag-category-block-summary">
@@ -300,7 +300,6 @@ function probeStatusIcon(status) {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .diag-category-block-title {
@@ -311,9 +310,14 @@ function probeStatusIcon(status) {
   font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
-  background: var(--surface-raised);
   border-bottom: 2px solid var(--border);
 }
+
+.diag-category-block-title--passed { background: #f0fdf4; }
+.diag-category-block-title--warning { background: #fffbeb; }
+.diag-category-block-title--failed,
+.diag-category-block-title--error { background: #fef2f2; }
+.diag-category-block-title--inconclusive { background: var(--surface-raised); }
 
 .diag-category-block-dot {
   width: 12px;
