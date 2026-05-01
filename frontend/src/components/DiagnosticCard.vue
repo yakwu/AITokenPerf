@@ -149,7 +149,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   diagStatusLabel,
   categoryLabel,
@@ -173,6 +173,12 @@ const effectiveCategories = computed(() => {
   if (props.report?.categories?.length) return props.report.categories
   return null
 })
+
+watch(effectiveCategories, (cats) => {
+  if (cats && cats.length) {
+    expandedCategories.value = new Set(cats.map(c => c.category))
+  }
+}, { immediate: true })
 
 const effectiveOverallStatus = computed(() => {
   if (props.overallStatus) return props.overallStatus
