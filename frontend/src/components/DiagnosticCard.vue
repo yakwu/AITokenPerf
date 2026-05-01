@@ -51,39 +51,53 @@
         </div>
       </div>
 
-      <!-- 展开的探针详情 -->
+      <!-- 展开的探针详情：每个类别一个区块，探针是区块内的列表项 -->
       <div v-if="expandedCategories.size > 0" class="diag-probes-detail">
-        <div v-for="cat in effectiveCategories" :key="cat.category + '-detail'" v-show="expandedCategories.has(cat.category)">
-          <div class="diag-probes-category-title">{{ categoryLabel(cat.category) }}</div>
-          <!-- 探针卡片网格 -->
-          <div class="diag-probe-grid">
+        <div
+          v-for="cat in effectiveCategories"
+          :key="cat.category + '-detail'"
+          v-show="expandedCategories.has(cat.category)"
+          class="diag-category-block"
+        >
+          <div class="diag-category-block-title">
+            <span class="diag-category-block-dot" :style="{ background: categoryStatusColor(cat.status) }"></span>
+            {{ categoryLabel(cat.category) }}
+            <span class="diag-category-block-summary">
+              {{ cat.probes?.filter(p => p.status === 'passed').length || 0 }}/{{ cat.probes?.length || 0 }} 通过
+            </span>
+          </div>
+          <!-- 缓存摘要 -->
+          <div v-if="cat.category === 'cache' && cat.summary?.hit_rate != null" class="diag-block-cache-info">
+            命中率 {{ (cat.summary.hit_rate * 100).toFixed(0) }}%
+            <span v-if="cat.summary.prompt_cache_status"> · {{ cat.summary.prompt_cache_status }}</span>
+          </div>
+          <!-- 代理缓存警告 -->
+          <div v-if="cat.summary?.proxy_cache?.status === 'detected'" class="diag-proxy-warning">
+            检测到代理层缓存干扰: {{ cat.summary.proxy_cache.evidence }}
+          </div>
+          <!-- 探针列表 -->
+          <div class="diag-probe-list">
             <div
               v-for="probe in (cat.probes || [])"
               :key="probe.name"
-              class="diag-probe-card"
-              :class="{ 'diag-probe-card--fail': probe.status === 'failed' || probe.status === 'error', 'diag-probe-card--warn': probe.status === 'warning' }"
+              class="diag-probe-item"
+              :class="{ 'diag-probe-item--fail': probe.status === 'failed' || probe.status === 'error' }"
             >
-              <!-- 头部：状态标签 + 名称 + 延迟 -->
-              <div class="diag-probe-card-head">
-                <span class="diag-probe-badge" :class="'diag-probe-badge--' + probe.status">
-                  {{ probeStatusText(probe.status) }}
-                </span>
-                <span class="diag-probe-card-name">{{ probeDisplayName(probe.name) }}</span>
-                <span class="diag-probe-card-latency" v-if="probe.latency_ms">{{ (probe.latency_ms / 1000).toFixed(2) }}s</span>
-                <span class="diag-probe-card-latency diag-probe-card-latency--fail" v-else>—</span>
+              <div class="diag-probe-item-main" @click="toggleProbe(probe.name)">
+                <span class="diag-probe-badge" :class="'diag-probe-badge--' + probe.status">{{ probeStatusText(probe.status) }}</span>
+                <span class="diag-probe-item-name">{{ probeDisplayName(probe.name) }}</span>
+                <span class="diag-probe-item-desc" v-if="probe.detail">{{ probe.detail }}</span>
+                <span class="diag-probe-item-latency" v-if="probe.latency_ms">{{ (probe.latency_ms / 1000).toFixed(2) }}s</span>
+                <span class="diag-probe-item-expand">{{ expandedProbes.has(probe.name) ? '▾' : '▸' }}</span>
               </div>
-              <!-- 描述 -->
-              <div class="diag-probe-card-desc" v-if="probe.detail">{{ probe.detail }}</div>
-              <!-- 指标行 -->
-              <div class="diag-probe-card-metrics">
-                <div class="diag-probe-mtr" v-if="probe.ttft_ms"><span>TTFT</span><span class="diag-probe-mtr-val">{{ (probe.ttft_ms / 1000).toFixed(2) }}s</span></div>
-                <div class="diag-probe-mtr" v-if="probe.usage?.input_tokens"><span>输入</span><span class="diag-probe-mtr-val">{{ probe.usage.input_tokens }}t</span></div>
-                <div class="diag-probe-mtr" v-if="probe.usage?.output_tokens"><span>输出</span><span class="diag-probe-mtr-val">{{ probe.usage.output_tokens }}t</span></div>
-                <div class="diag-probe-mtr" v-if="probe.usage?.cache_read_input_tokens"><span>缓存读取</span><span class="diag-probe-mtr-val" style="color:var(--success)">{{ probe.usage.cache_read_input_tokens }}t</span></div>
-                <div class="diag-probe-mtr" v-if="probe.usage?.cache_creation_input_tokens"><span>缓存写入</span><span class="diag-probe-mtr-val">{{ probe.usage.cache_creation_input_tokens }}t</span></div>
+              <div class="diag-probe-item-meta" v-if="probe.ttft_ms || probe.usage?.input_tokens || probe.usage?.output_tokens || probe.usage?.cache_read_input_tokens">
+                <span v-if="probe.ttft_ms">TTFT {{ (probe.ttft_ms / 1000).toFixed(2) }}s</span>
+                <span v-if="probe.usage?.input_tokens">输入 {{ probe.usage.input_tokens }}t</span>
+                <span v-if="probe.usage?.output_tokens">输出 {{ probe.usage.output_tokens }}t</span>
+                <span v-if="probe.usage?.cache_read_input_tokens" style="color:var(--success)">缓存读取 {{ probe.usage.cache_read_input_tokens }}t</span>
               </div>
-              <!-- 详情（请求/响应/raw usage/错误） -->
-              <div class="diag-probe-card-detail" v-if="probe.error || probe.request_preview || probe.response_preview || (probe.raw_usage && Object.keys(probe.raw_usage).length)">
+              <!-- 展开详情 -->
+              <div v-if="expandedProbes.has(probe.name)" class="diag-probe-item-detail">
                 <div v-if="probe.error" class="diag-probe-section">
                   <div class="diag-probe-section-title" style="color:var(--danger)">错误信息</div>
                   <pre class="diag-probe-pre" style="color:var(--danger)">{{ probe.error }}</pre>
@@ -102,15 +116,6 @@
                 </div>
               </div>
             </div>
-          </div>
-          <!-- 缓存摘要 -->
-          <div v-if="cat.category === 'cache' && cat.summary?.hit_rate != null" class="diag-cache-summary">
-            命中率: {{ (cat.summary.hit_rate * 100).toFixed(1) }}%
-            <span v-if="cat.summary.prompt_cache_status"> · 状态: {{ cat.summary.prompt_cache_status }}</span>
-          </div>
-          <!-- 代理缓存警告 -->
-          <div v-if="cat.summary?.proxy_cache?.status === 'detected'" class="diag-proxy-warning">
-            检测到代理层缓存干扰: {{ cat.summary.proxy_cache.evidence }}
           </div>
         </div>
       </div>
@@ -167,6 +172,7 @@ const props = defineProps({
 })
 
 const expandedCategories = ref(new Set())
+const expandedProbes = ref(new Set())
 
 const effectiveCategories = computed(() => {
   if (props.categories && props.categories.length) return props.categories
@@ -203,6 +209,12 @@ function toggleCategory(catId) {
   const s = new Set(expandedCategories.value)
   if (s.has(catId)) s.delete(catId); else s.add(catId)
   expandedCategories.value = s
+}
+
+function toggleProbe(probeName) {
+  const s = new Set(expandedProbes.value)
+  if (s.has(probeName)) s.delete(probeName); else s.add(probeName)
+  expandedProbes.value = s
 }
 
 function probeStatusColor(status) {
@@ -365,58 +377,81 @@ function probeStatusIcon(status) {
 .diag-probes-detail {
   border-top: 1px solid var(--border);
   padding: 16px;
-}
-
-.diag-probes-category-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 12px;
-}
-
-/* 探针卡片网格 */
-.diag-probe-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-@media (max-width: 768px) {
-  .diag-probe-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 480px) {
-  .diag-probe-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.diag-probe-card {
-  background: var(--bg);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
 }
 
-.diag-probe-card--fail {
-  background: var(--danger-bg, #fef2f2);
-  border-color: var(--danger);
+/* 类别区块 */
+.diag-category-block {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.diag-probe-card--warn {
-  background: var(--warning-bg, #fff8e1);
-  border-color: var(--warning);
-}
-
-.diag-probe-card-head {
+.diag-category-block-title {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--surface-raised, var(--bg-secondary));
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.diag-category-block-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.diag-category-block-summary {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.diag-block-cache-info {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* 探针列表 */
+.diag-probe-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.diag-probe-item {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 14px;
+}
+
+.diag-probe-item:last-child {
+  border-bottom: none;
+}
+
+.diag-probe-item--fail {
+  background: var(--danger-bg, #fef2f2);
+}
+
+.diag-probe-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.diag-probe-item-main:hover .diag-probe-item-name {
+  color: var(--accent);
 }
 
 .diag-probe-badge {
@@ -434,52 +469,48 @@ function probeStatusIcon(status) {
 .diag-probe-badge--error { background: var(--danger); }
 .diag-probe-badge--inconclusive { background: var(--text-tertiary); }
 
-.diag-probe-card-name {
+.diag-probe-item-name {
   font-weight: 600;
   font-size: 13px;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
-.diag-probe-card-latency {
+.diag-probe-item-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diag-probe-item-latency {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
   flex-shrink: 0;
 }
 
-.diag-probe-card-latency--fail {
-  color: var(--danger);
+.diag-probe-item-expand {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
 }
 
-.diag-probe-card-desc {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.diag-probe-card-metrics {
+.diag-probe-item-meta {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.diag-probe-mtr {
-  display: flex;
-  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 0 64px;
   font-size: 11px;
   color: var(--text-tertiary);
 }
 
-.diag-probe-mtr-val {
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
-}
-
-.diag-probe-card-detail {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  margin-top: 4px;
+.diag-probe-item-detail {
+  padding: 10px 0 0 64px;
 }
 
 .diag-probe-section {
@@ -577,21 +608,17 @@ function probeStatusIcon(status) {
 }
 
 .diag-result-card--compact .diag-probes-detail {
-  padding: 10px 12px;
-}
-
-.diag-result-card--compact .diag-probes-category-title {
-  font-size: 12px;
-  margin-bottom: 8px;
-}
-
-.diag-result-card--compact .diag-probe-grid {
+  padding: 10px;
   gap: 8px;
 }
 
-.diag-result-card--compact .diag-probe-card {
-  padding: 10px;
-  gap: 4px;
+.diag-result-card--compact .diag-category-block-title {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.diag-result-card--compact .diag-probe-item {
+  padding: 8px 12px;
 }
 
 .diag-result-card--compact .diag-probe-badge {
@@ -599,22 +626,26 @@ function probeStatusIcon(status) {
   padding: 1px 6px;
 }
 
-.diag-result-card--compact .diag-probe-card-name {
+.diag-result-card--compact .diag-probe-item-name {
   font-size: 12px;
 }
 
-.diag-result-card--compact .diag-probe-card-latency {
-  font-size: 14px;
+.diag-result-card--compact .diag-probe-item-latency {
+  font-size: 13px;
 }
 
-.diag-result-card--compact .diag-probe-card-desc {
+.diag-result-card--compact .diag-probe-item-desc {
   font-size: 10px;
 }
 
-.diag-result-card--compact .diag-probe-mtr {
+.diag-result-card--compact .diag-probe-item-meta {
   font-size: 10px;
+  padding-left: 56px;
 }
 
+.diag-result-card--compact .diag-probe-item-detail {
+  padding-left: 56px;
+}
 
 .diag-result-card--compact .diag-probe-section-title {
   font-size: 9px;
