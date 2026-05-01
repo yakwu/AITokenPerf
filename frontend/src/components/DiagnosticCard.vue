@@ -377,9 +377,21 @@ function probeStatusIcon(status) {
 .diag-probes-detail {
   border-top: 1px solid var(--border);
   padding: 16px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .diag-probes-detail {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .diag-probes-detail {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 类别区块 */
