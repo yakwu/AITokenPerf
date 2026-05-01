@@ -24,40 +24,12 @@
         </div>
       </div>
 
-      <!-- 类别状态网格 -->
-      <div class="diag-categories-grid">
-        <div
-          v-for="cat in effectiveCategories"
-          :key="cat.category"
-          class="diag-category-card"
-          :class="{ 'diag-category-card--expanded': expandedCategories.has(cat.category) }"
-          @click="toggleCategory(cat.category)"
-        >
-          <div class="diag-category-card-header">
-            <div class="diag-category-dot" :style="{ background: categoryStatusColor(cat.status) }"></div>
-            <div class="diag-category-name">{{ categoryLabel(cat.category) }}</div>
-            <div class="diag-category-stats">
-              {{ cat.probes?.filter(p => p.status === 'passed').length || 0 }}/{{ cat.probes?.length || 0 }} 通过
-            </div>
-          </div>
-          <div class="diag-category-detail">
-            <template v-if="cat.category === 'cache' && cat.summary?.hit_rate != null">
-              命中率 {{ (cat.summary.hit_rate * 100).toFixed(0) }}%
-            </template>
-            <template v-else-if="cat.probes?.length">
-              {{ (cat.probes.reduce((sum, p) => sum + (p.latency_ms || 0), 0) / 1000).toFixed(1) }}s
-            </template>
-          </div>
-        </div>
-      </div>
-
-      <!-- 展开的探针详情：每个类别一个区块，探针是区块内的列表项 -->
-      <div v-if="expandedCategories.size > 0" class="diag-probes-detail">
+      <!-- 类别区块：每个类别一个卡片，探针是区块内的列表项 -->
+      <div class="diag-probes-detail">
         <div
           v-for="cat in effectiveCategories"
           :key="cat.category + '-detail'"
-          v-show="expandedCategories.has(cat.category)"
-          class="diag-category-block"
+                    class="diag-category-block"
         >
           <div class="diag-category-block-title">
             <span class="diag-category-block-dot" :style="{ background: categoryStatusColor(cat.status) }"></span>
@@ -154,7 +126,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import {
   diagStatusLabel,
   categoryLabel,
@@ -171,7 +143,6 @@ const props = defineProps({
   compact: { type: Boolean, default: false },
 })
 
-const expandedCategories = ref(new Set())
 const expandedProbes = ref(new Set())
 
 const effectiveCategories = computed(() => {
@@ -179,12 +150,6 @@ const effectiveCategories = computed(() => {
   if (props.report?.categories?.length) return props.report.categories
   return null
 })
-
-watch(effectiveCategories, (cats) => {
-  if (cats && cats.length) {
-    expandedCategories.value = new Set(cats.map(c => c.category))
-  }
-}, { immediate: true })
 
 const effectiveOverallStatus = computed(() => {
   if (props.overallStatus) return props.overallStatus
@@ -204,12 +169,6 @@ const totalProbes = computed(() => {
   if (!cats) return 0
   return cats.reduce((sum, cat) => sum + (cat.probes?.length || 0), 0)
 })
-
-function toggleCategory(catId) {
-  const s = new Set(expandedCategories.value)
-  if (s.has(catId)) s.delete(catId); else s.add(catId)
-  expandedCategories.value = s
-}
 
 function toggleProbe(probeName) {
   const s = new Set(expandedProbes.value)
@@ -313,64 +272,6 @@ function probeStatusIcon(status) {
 
 .diag-result-card.diag-pending {
   opacity: 0.5;
-}
-
-/* 类别状态网格 */
-.diag-categories-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  background: var(--border);
-  margin: 0;
-}
-
-.diag-category-card {
-  background: var(--bg);
-  padding: 16px;
-  cursor: pointer;
-  transition: background 0.15s;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.diag-category-card:hover {
-  background: var(--surface-raised);
-}
-
-.diag-category-card--expanded {
-  background: var(--surface-raised);
-}
-
-.diag-category-card-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.diag-category-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.diag-category-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.diag-category-stats {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-left: auto;
-}
-
-.diag-category-detail {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  padding-left: 26px;
 }
 
 /* 探针详情 */
@@ -596,29 +497,6 @@ function probeStatusIcon(status) {
   font-size: 10px;
 }
 
-.diag-result-card--compact .diag-category-card {
-  padding: 10px 12px;
-  gap: 4px;
-}
-
-.diag-result-card--compact .diag-category-name {
-  font-size: 12px;
-}
-
-.diag-result-card--compact .diag-category-dot {
-  width: 10px;
-  height: 10px;
-}
-
-.diag-result-card--compact .diag-category-stats {
-  font-size: 11px;
-}
-
-.diag-result-card--compact .diag-category-detail {
-  font-size: 10px;
-  padding-left: 18px;
-}
-
 .diag-result-card--compact .diag-probes-detail {
   padding: 10px;
   gap: 8px;
@@ -678,16 +556,4 @@ function probeStatusIcon(status) {
   padding: 6px 10px;
 }
 
-/* 响应式 */
-@media (max-width: 768px) {
-  .diag-categories-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 480px) {
-  .diag-categories-grid {
-    grid-template-columns: 1fr;
-  }
-}
 </style>
