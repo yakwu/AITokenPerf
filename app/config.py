@@ -18,6 +18,10 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "")
 # 定时任务单次执行超时（秒），超时后自动释放锁防止卡死
 SCHEDULER_TASK_TIMEOUT = int(os.environ.get("SCHEDULER_TASK_TIMEOUT", "1800"))
 
+# 内存任务清理：每隔多久扫一次、完成后保留多久（grace，防止误删正在被 SSE 查看的任务）
+TASK_CLEANUP_INTERVAL = int(os.environ.get("TASK_CLEANUP_INTERVAL", "1800"))
+TASK_RETENTION_SECONDS = int(os.environ.get("TASK_RETENTION_SECONDS", "1800"))
+
 # E2E 测试模式：拦截出站 AI API 请求，返回模拟响应
 E2E_TEST_MODE = os.environ.get("E2E_TEST_MODE", "") == "1"
 
