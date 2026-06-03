@@ -36,6 +36,7 @@ class TaskScheduler:
         self._running = False
         self._main_loop: asyncio.Task | None = None
         self._child_tasks: set[asyncio.Task] = set()
+        self._retention_loop: asyncio.Task | None = None
 
     # ── 公开接口 ──────────────────────────────────────────
 
@@ -51,11 +52,19 @@ class TaskScheduler:
             if t.get("locked_until"):
                 await release_scheduled_task(t["id"])
         self._main_loop = asyncio.create_task(self._run())
+        self._retention_loop = asyncio.create_task(self._run_retention())
         log.info("调度器已启动，加载 %d 个活跃任务", len(tasks))
 
     async def stop(self):
         """服务停止时，取消全局循环和所有子任务"""
         self._running = False
+        if self._retention_loop:
+            self._retention_loop.cancel()
+            try:
+                await self._retention_loop
+            except asyncio.CancelledError:
+                pass
+            self._retention_loop = None
         if self._main_loop:
             self._main_loop.cancel()
             try:
@@ -97,6 +106,33 @@ class TaskScheduler:
         if not task_row or task_row.get("status") != "active":
             return
         await update_scheduled_task(task_id, next_run_at=datetime.now(timezone.utc))
+
+    async def _run_retention(self):
+        """数据保留循环：定期删除过期 results，防止表无界膨胀（issue #25）。
+
+        启动后先短暂延迟再首次清理，之后每 interval 一次。先清理后 sleep
+        可保证频繁重启（如每次发版）的部署也能真正跑到清理，而不是等满一个周期。
+        """
+        from app.db import delete_results_older_than
+        import app.config as _cfg
+        # 启动初次延迟，避开启动期初始化高峰
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            return
+        while self._running:
+            try:
+                days = _cfg.RESULTS_RETENTION_DAYS
+                if days > 0:
+                    deleted = await delete_results_older_than(days)
+                    if deleted:
+                        log.info("数据保留：删除 %d 条超过 %d 天的历史结果", deleted, days)
+            except Exception as e:
+                log.error("数据保留清理异常: %s", e)
+            try:
+                await asyncio.sleep(_cfg.RESULTS_RETENTION_INTERVAL)
+            except asyncio.CancelledError:
+                return
 
     async def _run(self):
         """全局调度循环：每 5 秒扫一次 DB，触发到期任务"""
