@@ -76,6 +76,24 @@ def test_cleanup_keeps_never_started_task():
     assert mgr.get_task("task-1") is not None, "未完成（finished_at==0）的任务不应被删"
 
 
+def test_cleanup_keeps_run_with_partially_completed_children():
+    """同一个 run 内一个子任务已完成、另一个仍在运行：run 与运行中子任务都不能删。
+
+    这是 _cleanup_orphan_runs 的 any(...) 判定最易写错的分支（多模型 run 部分完成）。
+    """
+    mgr = BenchTaskManager()
+    mgr.create_run("run-1", owner_id=1)
+    _make_finished_task(mgr, "t-done", "run-1", finished_at=100.0)
+    running = mgr.create_task("t-running", owner_id=1, run_id="run-1", group_id="run-1")
+    running.status = "running"
+
+    mgr.cleanup_idle(grace_seconds=0.0, now=5000.0)
+
+    assert mgr.get_task("t-done") is None, "已完成子任务应被清理"
+    assert mgr.get_task("t-running") is not None, "运行中子任务必须保留"
+    assert mgr.get_run("run-1") is not None, "仍有运行中子任务的 run 不能被删"
+
+
 def test_cleanup_mixed_only_removes_eligible():
     """混合场景：只清理符合条件的，保留其余。"""
     mgr = BenchTaskManager()
