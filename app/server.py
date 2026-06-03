@@ -75,6 +75,7 @@ class BenchTask:
     failed_count: int = 0
     total_count: int = 0
     start_time: float = 0.0
+    finished_at: float = 0.0  # 完成时间 (monotonic)，用于 cleanup grace 判定
     asyncio_task: Optional[asyncio.Task] = None
     result_filenames: list = field(default_factory=list)
     event_waiters: list = field(default_factory=list)  # asyncio.Event for SSE
@@ -193,11 +194,33 @@ class BenchTaskManager:
             if not group:
                 self._group_tasks.pop(task.group_id, None)
 
-    def cleanup_idle(self):
-        """清理已完成的任务，释放内存"""
-        to_remove = [tid for tid, t in self._tasks.items() if t.status == "idle" and t.asyncio_task is None]
+    def cleanup_idle(self, grace_seconds: float = 0.0, now: float | None = None):
+        """清理已完成的任务及其孤儿 run，释放内存。
+
+        只清理「真正完成（finished_at>0）且超过 grace 窗口」的 idle 任务，
+        避免误删刚完成（可能仍被 SSE 查看）或刚创建待启动（finished_at==0）的任务。
+
+        Args:
+            grace_seconds: 任务完成后至少保留多久才允许清理。
+            now: 当前 monotonic 时间，缺省取 time.monotonic()（参数化便于测试）。
+        """
+        ts = now if now is not None else time.monotonic()
+        to_remove = [
+            tid for tid, t in self._tasks.items()
+            if t.status == "idle" and t.asyncio_task is None
+            and t.finished_at > 0.0 and ts - t.finished_at >= grace_seconds
+        ]
         for tid in to_remove:
             self.remove_task(tid)
+        self._cleanup_orphan_runs()
+
+    def _cleanup_orphan_runs(self):
+        """移除已无任何在册 task 的 run，防止 _runs 字典无界增长。"""
+        for run_id in list(self._runs.keys()):
+            run = self._runs[run_id]
+            if not any(tid in self._tasks for tid in run.task_ids):
+                self._runs.pop(run_id, None)
+                self._group_tasks.pop(run_id, None)
 
 
 manager = BenchTaskManager()
@@ -452,11 +475,29 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
     finally:
         task.status = "idle"
         task.asyncio_task = None
+        task.finished_at = time.monotonic()
 
 
 # ---- App + Lifespan ----
 
 _scheduler = None
+
+
+async def _periodic_task_cleanup():
+    """后台循环：定期清理已完成的内存任务/run，防止常驻运行 OOM（issue #24）。"""
+    from app.config import TASK_CLEANUP_INTERVAL, TASK_RETENTION_SECONDS
+    while True:
+        try:
+            await asyncio.sleep(TASK_CLEANUP_INTERVAL)
+            before = len(manager._tasks)
+            manager.cleanup_idle(grace_seconds=TASK_RETENTION_SECONDS)
+            removed = before - len(manager._tasks)
+            if removed:
+                log.info("内存任务清理：移除 %d 个已完成任务，剩余 %d", removed, len(manager._tasks))
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            log.error("内存任务清理异常: %s", e)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -471,7 +512,14 @@ async def lifespan(app: FastAPI):
     from app.scheduler import TaskScheduler
     _scheduler = TaskScheduler()
     await _scheduler.start()
+
+    cleanup_task = asyncio.create_task(_periodic_task_cleanup())
     yield
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     if _scheduler:
         await _scheduler.stop()
     await close_db()
