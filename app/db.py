@@ -698,7 +698,7 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
                        FROM results r
                        LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
                        {where}
-                       ORDER BY r.timestamp DESC
+                       ORDER BY r.timestamp DESC, r.id DESC
                        LIMIT :_limit OFFSET :_offset"""),
                 page_params,
             )
@@ -717,7 +717,7 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
                    {where}
-                   ORDER BY r.created_at DESC
+                   ORDER BY r.created_at DESC, r.id DESC
                    LIMIT :_cap"""),
             dict(params, _cap=cap + 1),  # 多取 1 行用于判定是否被截断
         )
