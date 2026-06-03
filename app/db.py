@@ -269,6 +269,9 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_results_user_time ON results (user_id, created_at DESC)"
         ))
         await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_results_user_timestamp ON results (user_id, timestamp DESC)"
+        ))
+        await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_results_user_sched_time ON results (user_id, scheduled_task_id, created_at DESC)"
         ))
         await conn.execute(text(
@@ -680,24 +683,48 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
         params["base_url"] = base_clean
         params["base_url_slash"] = base_with_slash
 
+    where = f"WHERE r.user_id=:uid {time_filter} {site_filter}"
+
+    # raw 模式：分页下推到 SQL（COUNT + LIMIT/OFFSET），不再全表加载进内存
+    if raw:
+        async with engine.connect() as conn:
+            cnt = await conn.execute(
+                text(f"SELECT COUNT(*) FROM results r {where}"), params
+            )
+            total = cnt.scalar() or 0
+            page_params = dict(params, _limit=limit, _offset=offset)
+            cur = await conn.execute(
+                text(f"""SELECT r.*, st.name AS schedule_name
+                       FROM results r
+                       LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
+                       {where}
+                       ORDER BY r.timestamp DESC
+                       LIMIT :_limit OFFSET :_offset"""),
+                page_params,
+            )
+            rows = cur.fetchall()
+        items = [_row_to_result_dict(row, lightweight=lightweight) for row in rows]
+        return {"total": total, "items": items}
+
+    # 聚合模式：按设计需对每个定时任务的历史求平均，仍需多行；
+    # 用 LIMIT 上限只加载最近 N 行，防止表膨胀后无界加载进内存。
+    # 动态读取配置便于测试 monkeypatch。
+    import app.config as _cfg
+    cap = _cfg.RESULTS_QUERY_MAX_ROWS
     async with engine.connect() as conn:
         cur = await conn.execute(
             text(f"""SELECT r.*, st.name AS schedule_name
                    FROM results r
                    LEFT JOIN scheduled_tasks st ON r.scheduled_task_id = st.id
-                   WHERE r.user_id=:uid {time_filter} {site_filter}
-                   ORDER BY r.created_at DESC"""),
-            params,
+                   {where}
+                   ORDER BY r.created_at DESC
+                   LIMIT :_cap"""),
+            dict(params, _cap=cap + 1),  # 多取 1 行用于判定是否被截断
         )
         rows = cur.fetchall()
-
-    # raw 模式：跳过聚合，直接返回逐条结果
-    if raw:
-        all_items = [_row_to_result_dict(row, lightweight=lightweight) for row in rows]
-        all_items.sort(key=lambda r: r.get("timestamp") or r.get("created_at") or "", reverse=True)
-        total = len(all_items)
-        paged = all_items[offset:offset + limit]
-        return {"total": total, "items": paged}
+    truncated = len(rows) > cap
+    if truncated:
+        rows = rows[:cap]
 
     # 聚合
     manual_items = []
@@ -780,7 +807,7 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
     total = len(merged)
     paged = merged[offset:offset + limit]
 
-    return {"total": total, "items": paged}
+    return {"total": total, "items": paged, "truncated": truncated}
 
 
 async def get_result_by_filename(user_id: int, filename: str) -> Optional[dict]:
@@ -807,6 +834,24 @@ async def delete_result(user_id: int, filename: str):
             text("DELETE FROM results WHERE user_id=:uid AND filename=:fn"),
             {"uid": user_id, "fn": filename},
         )
+
+
+async def delete_results_older_than(days: int) -> int:
+    """删除 created_at 早于 N 天前的 results，返回删除行数。days<=0 表示关闭，不删除。"""
+    if days <= 0:
+        return 0
+    async with engine.begin() as conn:
+        if _is_sqlite:
+            res = await conn.execute(
+                text("DELETE FROM results WHERE created_at < datetime('now', :cutoff)"),
+                {"cutoff": f"-{days} days"},
+            )
+        else:
+            res = await conn.execute(
+                text("DELETE FROM results WHERE created_at < NOW() - make_interval(days => :days)"),
+                {"days": days},
+            )
+        return res.rowcount or 0
 
 
 async def get_results_by_scheduled_task(user_id: int, scheduled_task_id: int, limit: int = 100, offset: int = 0, hours: int | None = None) -> dict:

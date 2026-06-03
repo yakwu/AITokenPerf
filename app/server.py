@@ -924,7 +924,10 @@ async def list_results(
 ):
     lightweight = fields == "summary"
     result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight, raw=raw, base_url=base_url, profile_name=profile_name)
-    return {"total": result["total"], "items": result["items"]}
+    resp = {"total": result["total"], "items": result["items"]}
+    if result.get("truncated"):
+        resp["truncated"] = True
+    return resp
 
 
 @app.get("/api/results/compare")

@@ -28,3 +28,13 @@ RUN_MAX_CHILDREN_PER_RUN = int(os.environ.get("RUN_MAX_CHILDREN_PER_RUN", "10"))
 
 # 多用户模式默认禁止环境变量覆盖用户 Profile。单租户部署需要时可显式开启。
 ALLOW_PROFILE_ENV_OVERRIDES = os.environ.get("ALLOW_PROFILE_ENV_OVERRIDES", "") == "1"
+
+# 历史查询单次最多加载的结果行数（按 created_at 倒序取最近 N 行）。
+# 聚合模式受此约束防止全表加载进内存；命中上限时响应标记 truncated。
+RESULTS_QUERY_MAX_ROWS = int(os.environ.get("RESULTS_QUERY_MAX_ROWS", "5000"))
+
+# 数据保留：自动删除超过 N 天的 results。0 = 关闭（默认，避免误删数据）。
+# 常驻部署建议显式设置（如 90）以防 results 表无界膨胀。
+RESULTS_RETENTION_DAYS = int(os.environ.get("RESULTS_RETENTION_DAYS", "0"))
+# 保留策略扫描间隔（秒），默认每天一次。
+RESULTS_RETENTION_INTERVAL = int(os.environ.get("RESULTS_RETENTION_INTERVAL", "86400"))
