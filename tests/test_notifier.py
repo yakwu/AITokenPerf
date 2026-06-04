@@ -1,3 +1,6 @@
+import pytest
+
+from app import notifier
 from app.notifier import build_feishu_card, evaluate_alert, is_allowed_webhook
 
 
@@ -63,10 +66,6 @@ def test_recover_card_green_header():
     card = build_feishu_card("recover", "主力渠道", "OpenAI-A", 95.0, 90, "2026-06-04 10:30")
     assert card["card"]["header"]["template"] == "green"
     assert "恢复" in card["card"]["header"]["title"]["content"]
-
-
-import pytest
-from app import notifier
 
 
 @pytest.mark.asyncio
