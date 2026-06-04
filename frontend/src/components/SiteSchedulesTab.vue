@@ -606,7 +606,7 @@ async function createSchedule() {
       schedule_value: String(f.schedule_value),
       alert_enabled: !!f.alert_enabled,
       alert_webhook: f.alert_webhook || '',
-      alert_threshold: parseInt(f.alert_threshold) || 0,
+      alert_threshold: parseInt(f.alert_threshold) || 90,
     };
     const res = await createScheduleApi(payload);
     if (res.error) {
@@ -653,7 +653,7 @@ async function saveEdit() {
       schedule_value: String(f.schedule_value),
       alert_enabled: !!f.alert_enabled,
       alert_webhook: f.alert_webhook || '',
-      alert_threshold: parseInt(f.alert_threshold) || 0,
+      alert_threshold: parseInt(f.alert_threshold) || 90,
     });
     if (res.error) {
       toast(res.error, 'error');

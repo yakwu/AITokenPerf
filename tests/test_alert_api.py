@@ -71,6 +71,26 @@ async def test_alert_test_endpoint(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_alert_test_rejects_other_user(client):
+    from tests.conftest import login_and_get_token
+    headers_a = await auth_headers(client)
+    await _make_profile(client, headers_a)
+    sid = (await client.post("/api/schedules", json={
+        "name": "t", "profile_ids": ["s"], "alert_enabled": True,
+        "alert_webhook": "https://open.feishu.cn/x",
+    }, headers=headers_a)).json()["id"]
+
+    await client.post("/api/auth/register", json={
+        "email": "other@example.com", "password": "AITokenPerf#123", "display_name": "B",
+    })
+    token_b = await login_and_get_token(client, "other@example.com", "AITokenPerf#123")
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    r = await client.post(f"/api/schedules/{sid}/alert-test", headers=headers_b)
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_alert_test_requires_webhook(client):
     headers = await auth_headers(client)
     await _make_profile(client, headers)

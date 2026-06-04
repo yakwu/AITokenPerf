@@ -51,6 +51,24 @@ async def test_no_alert_when_disabled(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_no_alert_when_no_results(monkeypatch):
+    # 本轮无有效请求（run_ids 无对应 result 行）→ total==0，跳过评估、不发、不改状态
+    sent = []
+    async def fake_send(url, payload, timeout=10.0):
+        sent.append(payload); return True
+    monkeypatch.setattr(notifier, "send_webhook", fake_send)
+
+    sid = await create_scheduled_task(
+        1, "t", ["SiteA"], {}, "interval", "300",
+        alert_webhook="https://open.feishu.cn/x", alert_threshold=90, alert_enabled=True,
+    )
+    row = await get_scheduled_task(sid)
+    await scheduler._maybe_send_alert(sid, row, ["run-empty"])
+    assert sent == []
+    assert (await get_scheduled_task(sid))["alert_state"] == "ok"
+
+
+@pytest.mark.asyncio
 async def test_recover_when_back_to_normal(monkeypatch):
     sent = []
     async def fake_send(url, payload, timeout=10.0):
