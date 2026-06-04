@@ -649,6 +649,29 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
         )
 
 
+async def get_run_success_rate(run_ids: list) -> tuple:
+    """聚合给定 run 的全部 result 行的 (success_count, total_requests)。返回 (success, total)。"""
+    if not run_ids:
+        return (0, 0)
+    placeholders = ",".join(f":r{i}" for i in range(len(run_ids)))
+    params = {f"r{i}": rid for i, rid in enumerate(run_ids)}
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text(f"SELECT summary_json FROM results WHERE run_id IN ({placeholders})"),
+            params,
+        )
+        rows = cur.fetchall()
+    success = total = 0
+    for row in rows:
+        try:
+            s = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        success += int(s.get("success_count") or 0)
+        total += int(s.get("total_requests") or 0)
+    return (success, total)
+
+
 def _row_to_result_dict(row, lightweight: bool = False) -> dict:
     d = dict(row._mapping)
     d["config"] = json.loads(d["config_json"])
