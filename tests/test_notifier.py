@@ -63,3 +63,42 @@ def test_recover_card_green_header():
     card = build_feishu_card("recover", "主力渠道", "OpenAI-A", 95.0, 90, "2026-06-04 10:30")
     assert card["card"]["header"]["template"] == "green"
     assert "恢复" in card["card"]["header"]["title"]["content"]
+
+
+import pytest
+from app import notifier
+
+
+@pytest.mark.asyncio
+async def test_send_webhook_rejects_ssrf():
+    assert await notifier.send_webhook("https://evil.com/x", {"a": 1}) is False
+
+
+@pytest.mark.asyncio
+async def test_send_webhook_success(monkeypatch):
+    class FakeResp:
+        status = 200
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+    class FakeSession:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        def post(self, *a, **k): return FakeResp()
+    monkeypatch.setattr(notifier.aiohttp, "ClientSession", FakeSession)
+    assert await notifier.send_webhook("https://open.feishu.cn/open-apis/bot/v2/hook/x", {"a": 1}) is True
+
+
+@pytest.mark.asyncio
+async def test_send_webhook_non_2xx_returns_false(monkeypatch):
+    class FakeResp:
+        status = 500
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+    class FakeSession:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        def post(self, *a, **k): return FakeResp()
+    monkeypatch.setattr(notifier.aiohttp, "ClientSession", FakeSession)
+    assert await notifier.send_webhook("https://open.feishu.cn/x", {"a": 1}) is False

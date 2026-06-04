@@ -70,3 +70,22 @@ def build_feishu_card(kind: str, task_name: str, profile: str,
             ],
         },
     }
+
+
+async def send_webhook(url: str, payload: dict, timeout: float = 10.0) -> bool:
+    """best-effort 发送 webhook。先 SSRF 校验；失败只 log（不含完整 URL）、返回 False、不抛。"""
+    if not is_allowed_webhook(url):
+        log.warning("拒绝非法 webhook 目标 host=%s", _safe_host(url))
+        return False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as resp:
+                if resp.status // 100 == 2:
+                    return True
+                log.warning("webhook 推送失败 host=%s status=%s", _safe_host(url), resp.status)
+                return False
+    except Exception as e:
+        log.warning("webhook 推送异常 host=%s err=%s", _safe_host(url), type(e).__name__)
+        return False
