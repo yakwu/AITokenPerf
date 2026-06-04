@@ -2025,6 +2025,28 @@ async def list_schedules(user: dict = Depends(get_current_user)):
     return {"schedules": tasks}
 
 
+def _extract_alert_fields(body: dict):
+    """从请求体提取并校验告警字段。返回 (fields, error)。error 非空表示校验失败。"""
+    from app.notifier import is_allowed_webhook
+    out = {}
+    if "alert_enabled" in body:
+        out["alert_enabled"] = bool(body["alert_enabled"])
+    if "alert_threshold" in body:
+        try:
+            t = int(body["alert_threshold"])
+        except (ValueError, TypeError):
+            return None, "alert_threshold 必须是 0-100 的整数"
+        if not (0 <= t <= 100):
+            return None, "alert_threshold 必须在 0-100 之间"
+        out["alert_threshold"] = t
+    if "alert_webhook" in body:
+        wh = (body.get("alert_webhook") or "").strip()
+        if wh and not is_allowed_webhook(wh):
+            return None, "webhook 必须是 https 的飞书域名 (open.feishu.cn / open.larksuite.com)"
+        out["alert_webhook"] = wh
+    return out, None
+
+
 @app.post("/api/schedules")
 async def create_schedule(request: Request, user: dict = Depends(get_current_user)):
     from app.db import create_scheduled_task, get_scheduled_task, count_user_scheduled_tasks
@@ -2060,8 +2082,15 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
     if sv_int < 60:
         return JSONResponse({"error": "定时任务间隔不能小于 60 秒"}, status_code=400)
 
+    alert_fields, alert_err = _extract_alert_fields(body)
+    if alert_err:
+        return JSONResponse({"error": alert_err}, status_code=400)
+
     sid = await create_scheduled_task(
         user_id, name, profile_ids, configs_json, schedule_type, schedule_value,
+        alert_webhook=alert_fields.get("alert_webhook", ""),
+        alert_threshold=alert_fields.get("alert_threshold", 90),
+        alert_enabled=alert_fields.get("alert_enabled", False),
     )
     if _scheduler:
         _scheduler.start_loop(sid)
@@ -2091,6 +2120,11 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
             return JSONResponse({"error": "schedule_value 必须是正整数"}, status_code=400)
         if sv_int < 60:
             return JSONResponse({"error": "定时任务间隔不能小于 60 秒"}, status_code=400)
+
+    alert_fields, alert_err = _extract_alert_fields(body)
+    if alert_err:
+        return JSONResponse({"error": alert_err}, status_code=400)
+    fields.update(alert_fields)
 
     if fields:
         await update_scheduled_task(task_id, **fields)
