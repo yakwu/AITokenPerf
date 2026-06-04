@@ -224,6 +224,31 @@ class TaskScheduler:
 
 # ── 模块级工具函数 ───────────────────────────────────────
 
+async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
+    """按落库结果聚合成功率，状态翻转时发飞书卡片并写回 alert_state。全程不抛。"""
+    from app.db import get_run_success_rate
+    # notifier 在函数内 import：保持 send_webhook 在调用时解析，便于测试 monkeypatch
+    from app.notifier import evaluate_alert, build_feishu_card, send_webhook
+
+    if not task_row.get("alert_enabled") or not (task_row.get("alert_webhook") or "").strip():
+        return
+    success, total = await get_run_success_rate(run_ids)
+    if total == 0:
+        log.info("定时任务 #%d 本轮无有效请求，跳过告警评估", task_id)
+        return
+    rate = success / total * 100
+    threshold = int(task_row.get("alert_threshold") or 90)
+    prev = task_row.get("alert_state") or "ok"
+    new_state, action = evaluate_alert(prev, rate, threshold)
+    if action:
+        profiles_text = ", ".join(task_row.get("profile_ids", []) or []) or "-"
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        card = build_feishu_card(action, task_row.get("name", ""), profiles_text, rate, threshold, ts)
+        await send_webhook(task_row["alert_webhook"], card)
+    if new_state != prev:
+        await update_scheduled_task(task_id, alert_state=new_state)
+
+
 async def _run_scheduled_task(task_id: int):
     """执行一个定时任务：为每个 profile 并行跑 benchmark"""
     from app.config import RUN_MAX_GLOBAL_SLOTS, RUN_MAX_USER_SLOTS
@@ -307,6 +332,7 @@ async def _run_scheduled_task(task_id: int):
         return
 
     bench_tasks = []
+    run_ids = []
 
     for profile, body in run_plans:
         try:
@@ -327,6 +353,7 @@ async def _run_scheduled_task(task_id: int):
         if result.get("error"):
             log_error("scheduler:run_create_failed", error=result["error"], task_id=task_id)
             continue
+        run_ids.append(result["run_id"])
         bench_tasks.extend(manager.get_run_tasks(result["run_id"]))
 
     if not bench_tasks:
@@ -351,3 +378,10 @@ async def _run_scheduled_task(task_id: int):
 
     log.info("定时任务 #%d 本次保存 %d 条结果", task_id, total_saved)
     log_bench("scheduler:complete", task_id=task_id, results_saved=total_saved)
+
+    # 失败告警评估（best-effort，绝不影响主流程）
+    try:
+        await _maybe_send_alert(task_id, task_row, run_ids)
+    except Exception as e:
+        log.error("定时任务 #%d 告警评估失败: %s", task_id, e)
+        log_error("scheduler:alert_error", error=str(e), task_id=task_id)

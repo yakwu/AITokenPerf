@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     next_run_at     TEXT,
     locked_until    TEXT,
     run_count       INTEGER NOT NULL DEFAULT 0,
+    alert_webhook   TEXT NOT NULL DEFAULT '',
+    alert_threshold INTEGER NOT NULL DEFAULT 90,
+    alert_enabled   INTEGER NOT NULL DEFAULT 0,
+    alert_state     TEXT NOT NULL DEFAULT 'ok',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -212,6 +216,10 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     next_run_at     TIMESTAMPTZ,
     locked_until    TIMESTAMPTZ,
     run_count       INTEGER NOT NULL DEFAULT 0,
+    alert_webhook   TEXT NOT NULL DEFAULT '',
+    alert_threshold INTEGER NOT NULL DEFAULT 90,
+    alert_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+    alert_state     TEXT NOT NULL DEFAULT 'ok',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -297,6 +305,27 @@ async def init_db():
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS run_id TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS task_id TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'",
+            ]:
+                await conn.execute(text(col_def))
+
+        # scheduled_tasks 告警列：对已有表 ALTER TABLE
+        if _is_sqlite:
+            for col_def in [
+                "ALTER TABLE scheduled_tasks ADD COLUMN alert_webhook TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE scheduled_tasks ADD COLUMN alert_threshold INTEGER NOT NULL DEFAULT 90",
+                "ALTER TABLE scheduled_tasks ADD COLUMN alert_enabled INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE scheduled_tasks ADD COLUMN alert_state TEXT NOT NULL DEFAULT 'ok'",
+            ]:
+                try:
+                    await conn.execute(text(col_def))
+                except Exception:
+                    pass  # 列已存在则忽略
+        else:
+            for col_def in [
+                "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_webhook TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_threshold INTEGER NOT NULL DEFAULT 90",
+                "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+                "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_state TEXT NOT NULL DEFAULT 'ok'",
             ]:
                 await conn.execute(text(col_def))
 
@@ -618,6 +647,29 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
              "run_id": run_id or group_id, "task_id": task_id, "source": source or "manual",
              "profile_name": _profile_name, "base_url": _base_url},
         )
+
+
+async def get_run_success_rate(run_ids: list) -> tuple:
+    """聚合给定 run 的全部 result 行的 (success_count, total_requests)。返回 (success, total)。"""
+    if not run_ids:
+        return (0, 0)
+    placeholders = ",".join(f":r{i}" for i in range(len(run_ids)))
+    params = {f"r{i}": rid for i, rid in enumerate(run_ids)}
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text(f"SELECT summary_json FROM results WHERE run_id IN ({placeholders})"),
+            params,
+        )
+        rows = cur.fetchall()
+    success = total = 0
+    for row in rows:
+        try:
+            s = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        success += int(s.get("success_count") or 0)
+        total += int(s.get("total_requests") or 0)
+    return (success, total)
 
 
 def _row_to_result_dict(row, lightweight: bool = False) -> dict:
@@ -1073,14 +1125,18 @@ async def save_settings(user_id: int, benchmark: dict, output_dir: str = "./resu
 
 async def create_scheduled_task(user_id: int, name: str, profile_ids: list,
                                  configs_json: dict, schedule_type: str,
-                                 schedule_value: str) -> int:
+                                 schedule_value: str, alert_webhook: str = "",
+                                 alert_threshold: int = 90,
+                                 alert_enabled: bool = False) -> int:
     async with engine.begin() as conn:
         cur = await conn.execute(
             text("""INSERT INTO scheduled_tasks (user_id, name, profile_ids, configs_json,
-                    schedule_type, schedule_value)
-                   VALUES (:uid, :name, :pids, :cj, :st, :sv)"""),
+                    schedule_type, schedule_value, alert_webhook, alert_threshold, alert_enabled)
+                   VALUES (:uid, :name, :pids, :cj, :st, :sv, :aw, :at, :ae)"""),
             {"uid": user_id, "name": name, "pids": json.dumps(profile_ids),
-             "cj": json.dumps(configs_json), "st": schedule_type, "sv": schedule_value},
+             "cj": json.dumps(configs_json), "st": schedule_type, "sv": schedule_value,
+             "aw": alert_webhook, "at": alert_threshold,
+             "ae": (1 if alert_enabled else 0) if _is_sqlite else bool(alert_enabled)},
         )
         if _is_sqlite:
             return cur.lastrowid
@@ -1143,7 +1199,8 @@ async def get_scheduled_task(task_id: int) -> Optional[dict]:
 async def update_scheduled_task(task_id: int, **fields):
     async with engine.begin() as conn:
         allowed = {"name", "profile_ids", "configs_json", "schedule_type",
-                   "schedule_value", "status", "last_run_at", "next_run_at", "run_count"}
+                   "schedule_value", "status", "last_run_at", "next_run_at", "run_count",
+                   "alert_webhook", "alert_threshold", "alert_enabled", "alert_state"}
         set_parts = []
         values = {"id": task_id}
         for k, v in fields.items():
@@ -1153,6 +1210,8 @@ async def update_scheduled_task(task_id: int, **fields):
                     v = json.dumps(v)
                 elif k == "configs_json" and isinstance(v, dict):
                     v = json.dumps(v)
+                elif k == "alert_enabled" and _is_sqlite:
+                    v = 1 if v else 0  # SQLite 布尔归一，与 create_scheduled_task 一致
                 values[k] = v
         if not set_parts:
             return

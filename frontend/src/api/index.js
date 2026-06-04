@@ -58,6 +58,7 @@ export const getScheduleResults = (id, { limit = 100, offset = 0, hours } = {}) 
   return api(`/api/schedules/${id}/results?${params}`);
 };
 export const getScheduleTrend = (id, { hours } = {}) => api(`/api/schedules/${id}/trend` + (hours ? `?hours=${hours}` : ''));
+export const alertTestApi = (id) => api(`/api/schedules/${id}/alert-test`, { method: 'POST' });
 
 // Sites
 export const getSiteTrend = (profileName, { hours } = {}) => {
