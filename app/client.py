@@ -46,7 +46,22 @@ class RequestMetrics:
 
     @property
     def tpot(self) -> Optional[float]:
-        """Time Per Output Token - 平均每 token 输出延迟 (秒)"""
+        """Time Per Output Token - 平均每 token 输出延迟 (秒)。
+
+        优先用 usage 的 output_tokens 当分母：(e2e - ttft) / (output_tokens - 1)。
+        避免按 SSE delta(chunk) 数计算——中转代理会把多 token 聚合进一个 chunk，
+        导致 delta 数 ≪ 实际 token 数，TPOT 被系统性高估、跨渠道对比不公平。
+        仅当 output_tokens 不可用时，才回退到 SSE 时间戳间隔均值（旧逻辑）。
+        """
+        if self.output_tokens and self.output_tokens > 1:
+            ttft = self.ttft
+            e2e = self.e2e
+            if ttft is not None and e2e is not None:
+                gen_time = e2e - ttft
+                if gen_time > 0:
+                    return gen_time / (self.output_tokens - 1)
+
+        # 回退：output_tokens 不可用或异常时，用 SSE 时间戳间隔（受 chunk 聚合影响）
         if len(self.token_timestamps) >= 2:
             intervals = []
             for i in range(1, len(self.token_timestamps)):
