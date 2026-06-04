@@ -1210,6 +1210,8 @@ async def update_scheduled_task(task_id: int, **fields):
                     v = json.dumps(v)
                 elif k == "configs_json" and isinstance(v, dict):
                     v = json.dumps(v)
+                elif k == "alert_enabled" and _is_sqlite:
+                    v = 1 if v else 0  # SQLite 布尔归一，与 create_scheduled_task 一致
                 values[k] = v
         if not set_parts:
             return

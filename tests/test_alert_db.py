@@ -25,6 +25,18 @@ async def test_alert_fields_roundtrip():
 
 
 @pytest.mark.asyncio
+async def test_update_alert_enabled_roundtrip():
+    sid = await create_scheduled_task(1, "t3", [], {}, "interval", "300")
+    await update_scheduled_task(sid, alert_enabled=True, alert_webhook="https://open.feishu.cn/y")
+    row = await get_scheduled_task(sid)
+    assert bool(row["alert_enabled"]) is True
+    assert row["alert_webhook"] == "https://open.feishu.cn/y"
+    await update_scheduled_task(sid, alert_enabled=False)
+    row2 = await get_scheduled_task(sid)
+    assert bool(row2["alert_enabled"]) is False
+
+
+@pytest.mark.asyncio
 async def test_update_alert_state_persists():
     sid = await create_scheduled_task(1, "t2", [], {}, "interval", "300")
     await update_scheduled_task(sid, alert_state="alerting")
