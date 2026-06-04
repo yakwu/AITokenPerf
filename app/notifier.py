@@ -22,3 +22,24 @@ def evaluate_alert(prev_state: str, success_rate: float, threshold: int) -> Tupl
     if not abnormal and prev_state == ALERT_ALERTING:
         return ALERT_OK, "recover"
     return prev_state, None
+
+
+def _safe_host(url: str) -> str:
+    """日志脱敏：只取 host，绝不打印含 secret 的完整 URL。"""
+    try:
+        return urlparse(url).hostname or "?"
+    except Exception:
+        return "?"
+
+
+def is_allowed_webhook(url: str) -> bool:
+    """SSRF 防护：仅允许 https 的飞书域名。其余一律拒绝。"""
+    if not url:
+        return False
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme != "https":
+        return False
+    return p.hostname in FEISHU_ALLOWED_HOSTS
