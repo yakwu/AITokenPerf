@@ -2205,6 +2205,7 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
 @app.post("/api/schedules/{task_id}/alert-test")
 async def alert_test(task_id: int, user: dict = Depends(get_current_user)):
     from app.db import get_scheduled_task
+    # notifier 函数内 import：保持 send_webhook 调用时解析，便于测试 monkeypatch，勿上移顶部
     from app.notifier import build_feishu_card, send_webhook, is_allowed_webhook
     from datetime import datetime
     task_row = await get_scheduled_task(task_id)
