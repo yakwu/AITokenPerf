@@ -1,4 +1,4 @@
-from app.notifier import evaluate_alert, is_allowed_webhook
+from app.notifier import build_feishu_card, evaluate_alert, is_allowed_webhook
 
 
 def test_alert_fires_on_ok_to_abnormal():
@@ -47,3 +47,19 @@ def test_other_domain_rejected():
 
 def test_empty_rejected():
     assert is_allowed_webhook("") is False
+
+
+def test_alert_card_red_header():
+    card = build_feishu_card("alert", "主力渠道", "OpenAI-A", 72.0, 90, "2026-06-04 10:30")
+    assert card["msg_type"] == "interactive"
+    assert card["card"]["config"]["wide_screen_mode"] is True
+    assert card["card"]["header"]["template"] == "red"
+    assert "告警" in card["card"]["header"]["title"]["content"]
+    flat = str(card)
+    assert "72.0%" in flat and "90%" in flat and "主力渠道" in flat
+
+
+def test_recover_card_green_header():
+    card = build_feishu_card("recover", "主力渠道", "OpenAI-A", 95.0, 90, "2026-06-04 10:30")
+    assert card["card"]["header"]["template"] == "green"
+    assert "恢复" in card["card"]["header"]["title"]["content"]
