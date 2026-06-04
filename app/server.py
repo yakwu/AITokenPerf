@@ -2202,6 +2202,25 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
     return {"status": "triggered"}
 
 
+@app.post("/api/schedules/{task_id}/alert-test")
+async def alert_test(task_id: int, user: dict = Depends(get_current_user)):
+    from app.db import get_scheduled_task
+    from app.notifier import build_feishu_card, send_webhook, is_allowed_webhook
+    from datetime import datetime
+    task_row = await get_scheduled_task(task_id)
+    if not task_row or task_row["user_id"] != user["user_id"]:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    webhook = (task_row.get("alert_webhook") or "").strip()
+    if not webhook or not is_allowed_webhook(webhook):
+        return JSONResponse({"error": "请先配置合法的飞书 webhook"}, status_code=400)
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    card = build_feishu_card("alert", task_row.get("name", ""), "测试",
+                             0.0, int(task_row.get("alert_threshold") or 90), ts)
+    card["card"]["header"]["title"]["content"] = "🔔 告警测试（这是一条测试消息）"
+    ok = await send_webhook(webhook, card)
+    return {"ok": ok}
+
+
 @app.get("/api/schedules/{task_id}/results")
 async def get_schedule_results(task_id: int, limit: int = 100, offset: int = 0, hours: int | None = None,
                                user: dict = Depends(get_current_user)):

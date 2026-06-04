@@ -1,6 +1,7 @@
 import pytest
 from tests.conftest import auth_headers
 from app.db import get_scheduled_task
+from app import notifier
 
 
 async def _make_profile(client, headers):
@@ -44,3 +45,36 @@ async def test_create_schedule_rejects_bad_threshold(client):
         "name": "t", "profile_ids": ["s"], "alert_threshold": 250,
     }, headers=headers)
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_alert_test_endpoint(client, monkeypatch):
+    sent = []
+
+    async def fake_send(url, payload, timeout=10.0):
+        sent.append(url)
+        return True
+
+    monkeypatch.setattr(notifier, "send_webhook", fake_send)
+
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    resp = await client.post("/api/schedules", json={
+        "name": "t", "profile_ids": ["s"], "alert_enabled": True,
+        "alert_webhook": "https://open.feishu.cn/x",
+    }, headers=headers)
+    sid = resp.json()["id"]
+
+    r = await client.post(f"/api/schedules/{sid}/alert-test", headers=headers)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_alert_test_requires_webhook(client):
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    resp = await client.post("/api/schedules", json={"name": "t", "profile_ids": ["s"]}, headers=headers)
+    sid = resp.json()["id"]
+    r = await client.post(f"/api/schedules/{sid}/alert-test", headers=headers)
+    assert r.status_code == 400
