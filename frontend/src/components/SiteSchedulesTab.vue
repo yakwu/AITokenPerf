@@ -92,6 +92,25 @@
             <textarea class="form-input" v-model="createForm.user_prompt" rows="3" placeholder="Write a short essay about the future of artificial intelligence in exactly 200 words." maxlength="2000"></textarea>
           </div>
         </div>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="form-group full">
+            <label class="form-switch">
+              <input type="checkbox" v-model="createForm.alert_enabled" />
+              <span>启用失败告警（飞书）</span>
+            </label>
+          </div>
+          <template v-if="createForm.alert_enabled">
+            <div class="form-group full">
+              <label class="form-label">飞书 Webhook URL</label>
+              <input class="form-input" v-model.trim="createForm.alert_webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+            </div>
+            <div class="form-group">
+              <label class="form-label">成功率阈值（%）</label>
+              <input class="form-input" type="number" v-model.number="createForm.alert_threshold" min="0" max="100" placeholder="90">
+              <div class="form-hint">上次运行成功率低于该值时触发告警；测试消息可在创建后编辑时发送</div>
+            </div>
+          </template>
+        </div>
         <div class="create-form-notice">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           测试参数（并发、模式、超时等）可在创建后编辑
@@ -267,6 +286,31 @@
           <textarea class="form-input" v-model="editForm.user_prompt" rows="3" placeholder="Write a short essay..." maxlength="2000"></textarea>
         </div>
       </div>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="form-group full">
+          <label class="form-switch">
+            <input type="checkbox" v-model="editForm.alert_enabled" />
+            <span>启用失败告警（飞书）</span>
+          </label>
+        </div>
+        <template v-if="editForm.alert_enabled">
+          <div class="form-group full">
+            <label class="form-label">飞书 Webhook URL</label>
+            <input class="form-input" v-model.trim="editForm.alert_webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">成功率阈值（%）</label>
+            <input class="form-input" type="number" v-model.number="editForm.alert_threshold" min="0" max="100" placeholder="90">
+            <div class="form-hint">上次运行成功率低于该值时触发告警</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">&nbsp;</label>
+            <button type="button" class="btn btn-ghost" :disabled="!editForm.alert_webhook || !editForm.id || alertTestLoading" @click="onTestAlert">
+              {{ alertTestLoading ? '发送中...' : '发送测试消息' }}
+            </button>
+          </div>
+        </template>
+      </div>
       <div class="btn-group" style="margin-top:20px">
         <button class="btn btn-primary" @click="saveEdit" :disabled="editLoading">
           <span v-if="!editLoading">保存</span>
@@ -288,6 +332,7 @@ import {
   pauseScheduleApi,
   resumeScheduleApi,
   runNowApi,
+  alertTestApi,
 } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import InlineConfirmDelete from './InlineConfirmDelete.vue';
@@ -305,6 +350,7 @@ const createLoading = ref(false);
 const deleteCandidate = ref(null);
 const showEditForm = ref(false);
 const editLoading = ref(false);
+const alertTestLoading = ref(false);
 
 // ---- Profile data ----
 const profileModels = computed(() => {
@@ -337,6 +383,9 @@ function defaultCreateForm() {
     duration: 120,
     system_prompt: 'You are a helpful assistant.',
     user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
+    alert_enabled: false,
+    alert_webhook: '',
+    alert_threshold: 90,
   };
 }
 
@@ -374,6 +423,9 @@ const editForm = ref({
   duration: 120,
   system_prompt: '',
   user_prompt: '',
+  alert_enabled: false,
+  alert_webhook: '',
+  alert_threshold: 90,
 });
 
 // ---- Multi-model select ----
@@ -448,6 +500,9 @@ function startEdit(s) {
     duration: configs.duration || 120,
     system_prompt: configs.system_prompt || '',
     user_prompt: configs.user_prompt || '',
+    alert_enabled: !!s.alert_enabled,
+    alert_webhook: s.alert_webhook || '',
+    alert_threshold: s.alert_threshold != null ? s.alert_threshold : 90,
   };
   // Detect preset or custom
   const sv = String(s.schedule_value);
@@ -549,6 +604,9 @@ async function createSchedule() {
       },
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
+      alert_enabled: !!f.alert_enabled,
+      alert_webhook: f.alert_webhook || '',
+      alert_threshold: parseInt(f.alert_threshold) || 0,
     };
     const res = await createScheduleApi(payload);
     if (res.error) {
@@ -593,6 +651,9 @@ async function saveEdit() {
       configs_json: configs,
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
+      alert_enabled: !!f.alert_enabled,
+      alert_webhook: f.alert_webhook || '',
+      alert_threshold: parseInt(f.alert_threshold) || 0,
     });
     if (res.error) {
       toast(res.error, 'error');
@@ -605,6 +666,19 @@ async function saveEdit() {
     toast('更新失败: ' + e.message, 'error');
   }
   editLoading.value = false;
+}
+
+async function onTestAlert() {
+  const id = editForm.value.id;
+  if (!id) return;
+  alertTestLoading.value = true;
+  try {
+    const r = await alertTestApi(id);
+    toast(r.ok ? '测试消息已发送，请检查飞书' : '发送失败，请检查 URL', r.ok ? 'success' : 'error');
+  } catch (e) {
+    toast('发送失败：' + (e.message || e), 'error');
+  }
+  alertTestLoading.value = false;
 }
 
 async function pauseSchedule(id) {
@@ -862,6 +936,24 @@ onUnmounted(() => {
 /* ---- Edit Form (Modal) ---- */
 .site-schedules-tab .form-grid .full {
   grid-column: 1 / -1;
+}
+
+/* ---- Alert Switch ---- */
+.form-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-switch input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
 }
 
 /* ---- Responsive ---- */

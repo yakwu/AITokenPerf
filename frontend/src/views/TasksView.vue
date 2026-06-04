@@ -221,6 +221,32 @@
           </div>
         </div>
       </div>
+      <!-- 失败告警（折叠） -->
+      <div class="advanced-section">
+        <button class="advanced-toggle" @click="showAlert = !showAlert">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          失败告警
+          <svg class="advanced-chevron" :class="{ open: showAlert }" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
+        </button>
+        <div class="advanced-body" v-show="showAlert">
+          <label class="form-switch">
+            <input type="checkbox" v-model="createForm.alert_enabled" />
+            <span>启用失败告警（飞书）</span>
+          </label>
+          <div class="create-modal-grid" v-if="createForm.alert_enabled" style="grid-template-columns:1fr;margin-top:12px">
+            <div class="form-group">
+              <label class="form-label">飞书 Webhook URL</label>
+              <input class="form-input" v-model.trim="createForm.alert_webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+            </div>
+            <div class="form-group">
+              <label class="form-label">成功率阈值（%）</label>
+              <input class="form-input" type="number" v-model.number="createForm.alert_threshold" min="0" max="100" placeholder="90" style="width:120px">
+              <div class="form-hint">上次运行成功率低于该值时触发告警</div>
+            </div>
+            <div class="form-hint">测试消息需先保存任务，可在站点详情页编辑任务时发送测试</div>
+          </div>
+        </div>
+      </div>
       <div class="btn-group" style="margin-top:20px">
         <button class="btn btn-primary" @click="createSchedule" :disabled="createLoading">
           {{ createLoading ? '创建中...' : '创建' }}
@@ -286,15 +312,16 @@ function handleDocClick(e) {
 }
 
 function resetCreateForm() {
-  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120 };
+  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_webhook: '', alert_threshold: 90 };
   frequencyPreset.value = '300';
   profileDropdownOpen.value = false;
   freqDropdownOpen.value = false;
   modelDropdownOpen.value = false;
   showAdvanced.value = false;
+  showAlert.value = false;
 }
 
-const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120 });
+const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_webhook: '', alert_threshold: 90 });
 
 const selectedProfileModels = computed(() => {
   const p = profiles.value.find(p => p.name === createForm.value.profile_name);
@@ -326,6 +353,7 @@ function selectFrequency(value) {
 
 const modelSearch = ref('');
 const showAdvanced = ref(false);
+const showAlert = ref(false);
 
 const filteredTaskModels = computed(() => {
   const q = (modelSearch.value || '').toLowerCase();
@@ -480,6 +508,9 @@ async function createSchedule() {
       },
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
+      alert_enabled: !!f.alert_enabled,
+      alert_webhook: f.alert_webhook || '',
+      alert_threshold: parseInt(f.alert_threshold) || 0,
     };
     const res = await createScheduleApi(payload);
     if (res.error) {
@@ -750,6 +781,24 @@ onUnmounted(() => { store.refreshFn = null; document.removeEventListener('moused
 .advanced-body {
   padding: 14px;
   border-top: 1px solid var(--border-subtle);
+}
+
+/* ---- Alert Switch ---- */
+.form-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-switch input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
 }
 
 @media (max-width: 768px) {
