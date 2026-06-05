@@ -58,6 +58,7 @@ function closeForm() { showForm.value = false; }
 
 async function onSave() {
   if (!form.value.name) { toast('名称不能为空', 'error'); return; }
+  if (!editingId.value && !form.value.webhook) { toast('Webhook 不能为空', 'error'); return; }
   saving.value = true;
   try {
     const res = editingId.value
@@ -73,7 +74,7 @@ async function onSave() {
 
 async function onTest(n) {
   testingId.value = n.id;
-  try { const r = await notifierTestApi(n.id); toast(r.ok ? '测试消息已发送' : '发送失败', r.ok ? 'success' : 'error'); }
+  try { const r = await notifierTestApi(n.id); toast(r.ok ? '测试消息已发送' : (r.error || '发送失败'), r.ok ? 'success' : 'error'); }
   catch (e) { toast('发送失败', 'error'); }
   finally { testingId.value = null; }
 }
