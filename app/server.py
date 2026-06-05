@@ -2025,9 +2025,9 @@ async def list_schedules(user: dict = Depends(get_current_user)):
     return {"schedules": tasks}
 
 
-def _extract_alert_fields(body: dict):
+async def _extract_alert_fields(body: dict, user_id: int):
     """从请求体提取并校验告警字段。返回 (fields, error)。error 非空表示校验失败。"""
-    from app.notifier import is_allowed_webhook
+    from app.db import get_notifier
     out = {}
     if "alert_enabled" in body:
         out["alert_enabled"] = bool(body["alert_enabled"])
@@ -2039,12 +2039,29 @@ def _extract_alert_fields(body: dict):
         if not (0 <= t <= 100):
             return None, "alert_threshold 必须在 0-100 之间"
         out["alert_threshold"] = t
-    if "alert_webhook" in body:
-        wh = (body.get("alert_webhook") or "").strip()
-        if wh and not is_allowed_webhook(wh):
-            return None, "webhook 必须是 https 的飞书域名 (open.feishu.cn / open.larksuite.com)"
-        out["alert_webhook"] = wh
+    if "alert_notifier_id" in body:
+        try:
+            nid = int(body.get("alert_notifier_id") or 0)
+        except (ValueError, TypeError):
+            return None, "alert_notifier_id 非法"
+        if nid:
+            n = await get_notifier(nid)
+            if not n or n["user_id"] != user_id:
+                return None, "告警器不存在或无权使用"
+        out["alert_notifier_id"] = nid
     return out, None
+
+
+def _mask_webhook(url: str) -> str:
+    """脱敏：只回 host，不暴露 webhook token（token 即 secret）。"""
+    from urllib.parse import urlparse
+    if not url:
+        return ""
+    try:
+        p = urlparse(url)
+        return f"https://{p.hostname}/***"
+    except Exception:
+        return "***"
 
 
 @app.post("/api/schedules")
@@ -2082,13 +2099,13 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
     if sv_int < 60:
         return JSONResponse({"error": "定时任务间隔不能小于 60 秒"}, status_code=400)
 
-    alert_fields, alert_err = _extract_alert_fields(body)
+    alert_fields, alert_err = await _extract_alert_fields(body, user_id)
     if alert_err:
         return JSONResponse({"error": alert_err}, status_code=400)
 
     sid = await create_scheduled_task(
         user_id, name, profile_ids, configs_json, schedule_type, schedule_value,
-        alert_webhook=alert_fields.get("alert_webhook", ""),
+        alert_notifier_id=alert_fields.get("alert_notifier_id", 0),
         alert_threshold=alert_fields.get("alert_threshold", 90),
         alert_enabled=alert_fields.get("alert_enabled", False),
     )
@@ -2121,7 +2138,7 @@ async def update_schedule(task_id: int, request: Request, user: dict = Depends(g
         if sv_int < 60:
             return JSONResponse({"error": "定时任务间隔不能小于 60 秒"}, status_code=400)
 
-    alert_fields, alert_err = _extract_alert_fields(body)
+    alert_fields, alert_err = await _extract_alert_fields(body, user_id)
     if alert_err:
         return JSONResponse({"error": alert_err}, status_code=400)
     fields.update(alert_fields)
@@ -2202,21 +2219,86 @@ async def run_schedule_now(task_id: int, user: dict = Depends(get_current_user))
     return {"status": "triggered"}
 
 
-@app.post("/api/schedules/{task_id}/alert-test")
-async def alert_test(task_id: int, user: dict = Depends(get_current_user)):
-    from app.db import get_scheduled_task
+@app.get("/api/notifiers")
+async def list_notifiers_endpoint(user: dict = Depends(get_current_user)):
+    from app.db import list_notifiers
+    items = await list_notifiers(user["user_id"])
+    return [
+        {"id": n["id"], "name": n["name"], "type": n["type"],
+         "webhook": _mask_webhook(n["webhook"])}
+        for n in items
+    ]
+
+
+@app.post("/api/notifiers")
+async def create_notifier_endpoint(request: Request, user: dict = Depends(get_current_user)):
+    from app.db import create_notifier
+    from app.notifier import is_allowed_webhook
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    webhook = (body.get("webhook") or "").strip()
+    if not name:
+        return JSONResponse({"error": "名称不能为空"}, status_code=400)
+    if not is_allowed_webhook(webhook):
+        return JSONResponse({"error": "webhook 必须是 https 的飞书域名 (open.feishu.cn / open.larksuite.com)"}, status_code=400)
+    from sqlalchemy.exc import IntegrityError
+    try:
+        nid = await create_notifier(user["user_id"], name, webhook)
+    except IntegrityError:
+        return JSONResponse({"error": "创建失败：名称已存在"}, status_code=400)
+    return {"id": nid, "status": "created"}
+
+
+@app.put("/api/notifiers/{notifier_id}")
+async def update_notifier_endpoint(notifier_id: int, request: Request,
+                                   user: dict = Depends(get_current_user)):
+    from app.db import get_notifier, update_notifier
+    from app.notifier import is_allowed_webhook
+    n = await get_notifier(notifier_id)
+    if not n or n["user_id"] != user["user_id"]:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    body = await request.json()
+    fields = {}
+    if "name" in body:
+        nm = (body.get("name") or "").strip()
+        if not nm:
+            return JSONResponse({"error": "名称不能为空"}, status_code=400)
+        fields["name"] = nm
+    if "webhook" in body:
+        wh = (body.get("webhook") or "").strip()
+        if wh and not is_allowed_webhook(wh):
+            return JSONResponse({"error": "webhook 必须是 https 的飞书域名"}, status_code=400)
+        fields["webhook"] = wh  # 空串 = 不改（db 层 update_notifier 已处理）
+    await update_notifier(notifier_id, **fields)
+    return {"status": "updated"}
+
+
+@app.delete("/api/notifiers/{notifier_id}")
+async def delete_notifier_endpoint(notifier_id: int, user: dict = Depends(get_current_user)):
+    from app.db import get_notifier, delete_notifier
+    n = await get_notifier(notifier_id)
+    if not n or n["user_id"] != user["user_id"]:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    ok, refs = await delete_notifier(notifier_id)
+    if not ok:
+        return JSONResponse({"error": f"还有 {refs} 个任务在用，先解绑再删", "refs": refs}, status_code=409)
+    return {"status": "deleted"}
+
+
+@app.post("/api/notifiers/{notifier_id}/test")
+async def notifier_test(notifier_id: int, user: dict = Depends(get_current_user)):
+    from app.db import get_notifier
     # notifier 函数内 import：保持 send_webhook 调用时解析，便于测试 monkeypatch，勿上移顶部
     from app.notifier import build_feishu_card, send_webhook, is_allowed_webhook
     from datetime import datetime
-    task_row = await get_scheduled_task(task_id)
-    if not task_row or task_row["user_id"] != user["user_id"]:
+    n = await get_notifier(notifier_id)
+    if not n or n["user_id"] != user["user_id"]:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    webhook = (task_row.get("alert_webhook") or "").strip()
+    webhook = (n.get("webhook") or "").strip()
     if not webhook or not is_allowed_webhook(webhook):
-        return JSONResponse({"error": "请先配置合法的飞书 webhook"}, status_code=400)
+        return JSONResponse({"error": "该告警器 webhook 非法"}, status_code=400)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    card = build_feishu_card("alert", task_row.get("name", ""), "测试",
-                             0.0, int(task_row.get("alert_threshold") or 90), ts)
+    card = build_feishu_card("alert", n.get("name", ""), "测试", 0.0, 90, ts)
     card["card"]["header"]["title"]["content"] = "🔔 告警测试（这是一条测试消息）"
     ok = await send_webhook(webhook, card)
     return {"ok": ok}

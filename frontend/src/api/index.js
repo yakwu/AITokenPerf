@@ -58,7 +58,13 @@ export const getScheduleResults = (id, { limit = 100, offset = 0, hours } = {}) 
   return api(`/api/schedules/${id}/results?${params}`);
 };
 export const getScheduleTrend = (id, { hours } = {}) => api(`/api/schedules/${id}/trend` + (hours ? `?hours=${hours}` : ''));
-export const alertTestApi = (id) => api(`/api/schedules/${id}/alert-test`, { method: 'POST' });
+
+// Notifiers
+export const getNotifiers = () => api('/api/notifiers');
+export const createNotifierApi = (data) => api('/api/notifiers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+export const updateNotifierApi = (id, data) => api(`/api/notifiers/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+export const deleteNotifierApi = (id) => api(`/api/notifiers/${id}`, { method: 'DELETE' });
+export const notifierTestApi = (id) => api(`/api/notifiers/${id}/test`, { method: 'POST' });
 
 // Sites
 export const getSiteTrend = (profileName, { hours } = {}) => {

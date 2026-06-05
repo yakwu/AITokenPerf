@@ -136,6 +136,17 @@ CREATE TABLE IF NOT EXISTS channel_diagnostics (
     report_json   TEXT NOT NULL DEFAULT '{}',
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS notifiers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT 'feishu',
+    webhook    TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
+);
 """
 
 # PostgreSQL schema
@@ -235,6 +246,17 @@ CREATE TABLE IF NOT EXISTS channel_diagnostics (
     report_json   TEXT NOT NULL DEFAULT '{}',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS notifiers (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT 'feishu',
+    webhook    TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, name)
+);
 """
 
 # PG 需要的辅助索引（email 大小写不敏感）
@@ -315,6 +337,7 @@ async def init_db():
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_threshold INTEGER NOT NULL DEFAULT 90",
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_enabled INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_state TEXT NOT NULL DEFAULT 'ok'",
+                "ALTER TABLE scheduled_tasks ADD COLUMN alert_notifier_id INTEGER NOT NULL DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(col_def))
@@ -326,6 +349,7 @@ async def init_db():
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_threshold INTEGER NOT NULL DEFAULT 90",
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_enabled BOOLEAN NOT NULL DEFAULT FALSE",
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_state TEXT NOT NULL DEFAULT 'ok'",
+                "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_notifier_id INTEGER NOT NULL DEFAULT 0",
             ]:
                 await conn.execute(text(col_def))
 
@@ -614,6 +638,77 @@ async def delete_profile(user_id: int, name: str):
             text("DELETE FROM profiles WHERE user_id=:uid AND name=:name"),
             {"uid": user_id, "name": name},
         )
+
+
+# ---- Notifiers CRUD ----
+
+async def create_notifier(user_id: int, name: str, webhook: str,
+                          type: str = "feishu") -> int:
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("""INSERT INTO notifiers (user_id, name, type, webhook)
+                   VALUES (:uid, :name, :type, :wh)"""),
+            {"uid": user_id, "name": name, "type": type, "wh": webhook},
+        )
+        if _is_sqlite:
+            return cur.lastrowid
+        result = await conn.execute(text("SELECT lastval()"))
+        return (result.fetchone())[0]
+
+
+async def list_notifiers(user_id: int) -> list[dict]:
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM notifiers WHERE user_id=:uid ORDER BY id"),
+            {"uid": user_id},
+        )
+        return _rows_to_dicts(cur.fetchall())
+
+
+async def get_notifier(notifier_id: int) -> Optional[dict]:
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM notifiers WHERE id=:id"), {"id": notifier_id}
+        )
+        row = cur.fetchone()
+        return _row_to_dict(row) if row else None
+
+
+async def update_notifier(notifier_id: int, **fields):
+    async with engine.begin() as conn:
+        allowed = {"name", "webhook", "type"}
+        set_parts = []
+        values = {"id": notifier_id}
+        for k, v in fields.items():
+            if k not in allowed:
+                continue
+            if k == "webhook" and (v is None or v == ""):
+                continue  # 留空 = 不改 webhook（避免覆盖成空）
+            set_parts.append(f"{k}=:{k}")
+            values[k] = v
+        if not set_parts:
+            return
+        set_parts.append(f"updated_at={_now_sql()}")
+        await conn.execute(
+            text(f"UPDATE notifiers SET {', '.join(set_parts)} WHERE id=:id"),
+            values,
+        )
+
+
+async def delete_notifier(notifier_id: int) -> tuple[bool, int]:
+    """同事务内先查引用再删，避免 TOCTOU。返回 (是否已删, 引用任务数)。"""
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("SELECT COUNT(*) FROM scheduled_tasks WHERE alert_notifier_id=:id"),
+            {"id": notifier_id},
+        )
+        refs = (cur.fetchone())[0]
+        if refs > 0:
+            return False, refs
+        await conn.execute(
+            text("DELETE FROM notifiers WHERE id=:id"), {"id": notifier_id}
+        )
+        return True, 0
 
 
 # ---- Results CRUD ----
@@ -1125,17 +1220,17 @@ async def save_settings(user_id: int, benchmark: dict, output_dir: str = "./resu
 
 async def create_scheduled_task(user_id: int, name: str, profile_ids: list,
                                  configs_json: dict, schedule_type: str,
-                                 schedule_value: str, alert_webhook: str = "",
+                                 schedule_value: str, alert_notifier_id: int = 0,
                                  alert_threshold: int = 90,
                                  alert_enabled: bool = False) -> int:
     async with engine.begin() as conn:
         cur = await conn.execute(
             text("""INSERT INTO scheduled_tasks (user_id, name, profile_ids, configs_json,
-                    schedule_type, schedule_value, alert_webhook, alert_threshold, alert_enabled)
-                   VALUES (:uid, :name, :pids, :cj, :st, :sv, :aw, :at, :ae)"""),
+                    schedule_type, schedule_value, alert_notifier_id, alert_threshold, alert_enabled)
+                   VALUES (:uid, :name, :pids, :cj, :st, :sv, :ani, :at, :ae)"""),
             {"uid": user_id, "name": name, "pids": json.dumps(profile_ids),
              "cj": json.dumps(configs_json), "st": schedule_type, "sv": schedule_value,
-             "aw": alert_webhook, "at": alert_threshold,
+             "ani": alert_notifier_id, "at": alert_threshold,
              "ae": (1 if alert_enabled else 0) if _is_sqlite else bool(alert_enabled)},
         )
         if _is_sqlite:
@@ -1200,7 +1295,8 @@ async def update_scheduled_task(task_id: int, **fields):
     async with engine.begin() as conn:
         allowed = {"name", "profile_ids", "configs_json", "schedule_type",
                    "schedule_value", "status", "last_run_at", "next_run_at", "run_count",
-                   "alert_webhook", "alert_threshold", "alert_enabled", "alert_state"}
+                   "alert_threshold", "alert_enabled", "alert_state",
+                   "alert_notifier_id"}
         set_parts = []
         values = {"id": task_id}
         for k, v in fields.items():

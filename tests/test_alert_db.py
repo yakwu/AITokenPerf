@@ -12,28 +12,12 @@ from app.db import (
 
 
 @pytest.mark.asyncio
-async def test_alert_fields_roundtrip():
-    sid = await create_scheduled_task(
-        1, "t", [], {}, "interval", "300",
-        alert_webhook="https://open.feishu.cn/x", alert_threshold=80, alert_enabled=True,
-    )
-    row = await get_scheduled_task(sid)
-    assert row["alert_webhook"] == "https://open.feishu.cn/x"
-    assert row["alert_threshold"] == 80
-    assert bool(row["alert_enabled"]) is True
-    assert row["alert_state"] == "ok"
-
-
-@pytest.mark.asyncio
 async def test_update_alert_enabled_roundtrip():
     sid = await create_scheduled_task(1, "t3", [], {}, "interval", "300")
-    await update_scheduled_task(sid, alert_enabled=True, alert_webhook="https://open.feishu.cn/y")
-    row = await get_scheduled_task(sid)
-    assert bool(row["alert_enabled"]) is True
-    assert row["alert_webhook"] == "https://open.feishu.cn/y"
+    await update_scheduled_task(sid, alert_enabled=True)
+    assert bool((await get_scheduled_task(sid))["alert_enabled"]) is True
     await update_scheduled_task(sid, alert_enabled=False)
-    row2 = await get_scheduled_task(sid)
-    assert bool(row2["alert_enabled"]) is False
+    assert bool((await get_scheduled_task(sid))["alert_enabled"]) is False
 
 
 @pytest.mark.asyncio
@@ -59,3 +43,69 @@ async def test_get_run_success_rate_aggregates():
 async def test_get_run_success_rate_empty():
     assert await get_run_success_rate([]) == (0, 0)
     assert await get_run_success_rate(["nope"]) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_notifier_id():
+    from app.db import create_user, create_notifier, create_scheduled_task, get_scheduled_task
+    uid = await create_user("tnid@example.com", "pw")
+    nid = await create_notifier(uid, "g", "https://open.feishu.cn/hook/z")
+    sid = await create_scheduled_task(uid, "t", ["s"], {}, "interval", "300",
+                                      alert_notifier_id=nid, alert_threshold=80,
+                                      alert_enabled=True)
+    row = await get_scheduled_task(sid)
+    assert row["alert_notifier_id"] == nid
+    assert row["alert_threshold"] == 80
+
+
+@pytest.mark.asyncio
+async def test_notifier_defaults():
+    from app.db import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        # 只给 user_id/name，type/webhook 走默认值
+        await conn.execute(text(
+            "INSERT INTO notifiers (user_id, name) VALUES (1, 'n1')"))
+        row = (await conn.execute(text(
+            "SELECT type, webhook FROM notifiers WHERE user_id = 1 AND name = 'n1'"
+        ))).mappings().one()
+        assert row["type"] == "feishu"
+        assert row["webhook"] == ""
+
+
+@pytest.mark.asyncio
+async def test_task_alert_notifier_id_default_zero():
+    sid = await create_scheduled_task(1, "t", [], {}, "interval", "300")
+    row = await get_scheduled_task(sid)
+    assert row["alert_notifier_id"] == 0
+
+
+@pytest.mark.asyncio
+async def test_notifier_crud_and_delete_guard():
+    from app.db import (create_user, create_notifier, list_notifiers,
+                        get_notifier, update_notifier, delete_notifier,
+                        create_scheduled_task, update_scheduled_task)
+    uid = await create_user("ntf@example.com", "pw")
+    nid = await create_notifier(uid, "运维群", "https://open.feishu.cn/hook/a")
+    # list
+    items = await list_notifiers(uid)
+    assert len(items) == 1 and items[0]["name"] == "运维群"
+    # get
+    n = await get_notifier(nid)
+    assert n["webhook"] == "https://open.feishu.cn/hook/a" and n["type"] == "feishu"
+    # update
+    await update_notifier(nid, name="新名", webhook="https://open.feishu.cn/hook/b")
+    assert (await get_notifier(nid))["name"] == "新名"
+    # update 留空 webhook = 不改
+    await update_notifier(nid, webhook="")
+    assert (await get_notifier(nid))["webhook"] == "https://open.feishu.cn/hook/b"
+    # 未被引用可删
+    ok, refs = await delete_notifier(nid)
+    assert ok is True and refs == 0
+    # 被任务引用则拒绝
+    nid2 = await create_notifier(uid, "群2", "https://open.feishu.cn/hook/c")
+    sid = await create_scheduled_task(uid, "t", ["s"], {}, "interval", "300")
+    await update_scheduled_task(sid, alert_notifier_id=nid2)
+    ok2, refs2 = await delete_notifier(nid2)
+    assert ok2 is False and refs2 == 1
+    assert await get_notifier(nid2) is not None  # 没被删

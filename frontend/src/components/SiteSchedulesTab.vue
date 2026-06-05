@@ -101,8 +101,13 @@
           </div>
           <template v-if="createForm.alert_enabled">
             <div class="form-group full">
-              <label class="form-label">飞书 Webhook URL</label>
-              <input class="form-input" v-model.trim="createForm.alert_webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+              <label class="form-label">告警器</label>
+              <select class="form-input" v-model.number="createForm.alert_notifier_id">
+                <option :value="0">未选择</option>
+                <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
+              </select>
+              <div class="form-hint">在「设置」页管理告警器</div>
+              <div class="form-hint" style="color:var(--danger)" v-if="createForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
             </div>
             <div class="form-group">
               <label class="form-label">成功率阈值（%）</label>
@@ -295,19 +300,18 @@
         </div>
         <template v-if="editForm.alert_enabled">
           <div class="form-group full">
-            <label class="form-label">飞书 Webhook URL</label>
-            <input class="form-input" v-model.trim="editForm.alert_webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+            <label class="form-label">告警器</label>
+            <select class="form-input" v-model.number="editForm.alert_notifier_id">
+              <option :value="0">未选择</option>
+              <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
+            </select>
+            <div class="form-hint">在「设置」页管理告警器</div>
+            <div class="form-hint" style="color:var(--danger)" v-if="editForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
           </div>
           <div class="form-group">
             <label class="form-label">成功率阈值（%）</label>
             <input class="form-input" type="number" v-model.number="editForm.alert_threshold" min="0" max="100" placeholder="90">
             <div class="form-hint">上次运行成功率低于该值时触发告警</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">&nbsp;</label>
-            <button type="button" class="btn btn-ghost" :disabled="!editForm.alert_webhook || !editForm.id || alertTestLoading" @click="onTestAlert">
-              {{ alertTestLoading ? '发送中...' : '发送测试消息' }}
-            </button>
           </div>
         </template>
       </div>
@@ -332,7 +336,7 @@ import {
   pauseScheduleApi,
   resumeScheduleApi,
   runNowApi,
-  alertTestApi,
+  getNotifiers,
 } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import InlineConfirmDelete from './InlineConfirmDelete.vue';
@@ -345,12 +349,15 @@ const props = defineProps({
 // ---- State ----
 const loading = ref(false);
 const schedules = ref([]);
+const notifiers = ref([]);
+async function loadNotifiers() {
+  try { notifiers.value = await getNotifiers(); } catch { notifiers.value = []; }
+}
 const showCreateForm = ref(false);
 const createLoading = ref(false);
 const deleteCandidate = ref(null);
 const showEditForm = ref(false);
 const editLoading = ref(false);
-const alertTestLoading = ref(false);
 
 // ---- Profile data ----
 const profileModels = computed(() => {
@@ -384,7 +391,7 @@ function defaultCreateForm() {
     system_prompt: 'You are a helpful assistant.',
     user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
     alert_enabled: false,
-    alert_webhook: '',
+    alert_notifier_id: 0,
     alert_threshold: 90,
   };
 }
@@ -424,7 +431,7 @@ const editForm = ref({
   system_prompt: '',
   user_prompt: '',
   alert_enabled: false,
-  alert_webhook: '',
+  alert_notifier_id: 0,
   alert_threshold: 90,
 });
 
@@ -501,7 +508,7 @@ function startEdit(s) {
     system_prompt: configs.system_prompt || '',
     user_prompt: configs.user_prompt || '',
     alert_enabled: !!s.alert_enabled,
-    alert_webhook: s.alert_webhook || '',
+    alert_notifier_id: s.alert_notifier_id || 0,
     alert_threshold: s.alert_threshold != null ? s.alert_threshold : 90,
   };
   // Detect preset or custom
@@ -605,7 +612,7 @@ async function createSchedule() {
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
       alert_enabled: !!f.alert_enabled,
-      alert_webhook: f.alert_webhook || '',
+      alert_notifier_id: f.alert_notifier_id || 0,
       alert_threshold: parseInt(f.alert_threshold) || 90,
     };
     const res = await createScheduleApi(payload);
@@ -652,7 +659,7 @@ async function saveEdit() {
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
       alert_enabled: !!f.alert_enabled,
-      alert_webhook: f.alert_webhook || '',
+      alert_notifier_id: f.alert_notifier_id || 0,
       alert_threshold: parseInt(f.alert_threshold) || 90,
     });
     if (res.error) {
@@ -666,19 +673,6 @@ async function saveEdit() {
     toast('更新失败: ' + e.message, 'error');
   }
   editLoading.value = false;
-}
-
-async function onTestAlert() {
-  const id = editForm.value.id;
-  if (!id) return;
-  alertTestLoading.value = true;
-  try {
-    const r = await alertTestApi(id);
-    toast(r.ok ? '测试消息已发送，请检查飞书' : '发送失败，请检查 URL', r.ok ? 'success' : 'error');
-  } catch (e) {
-    toast('发送失败：' + (e.message || e), 'error');
-  }
-  alertTestLoading.value = false;
 }
 
 async function pauseSchedule(id) {
@@ -729,6 +723,7 @@ function handleDocClick(e) {
 
 onMounted(() => {
   refreshSchedules();
+  loadNotifiers();
   document.addEventListener('mousedown', handleDocClick);
 });
 onUnmounted(() => {
