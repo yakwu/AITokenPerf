@@ -235,8 +235,12 @@
           </label>
           <div class="create-modal-grid" v-if="createForm.alert_enabled" style="grid-template-columns:1fr;margin-top:12px">
             <div class="form-group">
-              <label class="form-label">飞书 Webhook URL</label>
-              <input class="form-input" v-model.trim="createForm.alert_webhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+              <label class="form-label">告警器</label>
+              <select class="form-input" v-model.number="createForm.alert_notifier_id" style="width:280px">
+                <option :value="0">未选择</option>
+                <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
+              </select>
+              <div class="form-hint">在「设置」页管理告警器</div>
             </div>
             <div class="form-group">
               <label class="form-label">成功率阈值（%）</label>
@@ -260,7 +264,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
-import { getSchedules, getProfiles, createScheduleApi, pauseScheduleApi, resumeScheduleApi, runNowApi, deleteScheduleApi } from '../api/index.js';
+import { getSchedules, getProfiles, createScheduleApi, pauseScheduleApi, resumeScheduleApi, runNowApi, deleteScheduleApi, getNotifiers } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { useRoute } from 'vue-router';
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
@@ -312,7 +316,7 @@ function handleDocClick(e) {
 }
 
 function resetCreateForm() {
-  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_webhook: '', alert_threshold: 90 };
+  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_notifier_id: 0, alert_threshold: 90 };
   frequencyPreset.value = '300';
   profileDropdownOpen.value = false;
   freqDropdownOpen.value = false;
@@ -321,7 +325,11 @@ function resetCreateForm() {
   showAlert.value = false;
 }
 
-const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_webhook: '', alert_threshold: 90 });
+const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_notifier_id: 0, alert_threshold: 90 });
+const notifiers = ref([]);
+async function loadNotifiers() {
+  try { notifiers.value = await getNotifiers(); } catch { notifiers.value = []; }
+}
 
 const selectedProfileModels = computed(() => {
   const p = profiles.value.find(p => p.name === createForm.value.profile_name);
@@ -509,7 +517,7 @@ async function createSchedule() {
       schedule_type: 'interval',
       schedule_value: String(f.schedule_value),
       alert_enabled: !!f.alert_enabled,
-      alert_webhook: f.alert_webhook || '',
+      alert_notifier_id: f.alert_notifier_id || 0,
       alert_threshold: parseInt(f.alert_threshold) || 90,
     };
     const res = await createScheduleApi(payload);
@@ -577,6 +585,7 @@ async function loadData() {
     ]);
     schedules.value = schedData.schedules || [];
     profiles.value = Array.isArray(profData) ? profData : (profData.profiles || []);
+    loadNotifiers();
   } catch (e) {
     toast('加载定时任务失败: ' + e.message, 'error');
   }
