@@ -642,10 +642,6 @@ async def delete_profile(user_id: int, name: str):
 
 # ---- Notifiers CRUD ----
 
-def _row_to_notifier(row) -> dict:
-    return dict(row._mapping)
-
-
 async def create_notifier(user_id: int, name: str, webhook: str,
                           type: str = "feishu") -> int:
     async with engine.begin() as conn:
@@ -666,7 +662,7 @@ async def list_notifiers(user_id: int) -> list[dict]:
             text("SELECT * FROM notifiers WHERE user_id=:uid ORDER BY id"),
             {"uid": user_id},
         )
-        return [_row_to_notifier(r) for r in cur.fetchall()]
+        return _rows_to_dicts(cur.fetchall())
 
 
 async def get_notifier(notifier_id: int) -> Optional[dict]:
@@ -675,7 +671,7 @@ async def get_notifier(notifier_id: int) -> Optional[dict]:
             text("SELECT * FROM notifiers WHERE id=:id"), {"id": notifier_id}
         )
         row = cur.fetchone()
-        return _row_to_notifier(row) if row else None
+        return _row_to_dict(row) if row else None
 
 
 async def update_notifier(notifier_id: int, **fields):
