@@ -136,6 +136,17 @@ CREATE TABLE IF NOT EXISTS channel_diagnostics (
     report_json   TEXT NOT NULL DEFAULT '{}',
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS notifiers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT 'feishu',
+    webhook    TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
+);
 """
 
 # PostgreSQL schema
@@ -235,6 +246,17 @@ CREATE TABLE IF NOT EXISTS channel_diagnostics (
     report_json   TEXT NOT NULL DEFAULT '{}',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS notifiers (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    type       TEXT NOT NULL DEFAULT 'feishu',
+    webhook    TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, name)
+);
 """
 
 # PG 需要的辅助索引（email 大小写不敏感）
@@ -315,6 +337,7 @@ async def init_db():
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_threshold INTEGER NOT NULL DEFAULT 90",
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_enabled INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_state TEXT NOT NULL DEFAULT 'ok'",
+                "ALTER TABLE scheduled_tasks ADD COLUMN alert_notifier_id INTEGER NOT NULL DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(col_def))
@@ -326,6 +349,7 @@ async def init_db():
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_threshold INTEGER NOT NULL DEFAULT 90",
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_enabled BOOLEAN NOT NULL DEFAULT FALSE",
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_state TEXT NOT NULL DEFAULT 'ok'",
+                "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_notifier_id INTEGER NOT NULL DEFAULT 0",
             ]:
                 await conn.execute(text(col_def))
 

@@ -59,3 +59,18 @@ async def test_get_run_success_rate_aggregates():
 async def test_get_run_success_rate_empty():
     assert await get_run_success_rate([]) == (0, 0)
     assert await get_run_success_rate(["nope"]) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_notifier_table_and_task_column_exist():
+    from app.db import engine
+    from sqlalchemy import text
+    async with engine.connect() as conn:
+        # notifiers 表可插入
+        await conn.execute(text(
+            "INSERT INTO notifiers (user_id, name, type, webhook) "
+            "VALUES (1, 'n1', 'feishu', 'https://open.feishu.cn/x')"))
+        # scheduled_tasks 有 alert_notifier_id 列（默认 0）
+        cur = await conn.execute(text(
+            "SELECT alert_notifier_id FROM scheduled_tasks LIMIT 0"))
+        assert cur is not None
