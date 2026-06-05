@@ -226,11 +226,17 @@ class TaskScheduler:
 
 async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
     """按落库结果聚合成功率，状态翻转时发飞书卡片并写回 alert_state。全程不抛。"""
-    from app.db import get_run_success_rate
+    from app.db import get_run_success_rate, get_notifier
     # notifier 在函数内 import：保持 send_webhook 在调用时解析，便于测试 monkeypatch
     from app.notifier import evaluate_alert, build_feishu_card, send_webhook
 
-    if not task_row.get("alert_enabled") or not (task_row.get("alert_webhook") or "").strip():
+    notifier_id = task_row.get("alert_notifier_id") or 0
+    if not task_row.get("alert_enabled") or not notifier_id:
+        return  # 未开启 或 未选告警器：不发、不报错
+    ntf = await get_notifier(notifier_id)
+    webhook = (ntf or {}).get("webhook", "").strip() if ntf else ""
+    if not webhook:
+        log.info("定时任务 #%d 告警器缺失或 webhook 空，跳过告警", task_id)
         return
     success, total = await get_run_success_rate(run_ids)
     if total == 0:
@@ -244,7 +250,7 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
         profiles_text = ", ".join(task_row.get("profile_ids", []) or []) or "-"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         card = build_feishu_card(action, task_row.get("name", ""), profiles_text, rate, threshold, ts)
-        await send_webhook(task_row["alert_webhook"], card)
+        await send_webhook(webhook, card)
     if new_state != prev:
         await update_scheduled_task(task_id, alert_state=new_state)
 
