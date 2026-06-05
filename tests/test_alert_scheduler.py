@@ -113,3 +113,21 @@ async def test_alert_skips_when_no_notifier(monkeypatch):
     row = await get_scheduled_task(sid)
     await scheduler._maybe_send_alert(sid, row, ["run-2"])
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_alert_skips_when_notifier_missing(monkeypatch):
+    sent = []
+    async def fake_send(url, payload, timeout=10.0):
+        sent.append(url)
+        return True
+    monkeypatch.setattr(notifier, "send_webhook", fake_send)
+    # 指向一个不存在的告警器 id（如被删）→ 安全跳过
+    sid = await create_scheduled_task(1, "tm", ["SiteA"], {}, "interval", "300",
+                                      alert_notifier_id=999999, alert_threshold=90, alert_enabled=True)
+    await save_result(user_id=1, test_id="c", filename="c.json", timestamp="20260604_120000",
+                      config_json="{}", summary_json=json.dumps({"success_count": 0, "total_requests": 10}),
+                      percentiles_json="{}", run_id="run-3", scheduled_task_id=sid)
+    row = await get_scheduled_task(sid)
+    await scheduler._maybe_send_alert(sid, row, ["run-3"])
+    assert sent == []

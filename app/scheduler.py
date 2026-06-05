@@ -234,7 +234,7 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
     if not task_row.get("alert_enabled") or not notifier_id:
         return  # 未开启 或 未选告警器：不发、不报错
     ntf = await get_notifier(notifier_id)
-    webhook = (ntf or {}).get("webhook", "").strip() if ntf else ""
+    webhook = (ntf or {}).get("webhook", "").strip()
     if not webhook:
         log.info("定时任务 #%d 告警器缺失或 webhook 空，跳过告警", task_id)
         return
