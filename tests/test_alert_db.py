@@ -12,28 +12,12 @@ from app.db import (
 
 
 @pytest.mark.asyncio
-async def test_alert_fields_roundtrip():
-    sid = await create_scheduled_task(
-        1, "t", [], {}, "interval", "300",
-        alert_webhook="https://open.feishu.cn/x", alert_threshold=80, alert_enabled=True,
-    )
-    row = await get_scheduled_task(sid)
-    assert row["alert_webhook"] == "https://open.feishu.cn/x"
-    assert row["alert_threshold"] == 80
-    assert bool(row["alert_enabled"]) is True
-    assert row["alert_state"] == "ok"
-
-
-@pytest.mark.asyncio
 async def test_update_alert_enabled_roundtrip():
     sid = await create_scheduled_task(1, "t3", [], {}, "interval", "300")
-    await update_scheduled_task(sid, alert_enabled=True, alert_webhook="https://open.feishu.cn/y")
-    row = await get_scheduled_task(sid)
-    assert bool(row["alert_enabled"]) is True
-    assert row["alert_webhook"] == "https://open.feishu.cn/y"
+    await update_scheduled_task(sid, alert_enabled=True)
+    assert bool((await get_scheduled_task(sid))["alert_enabled"]) is True
     await update_scheduled_task(sid, alert_enabled=False)
-    row2 = await get_scheduled_task(sid)
-    assert bool(row2["alert_enabled"]) is False
+    assert bool((await get_scheduled_task(sid))["alert_enabled"]) is False
 
 
 @pytest.mark.asyncio
@@ -59,6 +43,19 @@ async def test_get_run_success_rate_aggregates():
 async def test_get_run_success_rate_empty():
     assert await get_run_success_rate([]) == (0, 0)
     assert await get_run_success_rate(["nope"]) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_notifier_id():
+    from app.db import create_user, create_notifier, create_scheduled_task, get_scheduled_task
+    uid = await create_user("tnid@example.com", "pw")
+    nid = await create_notifier(uid, "g", "https://open.feishu.cn/hook/z")
+    sid = await create_scheduled_task(uid, "t", ["s"], {}, "interval", "300",
+                                      alert_notifier_id=nid, alert_threshold=80,
+                                      alert_enabled=True)
+    row = await get_scheduled_task(sid)
+    assert row["alert_notifier_id"] == nid
+    assert row["alert_threshold"] == 80
 
 
 @pytest.mark.asyncio

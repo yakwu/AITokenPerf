@@ -1220,17 +1220,17 @@ async def save_settings(user_id: int, benchmark: dict, output_dir: str = "./resu
 
 async def create_scheduled_task(user_id: int, name: str, profile_ids: list,
                                  configs_json: dict, schedule_type: str,
-                                 schedule_value: str, alert_webhook: str = "",
+                                 schedule_value: str, alert_notifier_id: int = 0,
                                  alert_threshold: int = 90,
                                  alert_enabled: bool = False) -> int:
     async with engine.begin() as conn:
         cur = await conn.execute(
             text("""INSERT INTO scheduled_tasks (user_id, name, profile_ids, configs_json,
-                    schedule_type, schedule_value, alert_webhook, alert_threshold, alert_enabled)
-                   VALUES (:uid, :name, :pids, :cj, :st, :sv, :aw, :at, :ae)"""),
+                    schedule_type, schedule_value, alert_notifier_id, alert_threshold, alert_enabled)
+                   VALUES (:uid, :name, :pids, :cj, :st, :sv, :ani, :at, :ae)"""),
             {"uid": user_id, "name": name, "pids": json.dumps(profile_ids),
              "cj": json.dumps(configs_json), "st": schedule_type, "sv": schedule_value,
-             "aw": alert_webhook, "at": alert_threshold,
+             "ani": alert_notifier_id, "at": alert_threshold,
              "ae": (1 if alert_enabled else 0) if _is_sqlite else bool(alert_enabled)},
         )
         if _is_sqlite:
