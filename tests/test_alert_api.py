@@ -135,3 +135,7 @@ async def test_notifier_rejects_other_user(client):
     headers_b = {"Authorization": f"Bearer {token_b}"}
     r = await client.delete(f"/api/notifiers/{nid}", headers=headers_b)
     assert r.status_code == 404
+    r_put = await client.put(f"/api/notifiers/{nid}", json={"name": "x"}, headers=headers_b)
+    assert r_put.status_code == 404
+    r_test = await client.post(f"/api/notifiers/{nid}/test", headers=headers_b)
+    assert r_test.status_code == 404

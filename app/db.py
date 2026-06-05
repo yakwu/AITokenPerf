@@ -1295,7 +1295,7 @@ async def update_scheduled_task(task_id: int, **fields):
     async with engine.begin() as conn:
         allowed = {"name", "profile_ids", "configs_json", "schedule_type",
                    "schedule_value", "status", "last_run_at", "next_run_at", "run_count",
-                   "alert_webhook", "alert_threshold", "alert_enabled", "alert_state",
+                   "alert_threshold", "alert_enabled", "alert_state",
                    "alert_notifier_id"}
         set_parts = []
         values = {"id": task_id}
