@@ -62,15 +62,22 @@ async def test_get_run_success_rate_empty():
 
 
 @pytest.mark.asyncio
-async def test_notifier_table_and_task_column_exist():
+async def test_notifier_defaults():
     from app.db import engine
     from sqlalchemy import text
-    async with engine.connect() as conn:
-        # notifiers 表可插入
+    async with engine.begin() as conn:
+        # 只给 user_id/name，type/webhook 走默认值
         await conn.execute(text(
-            "INSERT INTO notifiers (user_id, name, type, webhook) "
-            "VALUES (1, 'n1', 'feishu', 'https://open.feishu.cn/x')"))
-        # scheduled_tasks 有 alert_notifier_id 列（默认 0）
-        cur = await conn.execute(text(
-            "SELECT alert_notifier_id FROM scheduled_tasks LIMIT 0"))
-        assert cur is not None
+            "INSERT INTO notifiers (user_id, name) VALUES (1, 'n1')"))
+        row = (await conn.execute(text(
+            "SELECT type, webhook FROM notifiers WHERE user_id = 1 AND name = 'n1'"
+        ))).mappings().one()
+        assert row["type"] == "feishu"
+        assert row["webhook"] == ""
+
+
+@pytest.mark.asyncio
+async def test_task_alert_notifier_id_default_zero():
+    sid = await create_scheduled_task(1, "t", [], {}, "interval", "300")
+    row = await get_scheduled_task(sid)
+    assert row["alert_notifier_id"] == 0
