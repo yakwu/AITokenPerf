@@ -640,6 +640,81 @@ async def delete_profile(user_id: int, name: str):
         )
 
 
+# ---- Notifiers CRUD ----
+
+def _row_to_notifier(row) -> dict:
+    return dict(row._mapping)
+
+
+async def create_notifier(user_id: int, name: str, webhook: str,
+                          type: str = "feishu") -> int:
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("""INSERT INTO notifiers (user_id, name, type, webhook)
+                   VALUES (:uid, :name, :type, :wh)"""),
+            {"uid": user_id, "name": name, "type": type, "wh": webhook},
+        )
+        if _is_sqlite:
+            return cur.lastrowid
+        result = await conn.execute(text("SELECT lastval()"))
+        return (result.fetchone())[0]
+
+
+async def list_notifiers(user_id: int) -> list[dict]:
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM notifiers WHERE user_id=:uid ORDER BY id"),
+            {"uid": user_id},
+        )
+        return [_row_to_notifier(r) for r in cur.fetchall()]
+
+
+async def get_notifier(notifier_id: int) -> Optional[dict]:
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT * FROM notifiers WHERE id=:id"), {"id": notifier_id}
+        )
+        row = cur.fetchone()
+        return _row_to_notifier(row) if row else None
+
+
+async def update_notifier(notifier_id: int, **fields):
+    async with engine.begin() as conn:
+        allowed = {"name", "webhook", "type"}
+        set_parts = []
+        values = {"id": notifier_id}
+        for k, v in fields.items():
+            if k not in allowed:
+                continue
+            if k == "webhook" and (v is None or v == ""):
+                continue  # 留空 = 不改 webhook（避免覆盖成空）
+            set_parts.append(f"{k}=:{k}")
+            values[k] = v
+        if not set_parts:
+            return
+        set_parts.append(f"updated_at={_now_sql()}")
+        await conn.execute(
+            text(f"UPDATE notifiers SET {', '.join(set_parts)} WHERE id=:id"),
+            values,
+        )
+
+
+async def delete_notifier(notifier_id: int) -> tuple[bool, int]:
+    """同事务内先查引用再删，避免 TOCTOU。返回 (是否已删, 引用任务数)。"""
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("SELECT COUNT(*) FROM scheduled_tasks WHERE alert_notifier_id=:id"),
+            {"id": notifier_id},
+        )
+        refs = (cur.fetchone())[0]
+        if refs > 0:
+            return False, refs
+        await conn.execute(
+            text("DELETE FROM notifiers WHERE id=:id"), {"id": notifier_id}
+        )
+        return True, 0
+
+
 # ---- Results CRUD ----
 
 async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
@@ -1224,7 +1299,8 @@ async def update_scheduled_task(task_id: int, **fields):
     async with engine.begin() as conn:
         allowed = {"name", "profile_ids", "configs_json", "schedule_type",
                    "schedule_value", "status", "last_run_at", "next_run_at", "run_count",
-                   "alert_webhook", "alert_threshold", "alert_enabled", "alert_state"}
+                   "alert_webhook", "alert_threshold", "alert_enabled", "alert_state",
+                   "alert_notifier_id"}
         set_parts = []
         values = {"id": task_id}
         for k, v in fields.items():

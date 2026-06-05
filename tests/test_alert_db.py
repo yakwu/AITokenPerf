@@ -81,3 +81,34 @@ async def test_task_alert_notifier_id_default_zero():
     sid = await create_scheduled_task(1, "t", [], {}, "interval", "300")
     row = await get_scheduled_task(sid)
     assert row["alert_notifier_id"] == 0
+
+
+@pytest.mark.asyncio
+async def test_notifier_crud_and_delete_guard():
+    from app.db import (create_user, create_notifier, list_notifiers,
+                        get_notifier, update_notifier, delete_notifier,
+                        create_scheduled_task, update_scheduled_task)
+    uid = await create_user("ntf@example.com", "pw")
+    nid = await create_notifier(uid, "运维群", "https://open.feishu.cn/hook/a")
+    # list
+    items = await list_notifiers(uid)
+    assert len(items) == 1 and items[0]["name"] == "运维群"
+    # get
+    n = await get_notifier(nid)
+    assert n["webhook"] == "https://open.feishu.cn/hook/a" and n["type"] == "feishu"
+    # update
+    await update_notifier(nid, name="新名", webhook="https://open.feishu.cn/hook/b")
+    assert (await get_notifier(nid))["name"] == "新名"
+    # update 留空 webhook = 不改
+    await update_notifier(nid, webhook="")
+    assert (await get_notifier(nid))["webhook"] == "https://open.feishu.cn/hook/b"
+    # 未被引用可删
+    ok, refs = await delete_notifier(nid)
+    assert ok is True and refs == 0
+    # 被任务引用则拒绝
+    nid2 = await create_notifier(uid, "群2", "https://open.feishu.cn/hook/c")
+    sid = await create_scheduled_task(uid, "t", ["s"], {}, "interval", "300")
+    await update_scheduled_task(sid, alert_notifier_id=nid2)
+    ok2, refs2 = await delete_notifier(nid2)
+    assert ok2 is False and refs2 == 1
+    assert await get_notifier(nid2) is not None  # 没被删
