@@ -86,6 +86,14 @@ async def test_notifier_create_rejects_bad_webhook(client):
 
 
 @pytest.mark.asyncio
+async def test_notifier_create_rejects_duplicate_name(client):
+    headers = await auth_headers(client)
+    await client.post("/api/notifiers", json={"name": "dup", "webhook": "https://open.feishu.cn/hook/d1"}, headers=headers)
+    r = await client.post("/api/notifiers", json={"name": "dup", "webhook": "https://open.feishu.cn/hook/d2"}, headers=headers)
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_notifier_delete_guard(client):
     headers = await auth_headers(client)
     await _make_profile(client, headers)
@@ -96,7 +104,7 @@ async def test_notifier_delete_guard(client):
     }, headers=headers)
     r = await client.delete(f"/api/notifiers/{nid}", headers=headers)
     assert r.status_code == 409
-    assert "1" in str(r.json())
+    assert r.json()["refs"] == 1
 
 
 @pytest.mark.asyncio

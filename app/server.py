@@ -2053,14 +2053,13 @@ async def _extract_alert_fields(body: dict, user_id: int):
 
 
 def _mask_webhook(url: str) -> str:
-    """脱敏：保留 host + 尾 4 位，其余打码。不回明文全量。"""
+    """脱敏：只回 host，不暴露 webhook token（token 即 secret）。"""
     from urllib.parse import urlparse
     if not url:
         return ""
     try:
         p = urlparse(url)
-        tail = url[-4:] if len(url) > 4 else ""
-        return f"https://{p.hostname}/***{tail}"
+        return f"https://{p.hostname}/***"
     except Exception:
         return "***"
 
@@ -2242,10 +2241,11 @@ async def create_notifier_endpoint(request: Request, user: dict = Depends(get_cu
         return JSONResponse({"error": "名称不能为空"}, status_code=400)
     if not is_allowed_webhook(webhook):
         return JSONResponse({"error": "webhook 必须是 https 的飞书域名 (open.feishu.cn / open.larksuite.com)"}, status_code=400)
+    from sqlalchemy.exc import IntegrityError
     try:
         nid = await create_notifier(user["user_id"], name, webhook)
-    except Exception:
-        return JSONResponse({"error": "创建失败：名称可能重复"}, status_code=400)
+    except IntegrityError:
+        return JSONResponse({"error": "创建失败：名称已存在"}, status_code=400)
     return {"id": nid, "status": "created"}
 
 
