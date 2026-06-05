@@ -15,7 +15,13 @@
         <div class="nm-actions">
           <button class="btn btn-ghost" :disabled="testingId === n.id" @click="onTest(n)">{{ testingId === n.id ? '发送中...' : '测试' }}</button>
           <button class="btn btn-ghost" @click="openEdit(n)">编辑</button>
-          <button class="btn btn-ghost" @click="onDelete(n)">删除</button>
+          <InlineConfirmDelete
+            :active="deleteCandidate === n.id"
+            title="删除告警器"
+            @request.stop="deleteCandidate = n.id"
+            @cancel.stop="deleteCandidate = null"
+            @confirm.stop="onDelete(n)"
+          >删除</InlineConfirmDelete>
         </div>
       </li>
     </ul>
@@ -41,12 +47,14 @@
 import { ref, onMounted } from 'vue';
 import { getNotifiers, createNotifierApi, updateNotifierApi, deleteNotifierApi, notifierTestApi } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
+import InlineConfirmDelete from './InlineConfirmDelete.vue';
 
 const items = ref([]);
 const showForm = ref(false);
 const editingId = ref(null);
 const saving = ref(false);
 const testingId = ref(null);
+const deleteCandidate = ref(null);
 const form = ref({ name: '', webhook: '' });
 
 async function load() {
@@ -80,13 +88,13 @@ async function onTest(n) {
 }
 
 async function onDelete(n) {
-  if (!confirm(`删除告警器「${n.name}」？`)) return;
   try {
     const res = await deleteNotifierApi(n.id);
     if (res && res.error) { toast(res.error, 'error'); return; }
     await load();
     toast('已删除', 'success');
   } catch (e) { toast(e?.message || '删除失败', 'error'); }
+  finally { deleteCandidate.value = null; }
 }
 
 onMounted(load);

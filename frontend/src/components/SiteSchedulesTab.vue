@@ -107,6 +107,7 @@
                 <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
               </select>
               <div class="form-hint">在「设置」页管理告警器</div>
+              <div class="form-hint" style="color:var(--danger)" v-if="createForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
             </div>
             <div class="form-group">
               <label class="form-label">成功率阈值（%）</label>
@@ -305,6 +306,7 @@
               <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
             </select>
             <div class="form-hint">在「设置」页管理告警器</div>
+            <div class="form-hint" style="color:var(--danger)" v-if="editForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
           </div>
           <div class="form-group">
             <label class="form-label">成功率阈值（%）</label>
