@@ -314,9 +314,10 @@ def _apply_env_overrides(config: dict) -> dict:
 
 
 def _mask_api_key(key: str) -> str:
-    if len(key) > 4:
-        return f"...{key[-4:]}"
-    return "****"
+    # 前后各保留 4 位便于辨认，中间打码；过短的 key 全打码避免过度暴露。
+    if len(key) <= 8:
+        return "****"
+    return f"{key[:4]}****{key[-4:]}"
 
 
 async def _resolve_profile_api_key(user_id: int, name: str, data: dict) -> str:
