@@ -42,3 +42,8 @@ RESULTS_QUERY_MAX_ROWS = int(os.environ.get("RESULTS_QUERY_MAX_ROWS", "5000"))
 RESULTS_RETENTION_DAYS = int(os.environ.get("RESULTS_RETENTION_DAYS", "0"))
 # 保留策略扫描间隔（秒），默认每天一次。
 RESULTS_RETENTION_INTERVAL = int(os.environ.get("RESULTS_RETENTION_INTERVAL", "86400"))
+
+# 每个用户最多可创建的定时任务数量（任务定义存量上限）。
+# 与「同时运行的并发数」无关——后者由 BenchTaskManager.MAX_PER_USER 独立硬限制，
+# 故调大此值不会增加同时并发，仅放宽可保存的任务条数。
+MAX_SCHEDULES_PER_USER = int(os.environ.get("MAX_SCHEDULES_PER_USER", "50"))
