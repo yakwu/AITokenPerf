@@ -13,10 +13,6 @@
       <div v-show="showCreateForm" class="create-form">
         <div class="form-grid">
           <div class="form-group">
-            <label class="form-label">任务名称</label>
-            <input class="form-input" v-model="createForm.name" placeholder="例如：快速巡检">
-          </div>
-          <div class="form-group">
             <label class="form-label">执行频率</label>
             <div class="frequency-row">
               <select class="form-input" v-model="frequencyPreset" @change="onFrequencyPresetChange">
@@ -57,7 +53,16 @@
             </div>
           </div>
         </div>
+        <button class="advanced-toggle" @click="showAdvanced = !showAdvanced" style="margin-top:12px;background:none;border:none;color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :style="{ transform: showAdvanced ? 'rotate(90deg)' : '' }"><polyline points="9 18 15 12 9 6"/></svg>
+          高级参数（任务名、并发、模式、超时、提示词…）
+        </button>
+        <div v-show="showAdvanced">
         <div class="form-grid" style="margin-top:12px">
+          <div class="form-group">
+            <label class="form-label">任务名称</label>
+            <input class="form-input" v-model="createForm.name" placeholder="留空将自动生成（持续监控-模型名）">
+          </div>
           <div class="form-group">
             <label class="form-label">并发数</label>
             <input class="form-input" type="number" v-model.number="createForm.concurrency" min="1" max="100" placeholder="1">
@@ -91,6 +96,7 @@
             <label class="form-label">User Prompt</label>
             <textarea class="form-input" v-model="createForm.user_prompt" rows="3" placeholder="Write a short essay about the future of artificial intelligence in exactly 200 words." maxlength="2000"></textarea>
           </div>
+        </div>
         </div>
         <div class="form-grid" style="margin-top:12px">
           <div class="form-group full">
@@ -397,6 +403,7 @@ function defaultCreateForm() {
 }
 
 const createForm = ref(defaultCreateForm());
+const showAdvanced = ref(false);
 
 function onFrequencyPresetChange() {
   if (frequencyPreset.value !== 'custom') {
@@ -585,13 +592,13 @@ async function refreshSchedules() {
 
 async function createSchedule() {
   const f = createForm.value;
-  if (!f.name.trim()) {
-    toast('请输入任务名称', 'info');
-    return;
-  }
   if (!f.models.length) {
     toast('请至少选择一个模型', 'info');
     return;
+  }
+  // 任务名留空时自动生成（任务名已折叠进高级参数，多数用户不填）
+  if (!f.name.trim()) {
+    f.name = `持续监控-${f.models[0]}`;
   }
 
   createLoading.value = true;

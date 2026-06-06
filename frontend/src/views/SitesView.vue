@@ -11,6 +11,10 @@
         <div class="filter-chips">
           <button v-for="f in statusFilters" :key="f.value" class="filter-chip" :class="{ active: statusFilter === f.value }" @click="statusFilter = f.value">{{ f.label }}</button>
         </div>
+        <label class="collapse-healthy-toggle" :class="{ active: collapseHealthy }">
+          <input type="checkbox" v-model="collapseHealthy">
+          <span>折叠健康站点</span>
+        </label>
       </div>
       <div class="sites-toolbar-right">
         <button class="btn btn-primary btn-sm" @click="createSite">
@@ -41,6 +45,12 @@
         <!-- Card Header -->
         <div class="site-card-header">
           <div class="site-card-title-row">
+            <button class="site-fav-btn" :class="{ active: isFavorite(site.profile.name) }"
+                    @click.stop="toggleFavorite(site.profile.name)"
+                    :title="isFavorite(site.profile.name) ? '取消收藏' : '收藏'"
+                    :aria-label="isFavorite(site.profile.name) ? '取消收藏' : '收藏'">
+              {{ isFavorite(site.profile.name) ? '★' : '☆' }}
+            </button>
             <span class="site-health-dot" :class="site.health"></span>
             <router-link :to="`/sites/${encodeURIComponent(site.profile.name)}?tab=trends`" class="site-name-link">{{ site.profile.name }}</router-link>
             <span class="site-status-label" :class="site.health">{{ healthLabel(site.health) }}</span>
@@ -58,7 +68,7 @@
         </div>
 
         <!-- Model Metrics Table -->
-        <div v-else class="site-card-metrics">
+        <div v-else-if="!isCollapsed(site)" class="site-card-metrics">
           <!-- Degradation Warning -->
           <div v-if="getDegradation(site)" class="site-degradation-warning" @click="goSiteHistory(site)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -102,6 +112,11 @@
             <span class="site-error-label">近 {{ getTotalErrorCount(site) }} 次错误</span>
             <span class="site-error-tag" v-for="err in getErrorTypes(site)" :key="err.type" @click.stop="goHistoryWithError(site, err.type)">{{ err.type }} &times; {{ err.count }}</span>
           </div>
+        </div>
+
+        <!-- 折叠占位（健康且未收藏时） -->
+        <div v-else-if="isCollapsed(site)" class="site-card-collapsed-hint">
+          健康 · 已折叠明细
         </div>
 
         <!-- Card Actions -->
@@ -182,6 +197,7 @@ import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
 import { api, getSitesSummary } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
+import { getModelMetrics, sparklinePoints, sparklineTooltip, getErrorTypes, getTotalErrorCount, getDegradation } from '../utils/siteMetrics';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
 import ModalOverlay from '../components/ModalOverlay.vue';
@@ -198,6 +214,30 @@ const sites = ref([]);
 const search = ref('');
 const statusFilter = ref('all');
 const confirmTarget = ref(null);
+
+// ---- 收藏（localStorage 持久化）----
+const FAV_KEY = 'site_favorites';
+function loadFavorites() {
+  try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+const favorites = ref(loadFavorites());
+function isFavorite(name) { return favorites.value.has(name); }
+function toggleFavorite(name) {
+  const next = new Set(favorites.value);
+  next.has(name) ? next.delete(name) : next.add(name);
+  favorites.value = next;
+  localStorage.setItem(FAV_KEY, JSON.stringify([...next]));
+}
+// ---- 折叠健康站点（localStorage 持久化，默认开）----
+const COLLAPSE_KEY = 'sites_collapse_healthy';
+const collapseHealthy = ref(localStorage.getItem(COLLAPSE_KEY) !== '0');
+watch(collapseHealthy, (val) => {
+  localStorage.setItem(COLLAPSE_KEY, val ? '1' : '0');
+});
+function isCollapsed(site) {
+  return collapseHealthy.value && site.health === 'healthy' && !isFavorite(site.profile.name);
+}
 
 const statusFilters = [
   { label: '全部', value: 'all' },
@@ -218,9 +258,12 @@ const filteredSites = computed(() => {
       s.profile?.base_url?.toLowerCase().includes(q)
     );
   }
-  // Sort: error > healthy > untested, within group by last_test_at desc
+  // Sort: 收藏置顶，组内 error > healthy > untested，再按 last_test_at desc
   const healthOrder = { error: 0, healthy: 1, untested: 2, unknown: 2 };
   list = [...list].sort((a, b) => {
+    const fa = favorites.value.has(a.profile.name) ? 0 : 1;
+    const fb = favorites.value.has(b.profile.name) ? 0 : 1;
+    if (fa !== fb) return fa - fb;
     const ha = healthOrder[a.health] ?? 2;
     const hb = healthOrder[b.health] ?? 2;
     if (ha !== hb) return ha - hb;
@@ -267,125 +310,6 @@ function latencyColorStyle(value, goodThreshold, warnThreshold) {
 function rateClass(rate) {
   if (rate == null) return '';
   return rate >= 95 ? 'success' : rate >= 80 ? 'accent' : 'danger';
-}
-
-function getModelMetrics(site) {
-  const results = site.latest_results || [];
-  const sparklineData = site.sparkline_data || {};
-  const modelMap = {};
-  for (const r of results) {
-    const model = r.config?.model || '-';
-    if (!modelMap[model]) {
-      modelMap[model] = { results: [] };
-    }
-    modelMap[model].results.push(r);
-  }
-  // 确保 sparkline_data 中有但 latest_results 中没有的 model 也出现
-  for (const model of Object.keys(sparklineData)) {
-    if (!modelMap[model]) {
-      modelMap[model] = { results: [] };
-    }
-  }
-
-  return Object.entries(modelMap).map(([model, { results }]) => {
-    const totalReqs = results.reduce((s, r) => s + (r.summary?.total_requests || 0), 0);
-    const totalSuccess = results.reduce((s, r) => s + (r.summary?.success_count || r.summary?.successful_requests || 0), 0);
-    const successRate = totalReqs > 0 ? (totalSuccess / totalReqs * 100) : null;
-
-    const ttfts = results.map(r => r.percentiles?.TTFT?.P50).filter(v => v != null);
-    const ttft = ttfts.length ? ttfts.reduce((a, b) => a + b, 0) / ttfts.length : null;
-
-    const tpots = results.map(r => r.percentiles?.TPOT?.P50).filter(v => v != null);
-    const tpot = tpots.length ? tpots.reduce((a, b) => a + b, 0) / tpots.length : null;
-
-    const tpsList = results.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
-    const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
-
-    // Sparkline trend: 失败率（从 latest_results 计算每次测试的失败率）
-    const failRateTrend = results.slice().reverse().map(r => {
-      const total = r.summary?.total_requests || 0;
-      const success = r.summary?.success_count || r.summary?.successful_requests || 0;
-      return total > 0 ? (100 - success / total * 100) : null;
-    }).filter(v => v != null);
-
-    return { model, ttft, failRateTrend, tpot, tps, successRate };
-  }).sort((a, b) => a.model.localeCompare(b.model));
-}
-
-function sparklinePoints(values) {
-  if (!values || values.length < 2) return '';
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  return values.map((v, i) => {
-    const x = (i / (values.length - 1)) * 60;
-    const y = 20 - ((v - min) / range) * 18;
-    return `${x},${y}`;
-  }).join(' ');
-}
-
-function sparklineTooltip(values) {
-  if (!values || values.length < 2) return '';
-  const first = values[0];
-  const last = values[values.length - 1];
-  const diff = last - first;
-  const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
-  return `失败率趋势: ${first.toFixed(1)}% → ${last.toFixed(1)}% (${arrow}${Math.abs(diff).toFixed(1)}%)`;
-}
-
-function getErrorTypes(site) {
-  const results = site.latest_results || [];
-  const errorCounts = {};
-  for (const r of results) {
-    const errDetails = r.error_details;
-    if (Array.isArray(errDetails)) {
-      for (const e of errDetails) {
-        const type = e?.error_type;
-        if (type) {
-          errorCounts[type] = (errorCounts[type] || 0) + 1;
-        }
-      }
-    }
-  }
-  return Object.entries(errorCounts)
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5);
-}
-
-function getTotalErrorCount(site) {
-  return getErrorTypes(site).reduce((s, e) => s + e.count, 0);
-}
-
-function getDegradation(site) {
-  const results = site.latest_results || [];
-  if (results.length < 3) return null;
-
-  // Split results: earlier half vs recent half
-  const half = Math.ceil(results.length / 2);
-  const recent = results.slice(0, half);
-  const earlier = results.slice(half);
-
-  const calcAvgRate = (list) => {
-    const rates = list
-      .map(r => {
-        const s = r.summary || {};
-        const total = s.total_requests || 0;
-        return total > 0 ? (s.success_count || s.successful_requests || 0) / total * 100 : null;
-      })
-      .filter(v => v != null);
-    return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
-  };
-
-  const recentRate = calcAvgRate(recent);
-  const earlierRate = calcAvgRate(earlier);
-
-  if (recentRate == null || earlierRate == null) return null;
-  const drop = earlierRate - recentRate;
-  if (drop >= 5) {
-    return `成功率较近期下降 ${drop.toFixed(0)}%`;
-  }
-  return null;
 }
 
 function goHistoryWithError(site, errorType) {
@@ -866,6 +790,21 @@ onUnmounted(() => { store.refreshFn = null; });
 .form-hint {
   font-size: 11px;
   color: var(--text-tertiary);
+}
+
+.site-fav-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 2px;
+  color: var(--text-tertiary); flex-shrink: 0;
+}
+.site-fav-btn.active { color: var(--warning); }
+.collapse-healthy-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none;
+}
+.collapse-healthy-toggle.active { color: var(--accent); }
+.site-card-collapsed-hint {
+  font-size: 12px; color: var(--text-tertiary); padding: 8px 0;
 }
 </style>
 
