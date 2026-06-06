@@ -7,10 +7,23 @@
 
       <!-- Config Form -->
       <div class="form-grid">
-        <!-- Site Name (readonly) -->
+        <!-- Site Name (with rename) -->
         <div class="form-group">
           <label class="form-label">站点名称</label>
-          <input class="form-input" :value="profile.name" readonly style="opacity:0.7;cursor:default">
+          <div v-if="!renaming" class="rename-row">
+            <input class="form-input" :value="profile.name" readonly style="opacity:0.7;cursor:default;flex:1">
+            <button class="btn btn-ghost btn-sm rename-btn" @click="startRename" title="改名">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              改名
+            </button>
+          </div>
+          <div v-else class="rename-row">
+            <input class="form-input" v-model="renameValue" ref="renameInputRef"
+                   @keyup.enter="confirmRename" @keyup.esc="cancelRename"
+                   placeholder="输入新站点名称" style="flex:1">
+            <button class="btn btn-primary btn-sm" @click="confirmRename" :disabled="renaming && !renameValue.trim()">确认</button>
+            <button class="btn btn-ghost btn-sm" @click="cancelRename">取消</button>
+          </div>
         </div>
 
         <!-- Base URL -->
@@ -84,8 +97,9 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, nextTick } from 'vue';
 import { api } from '../api/index.js';
+import { renameProfile } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import ModelSelector from './ModelSelector.vue';
 import ConnectivityProgress from './ConnectivityProgress.vue';
@@ -94,7 +108,7 @@ import { useConnectivityTest } from '../composables/useConnectivityTest.js';
 const props = defineProps({
   profile: { type: Object, required: true },
 });
-const emit = defineEmits(['deleted']);
+const emit = defineEmits(['deleted', 'renamed']);
 
 // ---- Form state ----
 const form = ref({
@@ -107,6 +121,52 @@ const showApiKey = ref(false);
 const confirmDelete = ref(false);
 const formDirty = ref(false);
 const savedConfig = ref(null);
+
+// ---- Rename state ----
+const renaming = ref(false);
+const renameValue = ref('');
+const renameInputRef = ref(null);
+
+function startRename() {
+  renameValue.value = props.profile.name;
+  renaming.value = true;
+  nextTick(() => {
+    if (renameInputRef.value) {
+      renameInputRef.value.focus();
+      renameInputRef.value.select();
+    }
+  });
+}
+
+function cancelRename() {
+  renaming.value = false;
+  renameValue.value = '';
+}
+
+async function confirmRename() {
+  const newName = renameValue.value.trim();
+  if (!newName) {
+    toast('新名称不能为空', 'info');
+    return;
+  }
+  if (newName === props.profile.name) {
+    cancelRename();
+    return;
+  }
+  try {
+    const res = await renameProfile(props.profile.name, newName);
+    if (res.error) {
+      toast('改名失败: ' + res.error, 'error');
+      return;
+    }
+    toast(`站点已改名为「${newName}」`, 'success');
+    renaming.value = false;
+    renameValue.value = '';
+    emit('renamed', newName);
+  } catch (e) {
+    toast('改名失败: ' + e.message, 'error');
+  }
+}
 
 // ---- Init form from profile ----
 function initForm() {
@@ -320,6 +380,17 @@ async function doDelete() {
 .form-hint {
   color: var(--text-tertiary);
   font-size: 12px;
+}
+
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rename-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 @media (max-width: 768px) {

@@ -27,6 +27,7 @@ export const getProfiles = () => api('/api/profiles');
 export const createProfile = (data) => api('/api/profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const updateProfile = (name, data) => api(`/api/profiles/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const deleteProfileApi = (name) => api(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+export const renameProfile = (name, newName) => api(`/api/profiles/${encodeURIComponent(name)}/rename`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_name: newName }) });
 
 // Runs
 export const createRunApi = (data) => api('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
