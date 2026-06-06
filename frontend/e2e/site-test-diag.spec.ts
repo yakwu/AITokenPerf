@@ -94,7 +94,7 @@ const mockDiagnosticsResponseModel2 = {
 
 // Helper: 导航到站点详情页并切换到诊断 Tab
 async function goToDiagTab(page: import('@playwright/test').Page) {
-  await page.goto('/sites/test-site');
+  await page.goto('/sites/test-site?tab=test');
   await page.waitForLoadState('networkidle');
   await page.click('.site-test-internal-tab:has-text("诊断")');
   await page.waitForLoadState('networkidle');
@@ -228,7 +228,7 @@ test.describe('SiteTestTab Diagnostics', () => {
     await goToDiagTab(page);
 
     // 使用延迟响应来捕获进度状态（先导航再注册，确保页面加载正常）
-    await page.route('**/api/diagnostics**', async (route) => {
+    await page.route('**/api/channel-diagnostics**', async (route) => {
       // 延迟 500ms 模拟诊断耗时
       await new Promise((r) => setTimeout(r, 500));
       route.fulfill({

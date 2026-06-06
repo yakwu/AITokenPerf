@@ -68,8 +68,8 @@
         <SiteSchedulesTab :profile="profile" />
       </div>
 
-      <div v-if="activeTab === 'history'" class="site-detail-panel">
-        <SiteTrendsTab :profile="profile" />
+      <div v-if="activeTab === 'overview'" class="site-detail-panel">
+        <SiteOverviewTab :profile="profile" :site-summary="siteSummary" @go-tab="activeTab = $event" />
       </div>
     </template>
   </section>
@@ -84,7 +84,7 @@ import { useAppStore } from '../stores/app';
 import SiteConfigTab from '../components/SiteConfigTab.vue';
 import SiteTestTab from '../components/SiteTestTab.vue';
 import SiteSchedulesTab from '../components/SiteSchedulesTab.vue';
-import SiteTrendsTab from '../components/SiteTrendsTab.vue';
+import SiteOverviewTab from '../components/SiteOverviewTab.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -96,20 +96,21 @@ const siteName = computed(() => decodeURIComponent(props.id));
 const loading = ref(false);
 const profile = ref(null);
 const siteHealth = ref('');
-const activeTab = ref('test');
+const activeTab = ref('overview');
 const allSites = ref([]);
 const switcherOpen = ref(false);
 const switcherRef = ref(null);
+const siteSummary = ref(null);
 
 const internalTabs = [
-  { key: 'test', label: '单次任务' },
-  { key: 'schedule', label: '定时任务' },
-  { key: 'history', label: '历史趋势' },
-  { key: 'config', label: '配置' },
+  { key: 'overview', label: '概况' },
+  { key: 'test', label: '测试' },
+  { key: 'schedule', label: '持续监控' },
+  { key: 'config', label: '设置' },
 ];
 
 // Map URL query ?tab= to internal tab keys
-const tabQueryMap = { test: 'test', schedule: 'schedule', trends: 'history', history: 'history', config: 'config' };
+const tabQueryMap = { overview: 'overview', test: 'test', schedule: 'schedule', trends: 'overview', history: 'overview', config: 'config' };
 
 async function loadSiteData() {
   loading.value = true;
@@ -123,8 +124,15 @@ async function loadSiteData() {
     // Load health status from sites summary
     const summaryData = await getSitesSummary();
     const summaries = summaryData.summary || [];
-    const siteSummary = summaries.find(s => s.profile?.name === siteName.value);
-    siteHealth.value = siteSummary?.health || '';
+    const foundSummary = summaries.find(s => s.profile?.name === siteName.value);
+    siteHealth.value = foundSummary?.health || '';
+    siteSummary.value = foundSummary || null;
+
+    // 若 URL 无 tab query，根据数据决定默认 tab
+    if (!route.query.tab) {
+      const hasData = foundSummary?.latest_results?.length > 0;
+      activeTab.value = hasData ? 'overview' : 'test';
+    }
 
     // 构建站点切换列表
     allSites.value = profiles.map(p => {
@@ -141,7 +149,7 @@ async function loadSiteData() {
 function switchSite(name) {
   switcherOpen.value = false;
   if (name !== siteName.value) {
-    const tabQuery = route.query.tab || 'trends';
+    const tabQuery = route.query.tab || 'overview';
     router.push(`/sites/${encodeURIComponent(name)}?tab=${tabQuery}`);
   }
 }
@@ -159,7 +167,12 @@ function onSiteDeleted() {
 watch(() => route.params.id, () => {
   if (route.name === 'site-detail') {
     const tabQuery = route.query.tab;
-    activeTab.value = tabQueryMap[tabQuery] || 'test';
+    if (tabQuery) {
+      activeTab.value = tabQueryMap[tabQuery] || 'overview';
+    } else {
+      // Will be set in loadSiteData after data arrives
+      activeTab.value = 'overview';
+    }
     loadSiteData();
   }
 }, { immediate: true });
