@@ -39,6 +39,7 @@ from app.auth import _is_public_path
 from app.config import (
     ALLOW_PROFILE_ENV_OVERRIDES,
     CORS_ORIGINS,
+    MAX_SCHEDULES_PER_USER,
     RUN_MAX_CHILDREN_PER_RUN,
     RUN_MAX_GLOBAL_SLOTS,
     RUN_MAX_USER_SLOTS,
@@ -2076,8 +2077,7 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
     if not profile_ids:
         return JSONResponse({"error": "请至少选择一个 Profile"}, status_code=400)
 
-    # 定时任务数量限制
-    MAX_SCHEDULES_PER_USER = 10
+    # 定时任务数量限制（可配置，见 config.MAX_SCHEDULES_PER_USER）
     count = await count_user_scheduled_tasks(user_id)
     if count >= MAX_SCHEDULES_PER_USER:
         return JSONResponse({"error": f"定时任务数量已达上限（{MAX_SCHEDULES_PER_USER}个）"}, status_code=400)
