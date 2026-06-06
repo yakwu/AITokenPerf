@@ -56,7 +56,7 @@
 
       <!-- Config Tab -->
       <div v-if="activeTab === 'config'" class="site-detail-panel">
-        <SiteConfigTab :profile="profile" @deleted="onSiteDeleted" />
+        <SiteConfigTab :profile="profile" @deleted="onSiteDeleted" @renamed="onSiteRenamed" />
       </div>
 
       <!-- Test Tab -->
@@ -162,6 +162,11 @@ function onClickOutside(e) {
 
 function onSiteDeleted() {
   router.push('/sites');
+}
+
+function onSiteRenamed(newName) {
+  // 改名后跳转到新 URL，并保持当前 tab
+  router.replace(`/sites/${encodeURIComponent(newName)}?tab=config`);
 }
 
 watch(() => route.params.id, () => {

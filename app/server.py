@@ -24,7 +24,7 @@ from app.logger import log_access, log_security, current_run_id
 
 log = logging.getLogger("server")
 from app.db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
-from app.db import switch_active_profile, delete_profile as db_delete_profile
+from app.db import switch_active_profile, delete_profile as db_delete_profile, rename_profile as db_rename_profile
 from app.db import save_result as db_save_result, get_results as db_get_results
 from app.db import get_results_aggregated as db_get_results_aggregated
 from app.db import get_result_by_filename, delete_result as db_delete_result
@@ -314,9 +314,10 @@ def _apply_env_overrides(config: dict) -> dict:
 
 
 def _mask_api_key(key: str) -> str:
-    if len(key) > 4:
-        return f"...{key[-4:]}"
-    return "****"
+    # 前后各保留 4 位便于辨认，中间打码；过短的 key 全打码避免过度暴露。
+    if len(key) <= 8:
+        return "****"
+    return f"{key[:4]}****{key[-4:]}"
 
 
 async def _resolve_profile_api_key(user_id: int, name: str, data: dict) -> str:
@@ -950,6 +951,23 @@ async def update_profile(name: str, request: Request, user: dict = Depends(get_c
         set_active=data.get("set_active", False),
     )
     return {"status": "ok"}
+
+
+@app.post("/api/profiles/{name}/rename")
+async def rename_profile_handler(name: str, request: Request, user: dict = Depends(get_current_user)):
+    """将站点改名并级联更新所有关联数据"""
+    data = await request.json()
+    new_name = (data.get("new_name") or "").strip()
+    if not new_name:
+        return JSONResponse({"error": "新名称不能为空"}, status_code=400)
+    try:
+        await db_rename_profile(user["user_id"], name, new_name)
+    except ValueError as e:
+        msg = str(e)
+        if "已存在" in msg or "already exists" in msg:
+            return JSONResponse({"error": msg}, status_code=400)
+        return JSONResponse({"error": msg}, status_code=404)
+    return {"status": "renamed", "name": new_name}
 
 
 @app.delete("/api/profiles/{name}")

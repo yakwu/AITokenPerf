@@ -640,6 +640,105 @@ async def delete_profile(user_id: int, name: str):
         )
 
 
+async def rename_profile(user_id: int, old_name: str, new_name: str) -> bool:
+    """将用户的 profile 从 old_name 改为 new_name，并在一个事务中级联更新所有引用。
+
+    返回 True 表示成功（包括 old==new 无需操作的情况）。
+    抛出 ValueError:
+      - new_name 为空
+      - old_name 不存在
+      - new_name 与该用户其它 profile 重名
+    """
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("新名称不能为空")
+
+    # old == new：幂等，直接成功
+    if old_name == new_name:
+        return True
+
+    async with engine.begin() as conn:
+        # 校验 old_name 存在
+        cur = await conn.execute(
+            text("SELECT id FROM profiles WHERE user_id=:uid AND name=:name"),
+            {"uid": user_id, "name": old_name},
+        )
+        if not cur.fetchone():
+            raise ValueError(f"站点「{old_name}」不存在")
+
+        # 校验 new_name 不与其它 profile 重名
+        cur = await conn.execute(
+            text("SELECT id FROM profiles WHERE user_id=:uid AND name=:name"),
+            {"uid": user_id, "name": new_name},
+        )
+        if cur.fetchone():
+            raise ValueError(f"名称「{new_name}」已存在，请换一个名称")
+
+        # 1. profiles.name
+        await conn.execute(
+            text("UPDATE profiles SET name=:new WHERE user_id=:uid AND name=:old"),
+            {"uid": user_id, "new": new_name, "old": old_name},
+        )
+
+        # 2. results.profile_name（独立列）
+        await conn.execute(
+            text("UPDATE results SET profile_name=:new WHERE user_id=:uid AND profile_name=:old"),
+            {"uid": user_id, "new": new_name, "old": old_name},
+        )
+
+        # 3. results.config_json 内嵌的 profile_name（双方言）
+        if _is_sqlite:
+            await conn.execute(
+                text("""
+                    UPDATE results
+                    SET config_json = json_set(config_json, '$.profile_name', :new)
+                    WHERE user_id=:uid
+                      AND json_extract(config_json, '$.profile_name') = :old
+                """),
+                {"uid": user_id, "new": new_name, "old": old_name},
+            )
+        else:
+            await conn.execute(
+                text("""
+                    UPDATE results
+                    SET config_json = jsonb_set(config_json::jsonb, '{profile_name}', to_jsonb(:new))::text
+                    WHERE user_id=:uid
+                      AND config_json::jsonb->>'profile_name' = :old
+                """),
+                {"uid": user_id, "new": new_name, "old": old_name},
+            )
+
+        # 4. scheduled_tasks.profile_ids（JSON 字符串数组，Python 解析后替换再写回）
+        cur = await conn.execute(
+            text("SELECT id, profile_ids FROM scheduled_tasks WHERE user_id=:uid"),
+            {"uid": user_id},
+        )
+        tasks = cur.fetchall()
+        for task_row in tasks:
+            task_id, pids_raw = task_row[0], task_row[1]
+            try:
+                pids = json.loads(pids_raw) if pids_raw else []
+            except (json.JSONDecodeError, TypeError):
+                pids = []
+            if old_name in pids:
+                new_pids = [new_name if p == old_name else p for p in pids]
+                await conn.execute(
+                    text("UPDATE scheduled_tasks SET profile_ids=:pids WHERE id=:tid"),
+                    {"pids": json.dumps(new_pids), "tid": task_id},
+                )
+
+        # 5. channel_diagnostics.profile_name
+        await conn.execute(
+            text("UPDATE channel_diagnostics SET profile_name=:new WHERE user_id=:uid AND profile_name=:old"),
+            {"uid": user_id, "new": new_name, "old": old_name},
+        )
+
+        # 6. active profile：存在 profiles.is_active 列，随 profiles.name 一起在步骤 1 已经更新。
+        # （is_active 列没有关联 old_name 文本，步骤 1 UPDATE 已经把整行的 name 改过来了，无需额外操作。）
+
+    return True
+
+
 # ---- Notifiers CRUD ----
 
 async def create_notifier(user_id: int, name: str, webhook: str,
