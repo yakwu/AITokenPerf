@@ -84,7 +84,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">最大 Token</label>
-            <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
+            <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="16">
           </div>
         </div>
         <div class="form-grid" style="margin-top:12px">
@@ -94,7 +94,7 @@
           </div>
           <div class="form-group full">
             <label class="form-label">User Prompt</label>
-            <textarea class="form-input" v-model="createForm.user_prompt" rows="3" placeholder="Write a short essay about the future of artificial intelligence in exactly 200 words." maxlength="2000"></textarea>
+            <textarea class="form-input" v-model="createForm.user_prompt" rows="3" placeholder="Reply with: OK" maxlength="2000"></textarea>
           </div>
         </div>
         </div>
@@ -294,7 +294,7 @@
         </div>
         <div class="form-group full">
           <label class="form-label">User Prompt</label>
-          <textarea class="form-input" v-model="editForm.user_prompt" rows="3" placeholder="Write a short essay..." maxlength="2000"></textarea>
+          <textarea class="form-input" v-model="editForm.user_prompt" rows="3" placeholder="Reply with: OK" maxlength="2000"></textarea>
         </div>
       </div>
       <div class="form-grid" style="margin-top:12px">
@@ -391,11 +391,11 @@ function defaultCreateForm() {
     models: [],
     concurrency: 1,
     mode: 'burst',
-    max_tokens: 512,
+    max_tokens: 16,
     timeout: 120,
     duration: 120,
     system_prompt: 'You are a helpful assistant.',
-    user_prompt: 'Write a short essay about the future of artificial intelligence in exactly 200 words.',
+    user_prompt: 'Reply with: OK',
     alert_enabled: false,
     alert_notifier_id: 0,
     alert_threshold: 90,
@@ -609,7 +609,7 @@ async function createSchedule() {
       configs_json: {
         concurrency_levels: [parseInt(f.concurrency) || 1],
         mode: f.mode || 'burst',
-        max_tokens: parseInt(f.max_tokens) || 512,
+        max_tokens: parseInt(f.max_tokens) || 16,
         timeout: parseInt(f.timeout) || 120,
         duration: parseInt(f.duration) || 120,
         models: f.models,
@@ -651,7 +651,7 @@ async function saveEdit() {
     const configs = {
       concurrency_levels: [parseInt(f.concurrency) || 1],
       mode: f.mode || 'burst',
-      max_tokens: parseInt(f.max_tokens) || 512,
+      max_tokens: parseInt(f.max_tokens) || 16,
       timeout: parseInt(f.timeout) || 120,
       duration: parseInt(f.duration) || 120,
       models: f.models,

@@ -216,7 +216,7 @@
             </div>
             <div class="form-group">
               <label class="form-label">最大 Token</label>
-              <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
+              <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="16">
             </div>
           </div>
         </div>
@@ -317,7 +317,7 @@ function handleDocClick(e) {
 }
 
 function resetCreateForm() {
-  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_notifier_id: 0, alert_threshold: 90 };
+  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 16, timeout: 120, duration: 120, alert_enabled: false, alert_notifier_id: 0, alert_threshold: 90 };
   frequencyPreset.value = '300';
   profileDropdownOpen.value = false;
   freqDropdownOpen.value = false;
@@ -510,7 +510,7 @@ async function createSchedule() {
       configs_json: {
         concurrency_levels: [parseInt(f.concurrency) || 1],
         mode: f.mode || 'burst',
-        max_tokens: parseInt(f.max_tokens) || 512,
+        max_tokens: parseInt(f.max_tokens) || 16,
         timeout: parseInt(f.timeout) || 120,
         duration: parseInt(f.duration) || 120,
         models: f.models,
