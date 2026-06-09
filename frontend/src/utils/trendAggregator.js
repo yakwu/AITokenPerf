@@ -62,12 +62,15 @@ export function computeAdaptiveBucketCount(trend, rangeHours) {
   if (medianInterval <= 0) medianInterval = 60_000;
 
   const rangeMs = rangeHours * 3600_000;
-  const targetPoints = Math.round(rangeMs / medianInterval);
+  // 钳位后用钳位后的点数反算桶宽，保证 点数×桶宽 == 总跨度。
+  // 不钳位时 rangeMs/targetPoints ≈ medianInterval，行为不变；
+  // 钳到上限 200 时桶宽自动放大，X 轴才能覆盖完整范围。
+  const targetPoints = Math.max(12, Math.min(200, Math.round(rangeMs / medianInterval)));
 
   return {
-    targetPoints: Math.max(12, Math.min(200, targetPoints)),
+    targetPoints,
     medianInterval,
-    bucketWidth: medianInterval,
+    bucketWidth: rangeMs / targetPoints,
   };
 }
 

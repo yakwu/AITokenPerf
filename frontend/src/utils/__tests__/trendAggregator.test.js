@@ -238,6 +238,27 @@ describe('自适应桶数', () => {
   });
 });
 
+describe('点数钳位后桶宽放大 (#44)', () => {
+  it('钳到上限 200 后，点数×桶宽仍覆盖完整范围', () => {
+    // 5min 间隔、~57h 范围 → round(57.25*12)=687 → 钳到 200
+    const data = makeMinuteData('20260607_0001', 688, { intervalMin: 5 });
+    const rangeHours =
+      (parseMinuteToTs(data[data.length - 1].minute) - parseMinuteToTs(data[0].minute)) / 3600_000;
+    const { targetPoints, bucketWidth } = computeAdaptiveBucketCount(data, rangeHours);
+    expect(targetPoints).toBe(200); // 触发钳位
+    // 覆盖范围（点数×桶宽）必须 ≈ 总跨度，而不是固定 200×5min=16.6h
+    expect(targetPoints * bucketWidth).toBeCloseTo(rangeHours * 3600_000, -5);
+  });
+
+  it('「全部」视图 X 轴铺满到最新数据，不被压成固定 16.6h', () => {
+    // 数据 06-07 00:01 → 06-09 09:16（5min 间隔，688 点）
+    const data = makeMinuteData('20260607_0001', 688, { intervalMin: 5 });
+    const { labels } = aggregateToFixedPoints(data, null, null);
+    // 末尾标签应落在数据最后一天 06-09，而非被截断到 06-07
+    expect(labels[labels.length - 1]).toMatch(/^06-09/);
+  });
+});
+
 describe('插值填充', () => {
   it('大间隔空桶保持 null 断线', () => {
     // 构造数据：0, 15, 30, 120, 135 分钟（90 分钟间隔）
@@ -292,9 +313,10 @@ describe('插值填充', () => {
     const fakeNow = baseTs + 50 * 60_000;
     vi.spyOn(Date, 'now').mockReturnValue(fakeNow);
     const { items } = aggregateToFixedPoints(data, null, 1);
-    // 自适应桶数下数据点都在相邻桶，无空桶需要插值
+    // 桶宽随钳位放大后，点按真实时间分布，中间空桶在阈值内被插值填充
     const interpItems = items.filter(i => i !== null && i.interpolated);
-    expect(interpItems.length).toBe(0);
+    expect(interpItems.length).toBeGreaterThan(0);
+    expect(interpItems.every(i => i.interpolated === true)).toBe(true);
   });
 
   it('插值数值线性正确', () => {
