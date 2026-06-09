@@ -37,7 +37,14 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="m in modelMetrics" :key="m.model">
+          <tr
+            v-for="m in modelMetrics"
+            :key="m.model"
+            class="overview-row"
+            :class="{ 'row-active': selectedModel === m.model }"
+            :title="selectedModel === m.model ? '再次点击查看全部模型' : '点击只看该模型的趋势'"
+            @click="toggleModel(m.model)"
+          >
             <td class="overview-model">{{ m.model }}</td>
             <td :style="latencyColorStyle(m.ttft, 0.5, 2)">{{ fmtTime(m.ttft) }}</td>
             <td :style="latencyColorStyle(m.tpot, 0.01, 0.05)">{{ fmtTime(m.tpot) }}</td>
@@ -77,8 +84,8 @@
               </template>
             </td>
             <td class="overview-actions-cell">
-              <button class="btn btn-ghost btn-xs" @click="$emit('go-tab', 'test')" title="去测试">测试</button>
-              <button class="btn btn-ghost btn-xs" @click="scrollToTrends" title="查看趋势">趋势</button>
+              <button class="btn btn-ghost btn-xs" @click.stop="$emit('go-tab', 'test')" title="去测试">测试</button>
+              <button class="btn btn-ghost btn-xs" @click.stop="selectAndScroll(m.model)" title="查看该模型趋势">趋势</button>
             </td>
           </tr>
         </tbody>
@@ -87,7 +94,7 @@
 
     <!-- 内嵌趋势 -->
     <div ref="trendsRef" class="overview-trends-section">
-      <SiteTrendsTab :profile="profile" />
+      <SiteTrendsTab :profile="profile" :model-filter="selectedModel" @update:model-filter="selectedModel = $event" />
     </div>
 
   </div>
@@ -110,6 +117,18 @@ defineEmits(['go-tab']);
 const trendsRef = ref(null);
 const schedulesLoading = ref(false);
 const schedules = ref([]);
+
+// 模型筛选：点击表格行驱动下方趋势，null = 全部
+const selectedModel = ref(null);
+
+function toggleModel(model) {
+  selectedModel.value = selectedModel.value === model ? null : model;
+}
+
+function selectAndScroll(model) {
+  selectedModel.value = model;
+  scrollToTrends();
+}
 
 // 从 siteSummary 计算指标（若无数据则返回空数组）
 const modelMetrics = computed(() => {
@@ -291,8 +310,20 @@ onMounted(async () => {
   border-bottom: none;
 }
 
+.overview-table tbody tr.overview-row {
+  cursor: pointer;
+}
+
 .overview-table tbody tr:hover td {
   background: var(--border-subtle);
+}
+
+.overview-table tbody tr.row-active td {
+  background: var(--accent-light, color-mix(in srgb, var(--accent) 12%, transparent));
+}
+
+.overview-table tbody tr.row-active td.overview-model {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .overview-model {
