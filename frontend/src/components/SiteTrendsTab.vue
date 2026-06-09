@@ -3,16 +3,10 @@
     <!-- Controls Bar -->
     <div class="trends-controls">
       <span class="trends-label">历史趋势</span>
-      <div v-if="modelOptions.length > 1" class="trend-model-filter">
-        <button class="trend-model-chip" :class="{ active: selectedModel === null }" @click="selectedModel = null">全部</button>
-        <button
-          v-for="mdl in modelOptions"
-          :key="mdl"
-          class="trend-model-chip"
-          :class="{ active: selectedModel === mdl }"
-          :title="mdl"
-          @click="selectedModel = mdl"
-        >{{ mdl }}</button>
+      <div v-if="modelFilter" class="trend-model-active" :title="modelFilter">
+        <span class="trend-model-active-dot"></span>
+        <span class="trend-model-active-name">{{ modelFilter }}</span>
+        <button class="trend-model-clear" title="查看全部模型" @click="$emit('update:modelFilter', null)">&times;</button>
       </div>
     </div>
 
@@ -99,7 +93,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getSiteTrend, getResults } from '../api';
 import { useTimeRangeStore } from '../stores/timeRange';
 import { aggregateToFixedPoints } from '../utils/trendAggregator.js';
@@ -139,7 +133,10 @@ const crosshairPlugin = {
 
 const props = defineProps({
   profile: { type: Object, required: true },
+  // 模型筛选：null = 全部，由概况表行点击驱动
+  modelFilter: { type: String, default: null },
 });
+defineEmits(['update:modelFilter']);
 
 const timeRangeStore = useTimeRangeStore();
 
@@ -147,10 +144,6 @@ const timeRangeStore = useTimeRangeStore();
 const loading = ref(false);
 const trendData = ref([]);
 const trendSummary = ref([]);
-
-// 模型筛选：null = 全部
-const selectedModel = ref(null);
-const modelOptions = computed(() => props.profile?.models || []);
 
 const latencyCanvas = ref(null);
 const qualityCanvas = ref(null);
@@ -266,7 +259,7 @@ async function fetchTrend() {
 
   loading.value = true;
   try {
-    const data = await getSiteTrend(profileName, { hours: timeRangeStore.hours, model: selectedModel.value });
+    const data = await getSiteTrend(profileName, { hours: timeRangeStore.hours, model: props.modelFilter });
     trendData.value = data.trend || [];
   } catch {
     trendData.value = [];
@@ -539,7 +532,7 @@ watch(() => timeRangeStore.hours, () => {
 });
 
 // 切换模型只刷新趋势图（执行记录表保留全部模型）
-watch(selectedModel, () => {
+watch(() => props.modelFilter, () => {
   fetchTrend();
 });
 
@@ -569,39 +562,54 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
-.trend-model-filter {
-  display: flex;
+.trend-model-active {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 6px;
+  max-width: 280px;
+  padding: 3px 6px 3px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--accent-light, color-mix(in srgb, var(--accent) 12%, transparent));
+  border: 1px solid var(--accent);
+  border-radius: 14px;
 }
 
-.trend-model-chip {
-  max-width: 200px;
+.trend-model-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.trend-model-active-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 3px 10px;
-  font-size: 12px;
-  font-family: var(--font-mono);
+}
+
+.trend-model-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
   color: var(--text-secondary);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
   cursor: pointer;
-  transition: all 0.15s;
+  flex-shrink: 0;
 }
 
-.trend-model-chip:hover {
-  border-color: var(--accent);
-  color: var(--text-primary);
-}
-
-.trend-model-chip.active {
+.trend-model-clear:hover {
   background: var(--accent);
-  border-color: var(--accent);
   color: #fff;
-  font-weight: 600;
 }
 
 .trends-loading {
