@@ -97,6 +97,12 @@ import { renderResultDetail } from '../utils/resultDetail.js';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 
+// 固定 Y 轴占宽，让延迟图与质量图的绘图区左右边界一致，X 轴才能上下对齐。
+// 质量图有右轴(失败率)，延迟图没有，故给延迟图右侧预留等宽空白。
+const Y_AXIS_WIDTH = 58;
+const Y1_AXIS_WIDTH = 52;
+const fixAxisWidth = (w) => (scale) => { scale.width = w; };
+
 // ---- Crosshair sync plugin ----
 const crosshairPlugin = {
   id: 'crosshairSync',
@@ -369,6 +375,8 @@ function renderLatencyChart() {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
+      // 右侧预留与质量图右轴等宽的空白，对齐绘图区
+      layout: { padding: { right: Y1_AXIS_WIDTH } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
@@ -392,6 +400,7 @@ function renderLatencyChart() {
       },
       scales: {
         y: {
+          afterFit: fixAxisWidth(Y_AXIS_WIDTH),
           title: { display: true, text: 'Latency (s)', font: { size: 11 } },
           grid: { color: 'rgba(0,0,0,0.04)' },
           ticks: { font: { family: "'JetBrains Mono'", size: 10 }, callback: v => v.toFixed(2) + 's' },
@@ -479,6 +488,7 @@ function renderQualityChart() {
       scales: {
         y: {
           position: 'left',
+          afterFit: fixAxisWidth(Y_AXIS_WIDTH),
           title: { display: true, text: 'Throughput (t/s)', font: { size: 11 } },
           grid: { color: 'rgba(0,0,0,0.04)' },
           ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
@@ -486,6 +496,7 @@ function renderQualityChart() {
         },
         y1: {
           position: 'right',
+          afterFit: fixAxisWidth(Y1_AXIS_WIDTH),
           title: { display: true, text: '失败率 (%)', font: { size: 11 } },
           grid: { drawOnChartArea: false },
           ticks: { font: { family: "'JetBrains Mono'", size: 10 } },
