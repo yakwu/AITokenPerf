@@ -1661,9 +1661,14 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
                 s = json.loads(r[3])  # summary_json
             except (json.JSONDecodeError, TypeError):
                 s = {}
+            try:
+                p = json.loads(r[4]) if r[4] else {}  # percentiles_json
+            except (json.JSONDecodeError, TypeError):
+                p = {}
             latest_results.append({
                 "timestamp": r[2],
                 "summary": s,
+                "percentiles": p,
                 "config": json.loads(r[5]) if r[5] else {},
                 "scheduled_task_id": r[6],
             })

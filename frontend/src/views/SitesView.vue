@@ -81,7 +81,7 @@
                 <tr>
                   <th>模型</th>
                   <th>TTFT P50</th>
-                  <th style="width:70px" title="失败率变化趋势">趋势</th>
+                  <th style="width:74px" title="TTFT 延迟变化趋势（7天）">延迟趋势</th>
                   <th>TPOT P50</th>
                   <th>Token/s</th>
                   <th>成功率</th>
@@ -91,11 +91,13 @@
                 <tr v-for="m in getModelMetrics(site)" :key="m.model">
                   <td class="matrix-model">{{ m.model }}</td>
                   <td :style="latencyColorStyle(m.ttft, 0.5, 2)">{{ fmtTime(m.ttft) }}</td>
-                  <td class="sparkline-cell" :title="sparklineTooltip(m.failRateTrend)">
-                    <svg v-if="m.failRateTrend && m.failRateTrend.length >= 2" width="60" height="20" class="sparkline">
-                      <polyline :points="sparklinePoints(m.failRateTrend)" fill="none"
-                        :stroke="m.failRateTrend[m.failRateTrend.length-1] > m.failRateTrend[0] ? 'var(--danger)' : 'var(--success)'"
+                  <td class="sparkline-cell" :title="latencyTrendTooltip(m.latencyTrend)">
+                    <svg v-if="m.latencyTrend && m.latencyTrend.length >= 2" width="64" height="20" class="sparkline">
+                      <polyline :points="sparklinePoints(m.latencyTrend)" fill="none"
+                        :stroke="latencyTrendColor(m.latencyTrend)"
                         stroke-width="1.5" stroke-linejoin="round" />
+                      <circle :cx="sparklineEnd(m.latencyTrend).x" :cy="sparklineEnd(m.latencyTrend).y"
+                        r="1.8" :fill="latencyTrendColor(m.latencyTrend)" />
                     </svg>
                     <span v-else class="sparkline-na">-</span>
                   </td>
@@ -197,7 +199,7 @@ import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
 import { api, getSitesSummary } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
-import { getModelMetrics, sparklinePoints, sparklineTooltip, getErrorTypes, getTotalErrorCount, getDegradation } from '../utils/siteMetrics';
+import { getModelMetrics, sparklinePoints, sparklineEnd, latencyTrendColor, latencyTrendTooltip, getErrorTypes, getTotalErrorCount, getDegradation } from '../utils/siteMetrics';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
 import ModalOverlay from '../components/ModalOverlay.vue';
