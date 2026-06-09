@@ -68,9 +68,10 @@ export const deleteNotifierApi = (id) => api(`/api/notifiers/${id}`, { method: '
 export const notifierTestApi = (id) => api(`/api/notifiers/${id}/test`, { method: 'POST' });
 
 // Sites
-export const getSiteTrend = (profileName, { hours } = {}) => {
+export const getSiteTrend = (profileName, { hours, model } = {}) => {
   const params = new URLSearchParams({ profile_name: profileName });
   if (hours) params.set('hours', hours);
+  if (model) params.set('model', model);
   return api(`/api/sites/trend?${params}`);
 };
 
