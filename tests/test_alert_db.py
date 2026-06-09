@@ -151,3 +151,17 @@ async def test_success_rate_by_cell_empty():
     from app.db import get_run_success_rate_by_cell
     assert await get_run_success_rate_by_cell([]) == {}
     assert await get_run_success_rate_by_cell(["nope"]) == {}
+
+
+@pytest.mark.asyncio
+async def test_success_rate_by_cell_blank_profile():
+    from app.db import get_run_success_rate_by_cell
+    # config_json 无 profile_name → profile_name 列写空 → 归 "-"
+    await save_result(
+        user_id=1, test_id="bp", filename="bp.json", timestamp="20260609_120000",
+        config_json=json.dumps({"model": "gpt-4o"}),
+        summary_json=json.dumps({"success_count": 7, "total_requests": 10}),
+        percentiles_json="{}", run_id="run-bp",
+    )
+    cells = await get_run_success_rate_by_cell(["run-bp"])
+    assert cells[("-", "gpt-4o")] == (7, 10)

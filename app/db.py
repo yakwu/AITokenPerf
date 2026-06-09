@@ -890,7 +890,8 @@ async def get_run_success_rate_by_cell(run_ids: list) -> dict:
             s = json.loads(summary_json)
         except (json.JSONDecodeError, TypeError):
             continue
-        profile = profile_name or cfg.get("profile_name", "") or "-"
+        # profile_name 列由 save_result 从 config_json 同源写入，是规范来源；空则归 "-"
+        profile = profile_name or "-"
         model = cfg.get("model") or "-"
         succ = int(s.get("success_count") or 0)
         tot = int(s.get("total_requests") or 0)
