@@ -101,3 +101,27 @@ async def test_send_webhook_non_2xx_returns_false(monkeypatch):
         def post(self, *a, **k): return FakeResp()
     monkeypatch.setattr(notifier.aiohttp, "ClientSession", FakeSession)
     assert await notifier.send_webhook("https://open.feishu.cn/x", {"a": 1}) is False
+
+
+def test_load_alert_states_valid_json():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states('{"SiteA": {"gpt-4o": "alerting"}}') == {"SiteA": {"gpt-4o": "alerting"}}
+
+
+def test_load_alert_states_legacy_scalar():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states("ok") == {}
+    assert _load_alert_states("alerting") == {}
+
+
+def test_load_alert_states_empty_or_none():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states("") == {}
+    assert _load_alert_states(None) == {}
+
+
+def test_load_alert_states_non_dict_json():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states('"ok"') == {}
+    assert _load_alert_states("123") == {}
+    assert _load_alert_states("[1, 2]") == {}

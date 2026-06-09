@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """告警通知模块：状态机判定 + 飞书卡片 + webhook 发送（SSRF 限飞书域名）。"""
 
+import json
 import logging
 from typing import Optional, Tuple
 from urllib.parse import urlparse
@@ -22,6 +23,17 @@ def evaluate_alert(prev_state: str, success_rate: float, threshold: int) -> Tupl
     if not abnormal and prev_state == ALERT_ALERTING:
         return ALERT_OK, "recover"
     return prev_state, None
+
+
+def _load_alert_states(raw) -> dict:
+    """读取 alert_state：合法 JSON dict 原样返回；裸值/空/非 dict 一律视为空（存量兼容）。"""
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return v if isinstance(v, dict) else {}
 
 
 def _safe_host(url: str) -> str:
