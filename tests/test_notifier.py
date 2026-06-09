@@ -53,19 +53,26 @@ def test_empty_rejected():
 
 
 def test_alert_card_red_header():
-    card = build_feishu_card("alert", "主力渠道", "OpenAI-A", 72.0, 90, "2026-06-04 10:30")
+    card = build_feishu_card("alert", "主力渠道",
+                             [("OpenAI-A", "gpt-4o", 72.0), ("OpenAI-B", "claude", 65.0)],
+                             90, "2026-06-09 10:30")
     assert card["msg_type"] == "interactive"
     assert card["card"]["config"]["wide_screen_mode"] is True
     assert card["card"]["header"]["template"] == "red"
     assert "告警" in card["card"]["header"]["title"]["content"]
     flat = str(card)
-    assert "72.0%" in flat and "90%" in flat and "主力渠道" in flat
+    assert "OpenAI-A" in flat and "gpt-4o" in flat and "72.0%" in flat
+    assert "OpenAI-B" in flat and "claude" in flat and "65.0%" in flat
+    assert "90%" in flat
 
 
 def test_recover_card_green_header():
-    card = build_feishu_card("recover", "主力渠道", "OpenAI-A", 95.0, 90, "2026-06-04 10:30")
+    card = build_feishu_card("recover", "主力渠道",
+                             [("OpenAI-A", "gpt-4o", 95.0)], 90, "2026-06-09 10:30")
     assert card["card"]["header"]["template"] == "green"
     assert "恢复" in card["card"]["header"]["title"]["content"]
+    flat = str(card)
+    assert "OpenAI-A" in flat and "gpt-4o" in flat and "95.0%" in flat
 
 
 @pytest.mark.asyncio

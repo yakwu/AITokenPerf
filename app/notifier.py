@@ -57,29 +57,34 @@ def is_allowed_webhook(url: str) -> bool:
     return p.hostname in FEISHU_ALLOWED_HOSTS
 
 
-def build_feishu_card(kind: str, task_name: str, profile: str,
-                      rate: float, threshold: int, ts: str) -> dict:
-    """构造飞书自定义机器人 interactive 卡片。kind ∈ {'alert','recover'}。"""
+def build_feishu_card(kind: str, task_name: str,
+                      cells: list, threshold: int, ts: str) -> dict:
+    """构造飞书自定义机器人 interactive 卡片。kind ∈ {'alert','recover'}。
+    cells: [(profile, model, rate), ...] —— 本轮新翻转的格子。"""
     if kind == "recover":
         template, title, color = "green", "✅ 已恢复", "green"
     else:
         template, title, color = "red", "🔴 拨测告警", "red"
+    elements = [
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**任务**：{task_name}"}},
+    ]
+    for profile, model, rate in cells:
+        elements.append({"tag": "div", "fields": [
+            {"is_short": True, "text": {"tag": "lark_md", "content": f"**站点**\n{profile}"}},
+            {"is_short": True, "text": {"tag": "lark_md", "content": f"**模型**\n{model}"}},
+            {"is_short": True, "text": {"tag": "lark_md",
+                "content": f"**成功率**\n<font color='{color}'>{rate:.1f}%</font>"}},
+        ]})
+    elements.append({"tag": "hr"})
+    elements.append({"tag": "note", "elements": [
+        {"tag": "lark_md", "content": f"阈值 {threshold}% · {ts} · AITokenPerf"}]})
     return {
         "msg_type": "interactive",
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {"template": template,
                        "title": {"tag": "plain_text", "content": title}},
-            "elements": [
-                {"tag": "div", "fields": [
-                    {"is_short": True, "text": {"tag": "lark_md", "content": f"**任务**\n{task_name}"}},
-                    {"is_short": True, "text": {"tag": "lark_md", "content": f"**站点**\n{profile}"}},
-                    {"is_short": True, "text": {"tag": "lark_md", "content": f"**成功率**\n<font color='{color}'>{rate:.1f}%</font>"}},
-                    {"is_short": True, "text": {"tag": "lark_md", "content": f"**阈值**\n{threshold}%"}},
-                ]},
-                {"tag": "hr"},
-                {"tag": "note", "elements": [{"tag": "lark_md", "content": f"⏰ {ts} · AITokenPerf"}]},
-            ],
+            "elements": elements,
         },
     }
 

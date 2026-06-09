@@ -7,7 +7,6 @@ from app.db import (
     get_scheduled_task,
     update_scheduled_task,
     save_result,
-    get_run_success_rate,
 )
 
 
@@ -26,23 +25,6 @@ async def test_update_alert_state_persists():
     await update_scheduled_task(sid, alert_state="alerting")
     row = await get_scheduled_task(sid)
     assert row["alert_state"] == "alerting"
-
-
-@pytest.mark.asyncio
-async def test_get_run_success_rate_aggregates():
-    for i, (succ, tot) in enumerate([(8, 10), (5, 10)]):
-        await save_result(
-            user_id=1, test_id=f"t{i}", filename=f"f{i}.json", timestamp="20260604_120000",
-            config_json="{}", summary_json=json.dumps({"success_count": succ, "total_requests": tot}),
-            percentiles_json="{}", run_id="run-x",
-        )
-    assert await get_run_success_rate(["run-x"]) == (13, 20)
-
-
-@pytest.mark.asyncio
-async def test_get_run_success_rate_empty():
-    assert await get_run_success_rate([]) == (0, 0)
-    assert await get_run_success_rate(["nope"]) == (0, 0)
 
 
 @pytest.mark.asyncio

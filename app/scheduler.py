@@ -225,10 +225,11 @@ class TaskScheduler:
 # ── 模块级工具函数 ───────────────────────────────────────
 
 async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
-    """按落库结果聚合成功率，状态翻转时发飞书卡片并写回 alert_state。全程不抛。"""
-    from app.db import get_run_success_rate, get_notifier
-    # notifier 在函数内 import：保持 send_webhook 在调用时解析，便于测试 monkeypatch
-    from app.notifier import evaluate_alert, build_feishu_card, send_webhook
+    """按 (站点,模型) 格子聚合成功率，逐格状态翻转，聚合成红/绿卡发送。全程不抛。"""
+    from app.db import get_run_success_rate_by_cell, get_notifier
+    from app.notifier import (
+        evaluate_alert, build_feishu_card, send_webhook, _load_alert_states,
+    )
 
     notifier_id = task_row.get("alert_notifier_id") or 0
     if not task_row.get("alert_enabled") or not notifier_id:
@@ -238,21 +239,39 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
     if not webhook:
         log.info("定时任务 #%d 告警器缺失或 webhook 空，跳过告警", task_id)
         return
-    success, total = await get_run_success_rate(run_ids)
-    if total == 0:
+
+    cells = await get_run_success_rate_by_cell(run_ids)
+    if not cells:
         log.info("定时任务 #%d 本轮无有效请求，跳过告警评估", task_id)
         return
-    rate = success / total * 100
+
     threshold = int(task_row.get("alert_threshold") or 90)
-    prev = task_row.get("alert_state") or "ok"
-    new_state, action = evaluate_alert(prev, rate, threshold)
-    if action:
-        profiles_text = ", ".join(task_row.get("profile_ids", []) or []) or "-"
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        card = build_feishu_card(action, task_row.get("name", ""), profiles_text, rate, threshold, ts)
-        await send_webhook(webhook, card)
-    if new_state != prev:
-        await update_scheduled_task(task_id, alert_state=new_state)
+    prev = _load_alert_states(task_row.get("alert_state"))
+    new_states: dict = {}
+    alerts, recovers = [], []
+    for (profile, model), (succ, tot) in cells.items():
+        p_state = prev.get(profile, {}).get(model, "ok")
+        if tot == 0:                       # 没真发出请求 → 不评估、保留旧态
+            new_states.setdefault(profile, {})[model] = p_state
+            continue
+        rate = succ / tot * 100
+        n_state, action = evaluate_alert(p_state, rate, threshold)
+        new_states.setdefault(profile, {})[model] = n_state
+        if action == "alert":
+            alerts.append((profile, model, rate))
+        elif action == "recover":
+            recovers.append((profile, model, rate))
+
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    name = task_row.get("name", "")
+    if alerts:
+        await send_webhook(webhook, build_feishu_card("alert", name, alerts, threshold, ts))
+    if recovers:
+        await send_webhook(webhook, build_feishu_card("recover", name, recovers, threshold, ts))
+
+    if new_states != prev:
+        await update_scheduled_task(
+            task_id, alert_state=json.dumps(new_states, ensure_ascii=False))
 
 
 async def _run_scheduled_task(task_id: int):
