@@ -10,8 +10,8 @@
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="trends-loading">
+    <!-- Loading：仅首次加载整块占位，之后切模型/时间范围原地更新 -->
+    <div v-if="loading && firstLoad" class="trends-loading">
       <div class="spinner"></div>
       <span>加载趋势数据...</span>
     </div>
@@ -142,6 +142,7 @@ const timeRangeStore = useTimeRangeStore();
 
 // ---- State ----
 const loading = ref(false);
+const firstLoad = ref(true);
 const trendData = ref([]);
 const trendSummary = ref([]);
 
@@ -191,6 +192,7 @@ async function loadRecords(page = 1) {
     };
     params.profile_name = profileName;
     if (timeRangeStore.hours) params.hours = timeRangeStore.hours;
+    if (props.modelFilter) params.model = props.modelFilter;
     const data = await getResults(params);
     records.value = data.items || [];
     recordsTotal.value = data.total || 0;
@@ -265,6 +267,7 @@ async function fetchTrend() {
     trendData.value = [];
   }
   loading.value = false;
+  firstLoad.value = false;
   destroyCharts();
   await nextTick();
   renderTrendSummary();
@@ -531,9 +534,10 @@ watch(() => timeRangeStore.hours, () => {
   loadRecords();
 });
 
-// 切换模型只刷新趋势图（执行记录表保留全部模型）
+// 切换模型：刷新趋势图 + 执行记录（回到第 1 页）
 watch(() => props.modelFilter, () => {
   fetchTrend();
+  loadRecords(1);
 });
 
 onUnmounted(() => {

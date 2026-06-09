@@ -907,8 +907,8 @@ async def get_results(user_id: int, hours: int | None = None) -> list[dict]:
         return [_row_to_result_dict(row) for row in rows]
 
 
-async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None, lightweight: bool = False, raw: bool = False, base_url: str | None = None, profile_name: str | None = None) -> dict:
-    """返回历史记录。优先按 profile_name 精确过滤，回退到 base_url。"""
+async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0, hours: int | None = None, lightweight: bool = False, raw: bool = False, base_url: str | None = None, profile_name: str | None = None, model: str | None = None) -> dict:
+    """返回历史记录。优先按 profile_name 精确过滤，回退到 base_url。指定 model 时只看该模型。"""
     params: dict = {"uid": user_id}
     time_filter = ""
     if hours is not None:
@@ -929,7 +929,16 @@ async def get_results_aggregated(user_id: int, limit: int = 50, offset: int = 0,
         params["base_url"] = base_clean
         params["base_url_slash"] = base_with_slash
 
-    where = f"WHERE r.user_id=:uid {time_filter} {site_filter}"
+    model_filter = ""
+    if model:
+        # config_json 是 TEXT，按方言取 JSON 字段
+        if _is_sqlite:
+            model_filter = "AND json_extract(r.config_json, '$.model') = :model"
+        else:
+            model_filter = "AND (r.config_json::jsonb ->> 'model') = :model"
+        params["model"] = model
+
+    where = f"WHERE r.user_id=:uid {time_filter} {site_filter} {model_filter}"
 
     # raw 模式：分页下推到 SQL（COUNT + LIMIT/OFFSET），不再全表加载进内存
     if raw:

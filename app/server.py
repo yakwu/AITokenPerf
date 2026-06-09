@@ -987,10 +987,11 @@ async def list_results(
     raw: bool = Query(False),
     base_url: str | None = Query(None),
     profile_name: str | None = Query(None),
+    model: str | None = Query(None),
     user: dict = Depends(get_current_user),
 ):
     lightweight = fields == "summary"
-    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight, raw=raw, base_url=base_url, profile_name=profile_name)
+    result = await db_get_results_aggregated(user["user_id"], limit=limit, offset=offset, hours=hours, lightweight=lightweight, raw=raw, base_url=base_url, profile_name=profile_name, model=model)
     resp = {"total": result["total"], "items": result["items"]}
     if result.get("truncated"):
         resp["truncated"] = True
