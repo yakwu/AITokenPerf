@@ -2317,7 +2317,7 @@ async def notifier_test(notifier_id: int, user: dict = Depends(get_current_user)
     if not webhook or not is_allowed_webhook(webhook):
         return JSONResponse({"error": "该告警器 webhook 非法"}, status_code=400)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    card = build_feishu_card("alert", n.get("name", ""), "测试", 0.0, 90, ts)
+    card = build_feishu_card("alert", n.get("name", ""), [("测试", "测试", 0.0)], 90, ts)
     card["card"]["header"]["title"]["content"] = "🔔 告警测试（这是一条测试消息）"
     ok = await send_webhook(webhook, card)
     return {"ok": ok}
