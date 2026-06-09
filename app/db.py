@@ -1214,8 +1214,9 @@ async def get_schedule_results_trend(user_id: int, scheduled_task_id: int, hours
     return result[-2000:]  # 最多2000个点
 
 
-async def get_site_trend(user_id: int, base_url: str, hours: int | None = None, profile_name: str | None = None) -> list[dict]:
-    """按站点聚合结果趋势。优先按 profile_name 精确过滤，回退到 base_url。"""
+async def get_site_trend(user_id: int, base_url: str, hours: int | None = None, profile_name: str | None = None, model: str | None = None) -> list[dict]:
+    """按站点聚合结果趋势。优先按 profile_name 精确过滤，回退到 base_url。
+    指定 model 时只统计该模型的结果。"""
     params: dict = {"uid": user_id}
     time_filter = ""
     if hours is not None:
@@ -1237,7 +1238,7 @@ async def get_site_trend(user_id: int, base_url: str, hours: int | None = None, 
 
     async with engine.connect() as conn:
         cur = await conn.execute(
-            text(f"""SELECT timestamp, summary_json, percentiles_json
+            text(f"""SELECT timestamp, summary_json, percentiles_json, config_json
                    FROM results
                    WHERE user_id=:uid
                      {site_filter}
@@ -1250,6 +1251,13 @@ async def get_site_trend(user_id: int, base_url: str, hours: int | None = None, 
 
     buckets = {}
     for row in rows:
+        if model:
+            try:
+                cfg = json.loads(row[3]) if row[3] else {}
+            except (json.JSONDecodeError, TypeError):
+                cfg = {}
+            if cfg.get("model") != model:
+                continue
         minute = row[0][:13]  # timestamp
         if minute not in buckets:
             buckets[minute] = {"minute": minute, "count": 0, "success_rates": [],

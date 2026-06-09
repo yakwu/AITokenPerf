@@ -3,6 +3,17 @@
     <!-- Controls Bar -->
     <div class="trends-controls">
       <span class="trends-label">历史趋势</span>
+      <div v-if="modelOptions.length > 1" class="trend-model-filter">
+        <button class="trend-model-chip" :class="{ active: selectedModel === null }" @click="selectedModel = null">全部</button>
+        <button
+          v-for="mdl in modelOptions"
+          :key="mdl"
+          class="trend-model-chip"
+          :class="{ active: selectedModel === mdl }"
+          :title="mdl"
+          @click="selectedModel = mdl"
+        >{{ mdl }}</button>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -137,6 +148,10 @@ const loading = ref(false);
 const trendData = ref([]);
 const trendSummary = ref([]);
 
+// 模型筛选：null = 全部
+const selectedModel = ref(null);
+const modelOptions = computed(() => props.profile?.models || []);
+
 const latencyCanvas = ref(null);
 const qualityCanvas = ref(null);
 let latencyChart = null;
@@ -251,7 +266,7 @@ async function fetchTrend() {
 
   loading.value = true;
   try {
-    const data = await getSiteTrend(profileName, { hours: timeRangeStore.hours });
+    const data = await getSiteTrend(profileName, { hours: timeRangeStore.hours, model: selectedModel.value });
     trendData.value = data.trend || [];
   } catch {
     trendData.value = [];
@@ -523,6 +538,11 @@ watch(() => timeRangeStore.hours, () => {
   loadRecords();
 });
 
+// 切换模型只刷新趋势图（执行记录表保留全部模型）
+watch(selectedModel, () => {
+  fetchTrend();
+});
+
 onUnmounted(() => {
   destroyCharts();
 });
@@ -547,6 +567,41 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 700;
   color: var(--text-secondary);
+}
+
+.trend-model-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.trend-model-chip {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.trend-model-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.trend-model-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
 }
 
 .trends-loading {
