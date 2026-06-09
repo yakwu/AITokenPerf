@@ -32,18 +32,30 @@ export function getModelMetrics(site) {
     const tpots = results.map(r => r.percentiles?.TPOT?.P50).filter(v => v != null);
     const tpot = tpots.length ? tpots.reduce((a, b) => a + b, 0) / tpots.length : null;
 
+    const e2es = results.map(r => r.percentiles?.E2E?.P50).filter(v => v != null);
+    const e2e = e2es.length ? e2es.reduce((a, b) => a + b, 0) / e2es.length : null;
+
     const tpsList = results.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
     const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
 
-    // Sparkline trend: 失败率（从 latest_results 计算每次测试的失败率）
-    const failRateTrend = results.slice().reverse().map(r => {
-      const total = r.summary?.total_requests || 0;
-      const success = r.summary?.success_count || r.summary?.successful_requests || 0;
-      return total > 0 ? (100 - success / total * 100) : null;
-    }).filter(v => v != null);
+    // Sparkline: TTFT 延迟趋势（优先后端 7 天 sparkline_data，回退 latest_results）
+    const latencyTrend = getSparklineTrend(site, model);
 
-    return { model, ttft, failRateTrend, tpot, tps, successRate };
+    return { model, ttft, tpot, e2e, tps, successRate, latencyTrend };
   }).sort((a, b) => a.model.localeCompare(b.model));
+}
+
+// 取某模型的 TTFT 延迟趋势序列：优先后端 sparkline_data，回退 latest_results 的 TTFT P50
+export function getSparklineTrend(site, model) {
+  if (site.sparkline_data && site.sparkline_data[model]) {
+    return site.sparkline_data[model];
+  }
+  const results = site.latest_results || [];
+  const ttfts = results
+    .filter(r => r.config?.model === model)
+    .map(r => r.percentiles?.TTFT?.P50)
+    .filter(v => v != null);
+  return ttfts.slice(0, 10).reverse();
 }
 
 export function sparklinePoints(values) {
@@ -58,13 +70,36 @@ export function sparklinePoints(values) {
   }).join(' ');
 }
 
-export function sparklineTooltip(values) {
-  if (!values || values.length < 2) return '';
+// 延迟趋势 sparkline 末端点坐标（用于画当前点小圆点）
+export function sparklineEnd(values) {
+  if (!values || values.length < 2) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const last = values[values.length - 1];
+  return { x: 60, y: 20 - ((last - min) / range) * 18 };
+}
+
+// 延迟趋势配色：延迟越低越好。上升=警示色，下降=绿色，基本持平=中性灰
+export function latencyTrendColor(values) {
+  if (!values || values.length < 2) return 'var(--text-tertiary)';
+  const first = values[0];
+  const last = values[values.length - 1];
+  if (first <= 0) return 'var(--text-tertiary)';
+  const pct = (last - first) / first;
+  if (pct > 0.05) return 'var(--danger)';
+  if (pct < -0.05) return 'var(--success)';
+  return 'var(--text-tertiary)';
+}
+
+export function latencyTrendTooltip(values) {
+  if (!values || values.length < 2) return '暂无足够趋势数据';
   const first = values[0];
   const last = values[values.length - 1];
   const diff = last - first;
   const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
-  return `失败率趋势: ${first.toFixed(1)}% → ${last.toFixed(1)}% (${arrow}${Math.abs(diff).toFixed(1)}%)`;
+  const pct = first > 0 ? Math.abs(diff / first * 100) : 0;
+  return `TTFT 延迟趋势(7天): ${first.toFixed(2)}s → ${last.toFixed(2)}s (${arrow}${pct.toFixed(0)}%)`;
 }
 
 export function getErrorTypes(site) {

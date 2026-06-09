@@ -28,9 +28,10 @@
             <th>模型</th>
             <th>TTFT P50</th>
             <th>TPOT P50</th>
+            <th>E2E P50</th>
             <th>Token/s</th>
             <th>成功率</th>
-            <th title="失败率变化趋势（7天）">趋势</th>
+            <th title="TTFT 延迟变化趋势（7天）">延迟趋势</th>
             <th>监控</th>
             <th>操作</th>
           </tr>
@@ -40,18 +41,25 @@
             <td class="overview-model">{{ m.model }}</td>
             <td :style="latencyColorStyle(m.ttft, 0.5, 2)">{{ fmtTime(m.ttft) }}</td>
             <td :style="latencyColorStyle(m.tpot, 0.01, 0.05)">{{ fmtTime(m.tpot) }}</td>
+            <td :style="latencyColorStyle(m.e2e, 1, 5)">{{ fmtTime(m.e2e) }}</td>
             <td class="overview-mono">{{ m.tps != null ? fmtNum(m.tps, 0) + ' t/s' : '-' }}</td>
             <td>
               <span class="rate-badge" :class="rateClass(m.successRate)">{{ fmtPct(m.successRate) }}</span>
             </td>
-            <td class="sparkline-cell" :title="sparklineTooltip(m.failRateTrend)">
-              <svg v-if="m.failRateTrend && m.failRateTrend.length >= 2" width="60" height="20" class="sparkline">
+            <td class="sparkline-cell" :title="latencyTrendTooltip(m.latencyTrend)">
+              <svg v-if="m.latencyTrend && m.latencyTrend.length >= 2" width="64" height="20" class="sparkline">
                 <polyline
-                  :points="sparklinePoints(m.failRateTrend)"
+                  :points="sparklinePoints(m.latencyTrend)"
                   fill="none"
-                  :stroke="m.failRateTrend[m.failRateTrend.length - 1] > m.failRateTrend[0] ? 'var(--danger)' : 'var(--success)'"
+                  :stroke="latencyTrendColor(m.latencyTrend)"
                   stroke-width="1.5"
                   stroke-linejoin="round"
+                />
+                <circle
+                  :cx="sparklineEnd(m.latencyTrend).x"
+                  :cy="sparklineEnd(m.latencyTrend).y"
+                  r="1.8"
+                  :fill="latencyTrendColor(m.latencyTrend)"
                 />
               </svg>
               <span v-else class="sparkline-na">-</span>
@@ -88,7 +96,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { getSchedules } from '../api/index.js';
-import { getModelMetrics, sparklinePoints, sparklineTooltip, getErrorTypes, getTotalErrorCount, getDegradation } from '../utils/siteMetrics.js';
+import { getModelMetrics, sparklinePoints, sparklineEnd, latencyTrendColor, latencyTrendTooltip, getErrorTypes, getTotalErrorCount, getDegradation } from '../utils/siteMetrics.js';
 import { fmtTime, fmtPct, fmtNum, latencyColorStyle } from '../utils/formatters.js';
 import SiteTrendsTab from './SiteTrendsTab.vue';
 
