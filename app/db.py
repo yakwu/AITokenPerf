@@ -877,6 +877,62 @@ async def get_run_success_rate_by_cell(run_ids: list) -> dict:
     return cells
 
 
+async def get_cell_availability_series(user_id: int, hours: int | None = None,
+                                       buckets: int = 24) -> dict:
+    """按 (profile_name, model) 把最近 `hours` 小时分成 `buckets` 个等宽时间桶，
+    每桶聚合成功率，返回 {(profile, model): [rate|None, ...]}（长度=buckets，旧→新）。
+    桶内无数据→None。hours 为空或<=0 时默认 24；buckets<=0 时默认 24。
+    分组口径与 get_run_success_rate_by_cell 一致（profile_name 列；config.model 缺失归 '-'）。"""
+    from datetime import datetime, timedelta
+    window_h = hours if (hours and hours > 0) else 24
+    if buckets <= 0:
+        buckets = 24
+    now = datetime.now()
+    start = now - timedelta(hours=window_h)
+    cutoff = start.strftime("%Y%m%d_%H%M%S")
+    bucket_secs = (now - start).total_seconds() / buckets
+
+    async with engine.connect() as conn:
+        cur = await conn.execute(
+            text("SELECT profile_name, config_json, summary_json, timestamp "
+                 "FROM results WHERE user_id=:uid AND timestamp >= :cutoff"),
+            {"uid": user_id, "cutoff": cutoff},
+        )
+        rows = cur.fetchall()
+
+    acc: dict = {}
+    for profile_name, config_json, summary_json, ts in rows:
+        try:
+            cfg = json.loads(config_json) if config_json else {}
+        except (json.JSONDecodeError, TypeError):
+            cfg = {}
+        try:
+            s = json.loads(summary_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        try:
+            dt = datetime.strptime(ts, "%Y%m%d_%H%M%S")
+        except (ValueError, TypeError):
+            continue
+        idx = int((dt - start).total_seconds() // bucket_secs) if bucket_secs > 0 else 0
+        if idx < 0:
+            idx = 0
+        elif idx >= buckets:
+            idx = buckets - 1
+        profile = profile_name or "-"
+        model = cfg.get("model") or "-"
+        succ = int(s.get("success_count") or 0)
+        tot = int(s.get("total_requests") or 0)
+        cell = acc.setdefault((profile, model), [[0, 0] for _ in range(buckets)])
+        cell[idx][0] += succ
+        cell[idx][1] += tot
+
+    out: dict = {}
+    for cell, series in acc.items():
+        out[cell] = [round(s / t * 100, 1) if t > 0 else None for s, t in series]
+    return out
+
+
 def _row_to_result_dict(row, lightweight: bool = False) -> dict:
     d = dict(row._mapping)
     d["config"] = json.loads(d["config_json"])
