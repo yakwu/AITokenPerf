@@ -11,10 +11,6 @@
         <div class="filter-chips">
           <button v-for="f in statusFilters" :key="f.value" class="filter-chip" :class="{ active: statusFilter === f.value }" @click="statusFilter = f.value">{{ f.label }}</button>
         </div>
-        <label class="collapse-healthy-toggle" :class="{ active: collapseHealthy }">
-          <input type="checkbox" v-model="collapseHealthy">
-          <span>折叠健康站点</span>
-        </label>
       </div>
       <div class="sites-toolbar-right">
         <button class="btn btn-primary btn-sm" @click="createSite">
@@ -157,7 +153,7 @@ import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
 import { api, getSitesSummary, getCellAvailability } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
-import { getModelMetrics, sparklinePoints, sparklineEnd, latencyTrendColor, latencyTrendTooltip, getErrorTypes, getTotalErrorCount, getDegradation, availabilityClass, buildAvailabilityLookup, siteAvgSeries } from '../utils/siteMetrics';
+import { getModelMetrics, sparklinePoints, latencyTrendColor, availabilityClass, buildAvailabilityLookup, siteAvgSeries } from '../utils/siteMetrics';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
 import ModalOverlay from '../components/ModalOverlay.vue';
@@ -191,16 +187,6 @@ function toggleFavorite(name) {
   favorites.value = next;
   localStorage.setItem(FAV_KEY, JSON.stringify([...next]));
 }
-// ---- 折叠健康站点（localStorage 持久化，默认开）----
-const COLLAPSE_KEY = 'sites_collapse_healthy';
-const collapseHealthy = ref(localStorage.getItem(COLLAPSE_KEY) !== '0');
-watch(collapseHealthy, (val) => {
-  localStorage.setItem(COLLAPSE_KEY, val ? '1' : '0');
-});
-function isCollapsed(site) {
-  return collapseHealthy.value && site.health === 'healthy' && !isFavorite(site.profile.name);
-}
-
 // ---- 看板展开态（不持久化）+ 可用性辅助 ----
 const expanded = ref(new Set());
 function toggleExpand(name) { const n = new Set(expanded.value); n.has(name) ? n.delete(name) : n.add(name); expanded.value = n; }
@@ -252,19 +238,6 @@ const filteredSites = computed(() => {
   return list;
 });
 
-function siteCardClass(site) {
-  if (site.health === 'untested') return 'site-card--untested';
-  if (site.health === 'error') return 'site-card--error';
-  return 'site-card--healthy';
-}
-
-function healthLabel(h) {
-  if (h === 'healthy') return '健康';
-  if (h === 'error') return '异常';
-  if (h === 'untested') return '未测试';
-  return '未知';
-}
-
 function relativeTime(ts) {
   if (!ts) return '-';
   const y = +ts.slice(0, 4), mo = +ts.slice(4, 6) - 1, d = +ts.slice(6, 8);
@@ -290,20 +263,6 @@ function latencyColorStyle(value, goodThreshold, warnThreshold) {
 function rateClass(rate) {
   if (rate == null) return '';
   return rate >= 95 ? 'success' : rate >= 80 ? 'accent' : 'danger';
-}
-
-function goHistoryWithError(site, errorType) {
-  const name = site.profile?.name;
-  if (name && errorType) {
-    router.push({ path: '/history', query: { site: name, error: errorType } });
-  }
-}
-
-function goSiteHistory(site) {
-  const name = site.profile?.name;
-  if (name) {
-    router.push(`/sites/${encodeURIComponent(name)}`);
-  }
 }
 
 async function testSite(site) {
@@ -495,251 +454,10 @@ onUnmounted(() => { store.refreshFn = null; });
   white-space: nowrap;
 }
 
-/* ---- Sites Grid ---- */
-.sites-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
-}
-
-/* ---- Site Card ---- */
-.site-card {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  transition: box-shadow 0.2s, transform 0.2s;
-  overflow: hidden;
-}
-
-.site-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
-}
-
-.site-card--healthy {}
-
-.site-card--error {}
-
-.site-card--untested {
-  opacity: 0.7;
-}
-
-/* ---- Card Header ---- */
-.site-card-header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.site-card-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.site-health-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.site-health-dot.healthy { background: var(--success); }
-.site-health-dot.error { background: var(--danger); }
-.site-health-dot.untested,
-.site-health-dot.unknown { background: var(--text-tertiary); }
-
-.site-name {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.site-name-link {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  text-decoration: none;
-  transition: color 0.15s;
-}
-
-.site-name-link:hover {
-  color: var(--accent);
-}
-
-.site-status-label {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.site-status-label.healthy { background: var(--success-light); color: var(--success); }
-.site-status-label.error { background: var(--danger-light); color: var(--danger); }
-.site-status-label.untested,
-.site-status-label.unknown { background: var(--border-subtle); color: var(--text-tertiary); }
-
-.site-card-url {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.site-card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.site-card-time {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-/* ---- Untested State ---- */
-.site-card-untested {
-  text-align: center;
-  padding: 24px 0;
-  color: var(--text-tertiary);
-  font-size: 13px;
-}
-
-/* ---- Metrics ---- */
-.site-card-metrics {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.site-card-metrics .table-wrap {
-  border-radius: 8px;
-}
-
-.site-card-metrics table {
-  font-size: 12px;
-}
-
-.site-card-metrics thead th {
-  font-size: 10px;
-  padding: 8px 10px;
-}
-
-.site-card-metrics tbody td {
-  padding: 7px 10px;
-  font-size: 11.5px;
-}
-
-/* ---- Error Tags ---- */
-.site-error-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-
-.site-error-label {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-right: 2px;
-}
-
-.site-error-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--danger-light);
-  color: var(--danger);
-  font-size: 11px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  cursor: pointer;
-  transition: opacity 0.15s, background 0.15s;
-}
-
-.site-error-tag:hover {
-  opacity: 0.8;
-  background: var(--danger);
-  color: #fff;
-}
-
-/* ---- Degradation Warning ---- */
-.site-degradation-warning {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--warning-light, #fef3cd);
-  color: var(--warning, #d97706);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.site-degradation-warning:hover {
-  opacity: 0.85;
-}
-
-/* ---- Sparkline ---- */
-.sparkline-cell {
-  padding: 4px 6px !important;
-  vertical-align: middle;
-}
-
+/* ---- Sparkline (still used in model row) ---- */
 .sparkline {
   display: block;
   vertical-align: middle;
-}
-
-.sparkline-na {
-  color: var(--text-tertiary);
-  font-size: 11px;
-}
-
-/* ---- Card Actions ---- */
-.site-card-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.site-detail-btn {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.site-detail-btn:hover {
-  color: var(--accent-hover);
-}
-
-/* ---- Responsive ---- */
-@media (max-width: 768px) {
-  .sites-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ---- Create Site Form ---- */
@@ -774,21 +492,6 @@ onUnmounted(() => { store.refreshFn = null; });
 .form-hint {
   font-size: 11px;
   color: var(--text-tertiary);
-}
-
-.site-fav-btn {
-  background: none; border: none; cursor: pointer;
-  font-size: 15px; line-height: 1; padding: 0 2px;
-  color: var(--text-tertiary); flex-shrink: 0;
-}
-.site-fav-btn.active { color: var(--warning); }
-.collapse-healthy-toggle {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none;
-}
-.collapse-healthy-toggle.active { color: var(--accent); }
-.site-card-collapsed-hint {
-  font-size: 12px; color: var(--text-tertiary); padding: 8px 0;
 }
 
 /* ---- Site × Model Health Board ---- */
