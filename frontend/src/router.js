@@ -3,7 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'dashboard', component: () => import('./views/DashboardView.vue') },
+    { path: '/', redirect: '/sites' },
     { path: '/sites', name: 'sites', component: () => import('./views/SitesView.vue') },
     { path: '/sites/:id', name: 'site-detail', component: () => import('./views/SiteDetailView.vue'), props: true },
     { path: '/history', name: 'history', component: () => import('./views/HistoryView.vue') },

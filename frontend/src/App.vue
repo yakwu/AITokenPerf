@@ -87,8 +87,7 @@ const store = useAppStore();
 const timeRangeStore = useTimeRangeStore();
 
 const tabs = [
-  { name: '概览', path: '/' },
-  { name: '目标站点', path: '/sites', activeMatch: (p) => p.startsWith('/sites') },
+  { name: '站点', path: '/sites', activeMatch: (p) => p.startsWith('/sites') || p === '/' },
   { name: '历史与对比', path: '/history' },
   { name: '定时任务', path: '/tasks' },
 ];
@@ -131,7 +130,7 @@ watch(
   () => store.user,
   (u) => {
     if (u && route.path === '/auth' && !u.must_change_password) {
-      router.push('/');
+      router.push('/sites');
     }
   }
 );
