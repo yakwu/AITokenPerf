@@ -843,27 +843,38 @@ async def save_result(user_id: int, test_id: str, filename: str, timestamp: str,
         )
 
 
-async def get_run_success_rate(run_ids: list) -> tuple:
-    """聚合给定 run 的全部 result 行的 (success_count, total_requests)。返回 (success, total)。"""
+async def get_run_success_rate_by_cell(run_ids: list) -> dict:
+    """按 (profile_name, model) 分组聚合本轮 result 行的 (success, total)。
+    返回 {(profile, model): (success, total)}。无行返回 {}。"""
     if not run_ids:
-        return (0, 0)
+        return {}
     placeholders = ",".join(f":r{i}" for i in range(len(run_ids)))
     params = {f"r{i}": rid for i, rid in enumerate(run_ids)}
     async with engine.connect() as conn:
         cur = await conn.execute(
-            text(f"SELECT summary_json FROM results WHERE run_id IN ({placeholders})"),
+            text(f"SELECT profile_name, config_json, summary_json FROM results "
+                 f"WHERE run_id IN ({placeholders})"),
             params,
         )
         rows = cur.fetchall()
-    success = total = 0
-    for row in rows:
+    cells: dict = {}
+    for profile_name, config_json, summary_json in rows:
         try:
-            s = json.loads(row[0])
+            cfg = json.loads(config_json) if config_json else {}
+        except (json.JSONDecodeError, TypeError):
+            cfg = {}
+        try:
+            s = json.loads(summary_json)
         except (json.JSONDecodeError, TypeError):
             continue
-        success += int(s.get("success_count") or 0)
-        total += int(s.get("total_requests") or 0)
-    return (success, total)
+        # profile_name 列由 save_result 从 config_json 同源写入，是规范来源；空则归 "-"
+        profile = profile_name or "-"
+        model = cfg.get("model") or "-"
+        succ = int(s.get("success_count") or 0)
+        tot = int(s.get("total_requests") or 0)
+        cur_s, cur_t = cells.get((profile, model), (0, 0))
+        cells[(profile, model)] = (cur_s + succ, cur_t + tot)
+    return cells
 
 
 def _row_to_result_dict(row, lightweight: bool = False) -> dict:

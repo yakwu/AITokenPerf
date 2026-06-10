@@ -53,19 +53,26 @@ def test_empty_rejected():
 
 
 def test_alert_card_red_header():
-    card = build_feishu_card("alert", "主力渠道", "OpenAI-A", 72.0, 90, "2026-06-04 10:30")
+    card = build_feishu_card("alert", "主力渠道",
+                             [("OpenAI-A", "gpt-4o", 72.0), ("OpenAI-B", "claude", 65.0)],
+                             90, "2026-06-09 10:30")
     assert card["msg_type"] == "interactive"
     assert card["card"]["config"]["wide_screen_mode"] is True
     assert card["card"]["header"]["template"] == "red"
     assert "告警" in card["card"]["header"]["title"]["content"]
     flat = str(card)
-    assert "72.0%" in flat and "90%" in flat and "主力渠道" in flat
+    assert "OpenAI-A" in flat and "gpt-4o" in flat and "72.0%" in flat
+    assert "OpenAI-B" in flat and "claude" in flat and "65.0%" in flat
+    assert "90%" in flat
 
 
 def test_recover_card_green_header():
-    card = build_feishu_card("recover", "主力渠道", "OpenAI-A", 95.0, 90, "2026-06-04 10:30")
+    card = build_feishu_card("recover", "主力渠道",
+                             [("OpenAI-A", "gpt-4o", 95.0)], 90, "2026-06-09 10:30")
     assert card["card"]["header"]["template"] == "green"
     assert "恢复" in card["card"]["header"]["title"]["content"]
+    flat = str(card)
+    assert "OpenAI-A" in flat and "gpt-4o" in flat and "95.0%" in flat
 
 
 @pytest.mark.asyncio
@@ -101,3 +108,27 @@ async def test_send_webhook_non_2xx_returns_false(monkeypatch):
         def post(self, *a, **k): return FakeResp()
     monkeypatch.setattr(notifier.aiohttp, "ClientSession", FakeSession)
     assert await notifier.send_webhook("https://open.feishu.cn/x", {"a": 1}) is False
+
+
+def test_load_alert_states_valid_json():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states('{"SiteA": {"gpt-4o": "alerting"}}') == {"SiteA": {"gpt-4o": "alerting"}}
+
+
+def test_load_alert_states_legacy_scalar():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states("ok") == {}
+    assert _load_alert_states("alerting") == {}
+
+
+def test_load_alert_states_empty_or_none():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states("") == {}
+    assert _load_alert_states(None) == {}
+
+
+def test_load_alert_states_non_dict_json():
+    from app.notifier import _load_alert_states
+    assert _load_alert_states('"ok"') == {}
+    assert _load_alert_states("123") == {}
+    assert _load_alert_states("[1, 2]") == {}

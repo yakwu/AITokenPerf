@@ -7,7 +7,6 @@ from app.db import (
     get_scheduled_task,
     update_scheduled_task,
     save_result,
-    get_run_success_rate,
 )
 
 
@@ -26,23 +25,6 @@ async def test_update_alert_state_persists():
     await update_scheduled_task(sid, alert_state="alerting")
     row = await get_scheduled_task(sid)
     assert row["alert_state"] == "alerting"
-
-
-@pytest.mark.asyncio
-async def test_get_run_success_rate_aggregates():
-    for i, (succ, tot) in enumerate([(8, 10), (5, 10)]):
-        await save_result(
-            user_id=1, test_id=f"t{i}", filename=f"f{i}.json", timestamp="20260604_120000",
-            config_json="{}", summary_json=json.dumps({"success_count": succ, "total_requests": tot}),
-            percentiles_json="{}", run_id="run-x",
-        )
-    assert await get_run_success_rate(["run-x"]) == (13, 20)
-
-
-@pytest.mark.asyncio
-async def test_get_run_success_rate_empty():
-    assert await get_run_success_rate([]) == (0, 0)
-    assert await get_run_success_rate(["nope"]) == (0, 0)
 
 
 @pytest.mark.asyncio
@@ -109,3 +91,59 @@ async def test_notifier_crud_and_delete_guard():
     ok2, refs2 = await delete_notifier(nid2)
     assert ok2 is False and refs2 == 1
     assert await get_notifier(nid2) is not None  # 没被删
+
+
+@pytest.mark.asyncio
+async def test_success_rate_by_cell_groups():
+    from app.db import get_run_success_rate_by_cell
+    rows = [
+        ("SiteA", "gpt-4o", 8, 10),
+        ("SiteA", "gpt-4o", 9, 10),   # 同格第二并发档，应累加
+        ("SiteA", "claude", 5, 10),
+        ("SiteB", "gpt-4o", 10, 10),
+    ]
+    for i, (pf, model, succ, tot) in enumerate(rows):
+        await save_result(
+            user_id=1, test_id=f"c{i}", filename=f"c{i}.json", timestamp="20260609_120000",
+            config_json=json.dumps({"profile_name": pf, "model": model}),
+            summary_json=json.dumps({"success_count": succ, "total_requests": tot}),
+            percentiles_json="{}", run_id="run-cell",
+        )
+    cells = await get_run_success_rate_by_cell(["run-cell"])
+    assert cells[("SiteA", "gpt-4o")] == (17, 20)
+    assert cells[("SiteA", "claude")] == (5, 10)
+    assert cells[("SiteB", "gpt-4o")] == (10, 10)
+
+
+@pytest.mark.asyncio
+async def test_success_rate_by_cell_model_missing():
+    from app.db import get_run_success_rate_by_cell
+    await save_result(
+        user_id=1, test_id="nm", filename="nm.json", timestamp="20260609_120000",
+        config_json=json.dumps({"profile_name": "SiteA"}),  # 无 model
+        summary_json=json.dumps({"success_count": 3, "total_requests": 4}),
+        percentiles_json="{}", run_id="run-nm",
+    )
+    cells = await get_run_success_rate_by_cell(["run-nm"])
+    assert cells[("SiteA", "-")] == (3, 4)
+
+
+@pytest.mark.asyncio
+async def test_success_rate_by_cell_empty():
+    from app.db import get_run_success_rate_by_cell
+    assert await get_run_success_rate_by_cell([]) == {}
+    assert await get_run_success_rate_by_cell(["nope"]) == {}
+
+
+@pytest.mark.asyncio
+async def test_success_rate_by_cell_blank_profile():
+    from app.db import get_run_success_rate_by_cell
+    # config_json 无 profile_name → profile_name 列写空 → 归 "-"
+    await save_result(
+        user_id=1, test_id="bp", filename="bp.json", timestamp="20260609_120000",
+        config_json=json.dumps({"model": "gpt-4o"}),
+        summary_json=json.dumps({"success_count": 7, "total_requests": 10}),
+        percentiles_json="{}", run_id="run-bp",
+    )
+    cells = await get_run_success_rate_by_cell(["run-bp"])
+    assert cells[("-", "gpt-4o")] == (7, 10)
