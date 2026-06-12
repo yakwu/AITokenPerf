@@ -644,8 +644,9 @@ async function createSchedule() {
     await refreshSchedules();
   } catch (e) {
     toast('创建失败: ' + e.message, 'error');
+  } finally {
+    createLoading.value = false;
   }
-  createLoading.value = false;
 }
 
 async function saveEdit() {
@@ -688,8 +689,9 @@ async function saveEdit() {
     await refreshSchedules();
   } catch (e) {
     toast('更新失败: ' + e.message, 'error');
+  } finally {
+    editLoading.value = false;
   }
-  editLoading.value = false;
 }
 
 async function pauseSchedule(id) {
