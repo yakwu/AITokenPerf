@@ -12,7 +12,7 @@ test.describe('配置管理', () => {
   });
 
   test('模型管理页加载（管理员）', async ({ page }) => {
-    await page.goto('/models');
+    await page.goto('/settings/models');
     await expect(page.locator('.header')).toBeVisible();
   });
 });

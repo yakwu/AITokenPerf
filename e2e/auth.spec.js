@@ -45,13 +45,13 @@ test.describe('认证与用户生命周期', () => {
 
   test('管理员访问用户管理页面', async ({ page }) => {
     await login(page);
-    await page.goto('/admin-users');
+    await page.goto('/settings/users');
     await expect(page.locator('.header')).toBeVisible();
   });
 
   test('管理员访问模型管理页面', async ({ page }) => {
     await login(page);
-    await page.goto('/models');
+    await page.goto('/settings/models');
     await expect(page.locator('.header')).toBeVisible();
   });
 });
