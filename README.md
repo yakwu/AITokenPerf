@@ -62,7 +62,7 @@ python3 main.py
 需要 [bun](https://bun.sh/) 来构建前端。
 
 ```bash
-# 同时启动后端 (8080) + 前端 Dev Server (5180)
+# 同时启动后端 (8420) + 前端 Dev Server (5180)
 ./start.sh
 
 # 单独构建前端（输出到 static/）
@@ -83,7 +83,7 @@ python3 main.py [--port PORT] [--host HOST] [--workers N]
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--port` | 8080 | Web 服务端口 |
+| `--port` | 8420 | Web 服务端口 |
 | `--host` | 127.0.0.1 | 绑定地址，设为 `0.0.0.0` 可对外访问 |
 | `--workers` | 1 | Worker 进程数 |
 
