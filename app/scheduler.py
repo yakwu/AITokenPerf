@@ -228,7 +228,8 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
     """按 (站点,模型) 格子聚合成功率，逐格状态翻转，聚合成红/绿卡发送。全程不抛。"""
     from app.db import get_run_success_rate_by_cell, get_notifier
     from app.notifier import (
-        evaluate_alert, build_feishu_card, send_webhook, _load_alert_states,
+        evaluate_alert, build_feishu_card, send_webhook,
+        _load_alert_states, _cell_state,
     )
 
     notifier_id = task_row.get("alert_notifier_id") or 0
@@ -250,13 +251,13 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
     new_states: dict = {}
     alerts, recovers = [], []
     for (profile, model), (succ, tot) in cells.items():
-        p_state = prev.get(profile, {}).get(model, "ok")
+        p_state, p_streak = _cell_state(prev.get(profile, {}).get(model))
         if tot == 0:                       # 没真发出请求 → 不评估、保留旧态
-            new_states.setdefault(profile, {})[model] = p_state
+            new_states.setdefault(profile, {})[model] = {"s": p_state, "n": p_streak}
             continue
         rate = succ / tot * 100
-        n_state, action = evaluate_alert(p_state, rate, threshold)
-        new_states.setdefault(profile, {})[model] = n_state
+        n_state, n_streak, action = evaluate_alert(p_state, p_streak, rate, threshold)
+        new_states.setdefault(profile, {})[model] = {"s": n_state, "n": n_streak}
         if action == "alert":
             alerts.append((profile, model, rate))
         elif action == "recover":

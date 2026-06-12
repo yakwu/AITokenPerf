@@ -4,24 +4,64 @@ from app import notifier
 from app.notifier import build_feishu_card, evaluate_alert, is_allowed_webhook
 
 
-def test_alert_fires_on_ok_to_abnormal():
-    assert evaluate_alert("ok", 72.0, 90) == ("alerting", "alert")
+def test_first_abnormal_no_alert_increments_streak():
+    # 第一次低于阈值：不告警，仅累积 streak
+    assert evaluate_alert("ok", 0, 72.0, 90) == ("ok", 1, None)
+
+
+def test_second_consecutive_abnormal_fires():
+    # 连续第二次低于阈值：翻红告警
+    assert evaluate_alert("ok", 1, 72.0, 90) == ("alerting", 2, "alert")
 
 
 def test_no_repeat_while_abnormal():
-    assert evaluate_alert("alerting", 50.0, 90) == ("alerting", None)
+    # 已告警继续异常：保持，不重复发
+    assert evaluate_alert("alerting", 2, 50.0, 90) == ("alerting", 2, None)
 
 
 def test_recover_on_abnormal_to_ok():
-    assert evaluate_alert("alerting", 95.0, 90) == ("ok", "recover")
+    # 告警中一次回到阈值即报恢复，并清零
+    assert evaluate_alert("alerting", 2, 95.0, 90) == ("ok", 0, "recover")
+
+
+def test_single_normal_resets_streak():
+    # 累积中(streak=1)遇到一次正常：清零，不告警
+    assert evaluate_alert("ok", 1, 99.0, 90) == ("ok", 0, None)
 
 
 def test_no_action_while_ok():
-    assert evaluate_alert("ok", 99.0, 90) == ("ok", None)
+    assert evaluate_alert("ok", 0, 99.0, 90) == ("ok", 0, None)
 
 
 def test_threshold_boundary_is_normal():
-    assert evaluate_alert("ok", 90.0, 90) == ("ok", None)
+    # 等于阈值不算异常，且清零
+    assert evaluate_alert("ok", 1, 90.0, 90) == ("ok", 0, None)
+
+
+def test_custom_fail_needed_three():
+    # fail_needed=3：第 2 次仍不发，第 3 次才发
+    assert evaluate_alert("ok", 1, 50.0, 90, fail_needed=3) == ("ok", 2, None)
+    assert evaluate_alert("ok", 2, 50.0, 90, fail_needed=3) == ("alerting", 3, "alert")
+
+
+def test_cell_state_legacy_string():
+    from app.notifier import _cell_state
+    assert _cell_state("ok") == ("ok", 0)
+    assert _cell_state("alerting") == ("alerting", 0)
+
+
+def test_cell_state_new_dict():
+    from app.notifier import _cell_state
+    assert _cell_state({"s": "ok", "n": 1}) == ("ok", 1)
+    assert _cell_state({"s": "alerting", "n": 2}) == ("alerting", 2)
+
+
+def test_cell_state_missing_or_garbage():
+    from app.notifier import _cell_state
+    assert _cell_state(None) == ("ok", 0)
+    assert _cell_state({}) == ("ok", 0)
+    assert _cell_state("weird") == ("ok", 0)
+    assert _cell_state({"s": "weird", "n": "x"}) == ("ok", 0)
 
 
 def test_feishu_https_allowed():
@@ -59,20 +99,29 @@ def test_alert_card_red_header():
     assert card["msg_type"] == "interactive"
     assert card["card"]["config"]["wide_screen_mode"] is True
     assert card["card"]["header"]["template"] == "red"
-    assert "告警" in card["card"]["header"]["title"]["content"]
+    title = card["card"]["header"]["title"]["content"]
+    assert "告警" in title and "主力渠道" in title and "2 个异常" in title
     flat = str(card)
     assert "OpenAI-A" in flat and "gpt-4o" in flat and "72.0%" in flat
     assert "OpenAI-B" in flat and "claude" in flat and "65.0%" in flat
-    assert "90%" in flat
+    assert "低于阈值 90%" in flat            # 汇总行带阈值
 
 
 def test_recover_card_green_header():
     card = build_feishu_card("recover", "主力渠道",
                              [("OpenAI-A", "gpt-4o", 95.0)], 90, "2026-06-09 10:30")
     assert card["card"]["header"]["template"] == "green"
-    assert "恢复" in card["card"]["header"]["title"]["content"]
+    title = card["card"]["header"]["title"]["content"]
+    assert "恢复" in title and "主力渠道" in title and "1 个" in title
     flat = str(card)
     assert "OpenAI-A" in flat and "gpt-4o" in flat and "95.0%" in flat
+
+
+def test_card_title_handles_empty_task_name():
+    card = build_feishu_card("alert", "", [("S", "m", 50.0)], 90, "t")
+    title = card["card"]["header"]["title"]["content"]
+    assert title.startswith("🔴 拨测告警（")     # 空任务名不留悬空分隔符
+    assert "1 个异常" in title
 
 
 @pytest.mark.asyncio

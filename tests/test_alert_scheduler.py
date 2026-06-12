@@ -42,25 +42,30 @@ def _collector():
 async def test_per_cell_alert_only_failing_cell(monkeypatch):
     sent, fake_send = _collector()
     monkeypatch.setattr(notifier, "send_webhook", fake_send)
-    sid = await _seed_task([("SiteA", "gpt-4o", 2, 10), ("SiteA", "claude", 10, 10)])
+    # gpt-4o 已累积 1 次（streak=1），本轮再跌破 → 连续 2 次翻红；claude 正常
+    sid = await _seed_task(
+        [("SiteA", "gpt-4o", 2, 10), ("SiteA", "claude", 10, 10)],
+        alert_state={"SiteA": {"gpt-4o": {"s": "ok", "n": 1}}},
+    )
     row = await get_scheduled_task(sid)
     await scheduler._maybe_send_alert(sid, row, ["run-1"])
     assert len(sent) == 1                       # 只发一条红卡
     flat = str(sent[0])
     assert "gpt-4o" in flat and "claude" not in flat
     states = json.loads((await get_scheduled_task(sid))["alert_state"])
-    assert states["SiteA"]["gpt-4o"] == "alerting"
-    assert states["SiteA"]["claude"] == "ok"
+    assert states["SiteA"]["gpt-4o"]["s"] == "alerting"
+    assert states["SiteA"]["claude"]["s"] == "ok"
 
 
 @pytest.mark.asyncio
 async def test_per_cell_simultaneous_alert_and_recover(monkeypatch):
     sent, fake_send = _collector()
     monkeypatch.setattr(notifier, "send_webhook", fake_send)
-    # prev: gpt-4o 告警中、claude 正常；本轮 gpt-4o 恢复(100%)、claude 跌破(10%)
+    # prev: gpt-4o 告警中(旧裸字符串，测兼容)、claude 已累积 1 次；
+    # 本轮 gpt-4o 恢复(100%)、claude 再跌破(10%) → 连续 2 次翻红
     sid = await _seed_task(
         [("SiteA", "gpt-4o", 10, 10), ("SiteA", "claude", 1, 10)],
-        alert_state={"SiteA": {"gpt-4o": "alerting", "claude": "ok"}},
+        alert_state={"SiteA": {"gpt-4o": "alerting", "claude": {"s": "ok", "n": 1}}},
     )
     row = await get_scheduled_task(sid)
     await scheduler._maybe_send_alert(sid, row, ["run-1"])
@@ -69,8 +74,8 @@ async def test_per_cell_simultaneous_alert_and_recover(monkeypatch):
     assert "claude" in cards["red"] and "gpt-4o" not in cards["red"]
     assert "gpt-4o" in cards["green"] and "claude" not in cards["green"]
     states = json.loads((await get_scheduled_task(sid))["alert_state"])
-    assert states["SiteA"]["gpt-4o"] == "ok"
-    assert states["SiteA"]["claude"] == "alerting"
+    assert states["SiteA"]["gpt-4o"]["s"] == "ok"
+    assert states["SiteA"]["claude"]["s"] == "alerting"
 
 
 @pytest.mark.asyncio
@@ -136,5 +141,51 @@ async def test_zero_total_cell_skipped_preserves_state(monkeypatch):
     await scheduler._maybe_send_alert(sid, row, ["run-1"])
     assert sent == []                          # 无翻转
     states = json.loads((await get_scheduled_task(sid))["alert_state"])
-    assert states["SiteA"]["gpt-4o"] == "alerting"   # 保留旧态
-    assert states["SiteA"]["claude"] == "ok"
+    assert states["SiteA"]["gpt-4o"]["s"] == "alerting"   # 保留旧态
+    assert states["SiteA"]["claude"]["s"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_single_abnormal_round_does_not_alert(monkeypatch):
+    # 第一次跌破：不发卡，仅累积 streak=1（防抖）
+    sent, fake_send = _collector()
+    monkeypatch.setattr(notifier, "send_webhook", fake_send)
+    sid = await _seed_task([("SiteA", "gpt-4o", 2, 10)])
+    row = await get_scheduled_task(sid)
+    await scheduler._maybe_send_alert(sid, row, ["run-1"])
+    assert sent == []
+    states = json.loads((await get_scheduled_task(sid))["alert_state"])
+    assert states["SiteA"]["gpt-4o"] == {"s": "ok", "n": 1}
+
+
+@pytest.mark.asyncio
+async def test_recovery_after_alert_single_good_round(monkeypatch):
+    # 已告警，一次回到阈值即报恢复并清零
+    sent, fake_send = _collector()
+    monkeypatch.setattr(notifier, "send_webhook", fake_send)
+    sid = await _seed_task(
+        [("SiteA", "gpt-4o", 10, 10)],
+        alert_state={"SiteA": {"gpt-4o": {"s": "alerting", "n": 2}}},
+    )
+    row = await get_scheduled_task(sid)
+    await scheduler._maybe_send_alert(sid, row, ["run-1"])
+    assert len(sent) == 1
+    assert sent[0]["card"]["header"]["template"] == "green"
+    states = json.loads((await get_scheduled_task(sid))["alert_state"])
+    assert states["SiteA"]["gpt-4o"] == {"s": "ok", "n": 0}
+
+
+@pytest.mark.asyncio
+async def test_streak_resets_on_good_round(monkeypatch):
+    # 累积中(streak=1)遇到一次正常 → 清零，不告警
+    sent, fake_send = _collector()
+    monkeypatch.setattr(notifier, "send_webhook", fake_send)
+    sid = await _seed_task(
+        [("SiteA", "gpt-4o", 10, 10)],
+        alert_state={"SiteA": {"gpt-4o": {"s": "ok", "n": 1}}},
+    )
+    row = await get_scheduled_task(sid)
+    await scheduler._maybe_send_alert(sid, row, ["run-1"])
+    assert sent == []
+    states = json.loads((await get_scheduled_task(sid))["alert_state"])
+    assert states["SiteA"]["gpt-4o"] == {"s": "ok", "n": 0}
