@@ -19,10 +19,7 @@
         </div>
       </div>
       <div class="sites-toolbar-right">
-        <button class="btn btn-primary btn-sm" @click="onCreateTask">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          新建任务
-        </button>
+        <span class="tasks-hint">跨站点只读总览 · 新建/编辑请进入站点的「持续监控」</span>
       </div>
     </div>
 
@@ -33,7 +30,7 @@
     <div v-else-if="!filteredSchedules.length && !loading" class="empty-state">
       <div class="empty-state-icon">&#9200;</div>
       <div class="empty-state-text">{{ schedules.length ? '没有匹配的定时任务' : '尚无定时任务' }}</div>
-      <p style="color:var(--text-tertiary);font-size:13px">{{ schedules.length ? '尝试调整筛选条件' : '点击「新建任务」创建你的第一个定时任务' }}</p>
+      <p style="color:var(--text-tertiary);font-size:13px">{{ schedules.length ? '尝试调整筛选条件' : '在站点详情的「持续监控」里创建定时任务' }}</p>
     </div>
 
     <!-- Schedule Table -->
@@ -123,153 +120,16 @@
         </table>
       </div>
     </div>
-    <!-- Create Modal -->
-    <ModalOverlay :show="showCreateForm" title="新建定时任务" max-width="640px" @close="showCreateForm = false">
-      <!-- 基础信息 -->
-      <div class="create-modal-grid">
-        <div class="form-group">
-          <label class="form-label">目标站点</label>
-          <div class="combobox" ref="profileComboboxRef">
-            <input class="form-input" :value="createForm.profile_name" placeholder="选择站点"
-                   @focus="profileDropdownOpen = true" @keydown.escape="profileDropdownOpen = false"
-                   readonly autocomplete="off">
-            <button class="combobox-toggle" type="button" @click.stop="profileDropdownOpen = !profileDropdownOpen" @mousedown.prevent>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-            </button>
-            <div class="combobox-dropdown" v-show="profileDropdownOpen">
-              <div v-for="p in profiles" :key="p.name" class="combobox-option" :class="{ active: createForm.profile_name === p.name }" @mousedown.prevent="selectCreateProfile(p.name)">{{ p.name }}</div>
-              <div class="combobox-empty" v-if="!profiles.length">暂无站点配置</div>
-            </div>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">任务名称</label>
-          <input class="form-input" v-model="createForm.name" placeholder="例如：快速巡检">
-        </div>
-        <div class="form-group">
-          <label class="form-label">执行频率</label>
-          <div class="combobox" ref="freqComboboxRef">
-            <input class="form-input" :value="frequencyLabel" placeholder="选择频率"
-                   @focus="freqDropdownOpen = true" @keydown.escape="freqDropdownOpen = false"
-                   readonly autocomplete="off">
-            <button class="combobox-toggle" type="button" @click.stop="freqDropdownOpen = !freqDropdownOpen" @mousedown.prevent>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-            </button>
-            <div class="combobox-dropdown" v-show="freqDropdownOpen">
-              <div v-for="opt in frequencyOptions" :key="opt.value" class="combobox-option" :class="{ active: frequencyPreset === opt.value }" @mousedown.prevent="selectFrequency(opt.value)">{{ opt.label }}</div>
-            </div>
-          </div>
-          <div class="form-hint" v-if="frequencyPreset === 'custom'" style="margin-top:6px">
-            <input class="form-input" type="number" v-model.number="createForm.schedule_value" min="60" placeholder="秒" style="width:120px">
-          </div>
-          <div class="form-hint">每 {{ formatInterval(createForm.schedule_value) }} 执行一次</div>
-        </div>
-      </div>
-      <!-- 模型选择 -->
-      <div class="form-group" style="margin-top:16px">
-        <label class="form-label">选择模型</label>
-        <div class="combobox" ref="modelComboboxRef">
-          <div class="model-tags-input" @click="createForm.profile_name && (modelDropdownOpen = true)">
-            <span v-for="(m, i) in createForm.models" :key="m" class="model-tag">
-              {{ m }}
-              <button type="button" class="model-tag-remove" @click.stop="createForm.models.splice(i, 1)">&times;</button>
-            </span>
-            <input class="model-tag-search" v-model="modelSearch" :placeholder="!createForm.profile_name ? '请先选择站点' : createForm.models.length ? '' : '选择或搜索模型'" :disabled="!createForm.profile_name" @focus="createForm.profile_name && (modelDropdownOpen = true)" @keydown.enter.prevent="addTaskModel()" @keydown.backspace="createForm.models.length && !modelSearch && createForm.models.pop()" @keydown.escape="modelDropdownOpen = false" autocomplete="off">
-          </div>
-          <button class="combobox-toggle" type="button" @click.stop="createForm.profile_name && (modelDropdownOpen = !modelDropdownOpen)" @mousedown.prevent>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-          </button>
-          <div class="combobox-dropdown" v-show="modelDropdownOpen">
-            <div v-for="m in filteredTaskModels" :key="m" class="combobox-option" :class="{ active: createForm.models.includes(m) }" @mousedown.prevent="toggleTaskModel(m)">{{ m }}</div>
-            <div class="combobox-empty" v-show="!filteredTaskModels.length && modelSearch">无匹配，按回车添加「{{ modelSearch }}」</div>
-            <div class="combobox-empty" v-show="!filteredTaskModels.length && !modelSearch">该站点未配置模型</div>
-          </div>
-        </div>
-      </div>
-      <!-- 高级参数（折叠） -->
-      <div class="advanced-section">
-        <button class="advanced-toggle" @click="showAdvanced = !showAdvanced">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-          测试参数
-          <svg class="advanced-chevron" :class="{ open: showAdvanced }" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-        </button>
-        <div class="advanced-body" v-show="showAdvanced">
-          <div class="create-modal-grid" style="grid-template-columns:repeat(3,1fr)">
-            <div class="form-group">
-              <label class="form-label">并发数</label>
-              <input class="form-input" type="number" v-model.number="createForm.concurrency" min="1" max="100" placeholder="1">
-            </div>
-            <div class="form-group">
-              <label class="form-label">超时 (秒)</label>
-              <input class="form-input" type="number" v-model.number="createForm.timeout" min="10" placeholder="120">
-            </div>
-            <div class="form-group">
-              <label class="form-label">持续时长 (秒)</label>
-              <input class="form-input" type="number" v-model.number="createForm.duration" min="10" placeholder="120">
-            </div>
-            <div class="form-group">
-              <label class="form-label">测试模式</label>
-              <div class="time-range-pills">
-                <button class="time-range-pill" :class="{ active: createForm.mode === 'burst' }" @click="createForm.mode = 'burst'">突发</button>
-                <button class="time-range-pill" :class="{ active: createForm.mode === 'sustained' }" @click="createForm.mode = 'sustained'">持续</button>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">最大 Token</label>
-              <input class="form-input" type="number" v-model.number="createForm.max_tokens" min="1" placeholder="512">
-            </div>
-          </div>
-        </div>
-      </div>
-      <!-- 失败告警（折叠） -->
-      <div class="advanced-section">
-        <button class="advanced-toggle" @click="showAlert = !showAlert">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          失败告警
-          <svg class="advanced-chevron" :class="{ open: showAlert }" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg>
-        </button>
-        <div class="advanced-body" v-show="showAlert">
-          <label class="form-switch">
-            <input type="checkbox" v-model="createForm.alert_enabled" />
-            <span>启用失败告警（飞书）</span>
-          </label>
-          <div class="create-modal-grid" v-if="createForm.alert_enabled" style="grid-template-columns:1fr;margin-top:12px">
-            <div class="form-group">
-              <label class="form-label">告警器</label>
-              <select class="form-input" v-model.number="createForm.alert_notifier_id" style="width:280px">
-                <option :value="0">未选择</option>
-                <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
-              </select>
-              <div class="form-hint">在「设置」页管理告警器</div>
-              <div class="form-hint" style="color:var(--danger)" v-if="createForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">成功率阈值（%）</label>
-              <input class="form-input" type="number" v-model.number="createForm.alert_threshold" min="0" max="100" placeholder="90" style="width:120px">
-              <div class="form-hint">上次运行成功率低于该值时触发告警</div>
-            </div>
-            <div class="form-hint">测试消息需先保存任务，可在站点详情页编辑任务时发送测试</div>
-          </div>
-        </div>
-      </div>
-      <div class="btn-group" style="margin-top:20px">
-        <button class="btn btn-primary" @click="createSchedule" :disabled="createLoading">
-          {{ createLoading ? '创建中...' : '创建' }}
-        </button>
-        <button class="btn btn-ghost" @click="showCreateForm = false">取消</button>
-      </div>
-    </ModalOverlay>
   </section>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
-import { getSchedules, getProfiles, createScheduleApi, pauseScheduleApi, resumeScheduleApi, runNowApi, deleteScheduleApi, getNotifiers } from '../api/index.js';
+import { getSchedules, pauseScheduleApi, resumeScheduleApi, runNowApi, deleteScheduleApi } from '../api/index.js';
 import { toast } from '../composables/useToast.js';
 import { useRoute } from 'vue-router';
 import InlineConfirmDelete from '../components/InlineConfirmDelete.vue';
-import ModalOverlay from '../components/ModalOverlay.vue';
 
 const store = useAppStore();
 const route = useRoute();
@@ -277,7 +137,6 @@ const route = useRoute();
 // ---- State ----
 const loading = ref(false);
 const schedules = ref([]);
-const profiles = ref([]);
 const search = ref('');
 const statusFilter = ref('all');
 const deleteCandidate = ref(null);
@@ -288,111 +147,6 @@ const statusFilters = [
   { label: '已暂停', value: 'paused' },
   { label: '异常', value: 'error' },
 ];
-
-// ---- Create form ----
-const showCreateForm = ref(false);
-const createLoading = ref(false);
-const frequencyPreset = ref('300');
-const frequencyOptions = [
-  { label: '每 5 分钟', value: '300' },
-  { label: '每 15 分钟', value: '900' },
-  { label: '每 30 分钟', value: '1800' },
-  { label: '每 1 小时', value: '3600' },
-  { label: '每 6 小时', value: '21600' },
-  { label: '自定义...', value: 'custom' },
-];
-
-// Combobox state
-const profileDropdownOpen = ref(false);
-const freqDropdownOpen = ref(false);
-const modelDropdownOpen = ref(false);
-const profileComboboxRef = ref(null);
-const freqComboboxRef = ref(null);
-const modelComboboxRef = ref(null);
-
-function handleDocClick(e) {
-  if (profileComboboxRef.value && !profileComboboxRef.value.contains(e.target)) profileDropdownOpen.value = false;
-  if (freqComboboxRef.value && !freqComboboxRef.value.contains(e.target)) freqDropdownOpen.value = false;
-  if (modelComboboxRef.value && !modelComboboxRef.value.contains(e.target)) modelDropdownOpen.value = false;
-}
-
-function resetCreateForm() {
-  createForm.value = { name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_notifier_id: 0, alert_threshold: 90 };
-  frequencyPreset.value = '300';
-  profileDropdownOpen.value = false;
-  freqDropdownOpen.value = false;
-  modelDropdownOpen.value = false;
-  showAdvanced.value = false;
-  showAlert.value = false;
-}
-
-const createForm = ref({ name: '', profile_name: '', schedule_value: 300, models: [], concurrency: 1, mode: 'burst', max_tokens: 512, timeout: 120, duration: 120, alert_enabled: false, alert_notifier_id: 0, alert_threshold: 90 });
-const notifiers = ref([]);
-async function loadNotifiers() {
-  try { notifiers.value = await getNotifiers(); } catch { notifiers.value = []; }
-}
-
-const selectedProfileModels = computed(() => {
-  const p = profiles.value.find(p => p.name === createForm.value.profile_name);
-  if (!p) return [];
-  return p.models || (p.model ? [p.model] : []);
-});
-
-const frequencyLabel = computed(() => {
-  if (frequencyPreset.value === 'custom') return '自定义';
-  const opt = frequencyOptions.find(o => o.value === frequencyPreset.value);
-  return opt ? opt.label : '';
-});
-
-function selectCreateProfile(name) {
-  createForm.value.profile_name = name;
-  createForm.value.models = [];
-  profileDropdownOpen.value = false;
-}
-
-function selectFrequency(value) {
-  frequencyPreset.value = value;
-  if (value !== 'custom') {
-    createForm.value.schedule_value = parseInt(value);
-  } else {
-    createForm.value.schedule_value = 300;
-  }
-  freqDropdownOpen.value = false;
-}
-
-const modelSearch = ref('');
-const showAdvanced = ref(false);
-const showAlert = ref(false);
-
-const filteredTaskModels = computed(() => {
-  const q = (modelSearch.value || '').toLowerCase();
-  const list = selectedProfileModels.value.filter(m => !createForm.value.models.includes(m));
-  if (!q) return list;
-  return list.filter(m => m.toLowerCase().includes(q));
-});
-
-function toggleTaskModel(m) {
-  const idx = createForm.value.models.indexOf(m);
-  if (idx >= 0) createForm.value.models.splice(idx, 1);
-  else createForm.value.models.push(m);
-  modelSearch.value = '';
-}
-
-function addTaskModel() {
-  if (!modelSearch.value.trim()) return;
-  const n = modelSearch.value.trim();
-  if (!createForm.value.models.includes(n)) createForm.value.models.push(n);
-  modelSearch.value = '';
-}
-
-// ---- Profile lookup map ----
-const profileMap = computed(() => {
-  const map = {};
-  for (const p of profiles.value) {
-    map[p.name] = p;
-  }
-  return map;
-});
 
 // ---- Filtered schedules ----
 const filteredSchedules = computed(() => {
@@ -481,61 +235,6 @@ function successRateClass(rate) {
   return 'bad';
 }
 
-// ---- Actions ----
-function onCreateTask() {
-  resetCreateForm();
-  showCreateForm.value = true;
-}
-
-async function createSchedule() {
-  const f = createForm.value;
-  if (!f.profile_name) {
-    toast('请选择目标站点', 'info');
-    return;
-  }
-  if (!f.name.trim()) {
-    toast('请输入任务名称', 'info');
-    return;
-  }
-  if (!f.models.length) {
-    toast('请至少选择一个模型', 'info');
-    return;
-  }
-
-  createLoading.value = true;
-  try {
-    const payload = {
-      name: f.name.trim(),
-      profile_ids: [f.profile_name],
-      configs_json: {
-        concurrency_levels: [parseInt(f.concurrency) || 1],
-        mode: f.mode || 'burst',
-        max_tokens: parseInt(f.max_tokens) || 512,
-        timeout: parseInt(f.timeout) || 120,
-        duration: parseInt(f.duration) || 120,
-        models: f.models,
-      },
-      schedule_type: 'interval',
-      schedule_value: String(f.schedule_value),
-      alert_enabled: !!f.alert_enabled,
-      alert_notifier_id: f.alert_notifier_id || 0,
-      alert_threshold: parseInt(f.alert_threshold) || 90,
-    };
-    const res = await createScheduleApi(payload);
-    if (res.error) {
-      toast(res.error, 'error');
-      return;
-    }
-    toast('定时任务已创建', 'success');
-    showCreateForm.value = false;
-    resetCreateForm();
-    await loadData();
-  } catch (e) {
-    toast('创建失败: ' + e.message, 'error');
-  }
-  createLoading.value = false;
-}
-
 async function pauseSchedule(id) {
   try {
     await pauseScheduleApi(id);
@@ -580,13 +279,8 @@ async function confirmDelete(id) {
 async function loadData() {
   loading.value = true;
   try {
-    const [schedData, profData] = await Promise.all([
-      getSchedules(),
-      getProfiles(),
-    ]);
+    const schedData = await getSchedules();
     schedules.value = schedData.schedules || [];
-    profiles.value = Array.isArray(profData) ? profData : (profData.profiles || []);
-    loadNotifiers();
   } catch (e) {
     toast('加载定时任务失败: ' + e.message, 'error');
   }
@@ -599,8 +293,7 @@ watch(() => route.path, (val) => {
 }, { immediate: true });
 
 store.refreshFn = loadData;
-onMounted(() => { document.addEventListener('mousedown', handleDocClick); });
-onUnmounted(() => { store.refreshFn = null; document.removeEventListener('mousedown', handleDocClick); });
+onUnmounted(() => { store.refreshFn = null; });
 </script>
 
 <style scoped>
@@ -729,91 +422,5 @@ onUnmounted(() => { store.refreshFn = null; document.removeEventListener('moused
   white-space: nowrap;
 }
 
-/* ---- Create Modal ---- */
-.create-modal-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.frequency-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.frequency-row .form-input:first-child {
-  flex: 1;
-}
-
-.form-hint {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-top: 2px;
-}
-
-/* ---- Advanced Section ---- */
-.advanced-section {
-  margin-top: 16px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.advanced-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 14px;
-  background: var(--bg);
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: background 0.15s;
-}
-
-.advanced-toggle:hover {
-  background: var(--bg-secondary);
-}
-
-.advanced-chevron {
-  margin-left: auto;
-  transition: transform 0.2s;
-}
-
-.advanced-chevron.open {
-  transform: rotate(180deg);
-}
-
-.advanced-body {
-  padding: 14px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-/* ---- Alert Switch ---- */
-.form-switch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.form-switch input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  accent-color: var(--accent);
-}
-
-@media (max-width: 768px) {
-  .create-modal-grid {
-    grid-template-columns: 1fr;
-  }
-}
+.tasks-hint { font-size: 12px; color: var(--text-tertiary); }
 </style>

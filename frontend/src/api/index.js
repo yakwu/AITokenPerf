@@ -111,6 +111,14 @@ export const getSitesSummary = ({ hours } = {}) => {
   return api('/api/sites/summary' + (qs ? '?' + qs : ''));
 };
 
+export const getCellAvailability = ({ hours, buckets } = {}) => {
+  const params = new URLSearchParams();
+  if (hours != null) params.set('hours', hours);
+  if (buckets != null) params.set('buckets', buckets);
+  const qs = params.toString();
+  return api('/api/sites/availability' + (qs ? '?' + qs : ''));
+};
+
 // Models
 export const getModels = (baseUrl, apiKey) =>
   api('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base_url: baseUrl, api_key: apiKey }) });

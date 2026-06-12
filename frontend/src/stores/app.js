@@ -21,7 +21,7 @@ export const useAppStore = defineStore('app', () => {
 
   function switchTab(t) {
     if (!isLoggedIn() && t !== 'auth') return;
-    router.push(t === 'dashboard' ? '/' : '/' + t);
+    router.push('/' + t);
   }
 
   function setUser(u, token) {

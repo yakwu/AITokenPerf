@@ -854,6 +854,18 @@ async def get_site_trend_handler(base_url: str = "", profile_name: str | None = 
     return {"trend": trend}
 
 
+@app.get("/api/sites/availability")
+async def sites_availability(hours: int | None = None, buckets: int = 24,
+                             user: dict = Depends(get_current_user)):
+    """看板用：每个 (站点,模型) 在最近窗口内分时间桶的成功率序列。
+    返回 {"cells": [{"profile","model","series":[rate|None,...]}, ...]}。"""
+    from app.db import get_cell_availability_series
+    cells = await get_cell_availability_series(user["user_id"], hours=hours, buckets=buckets)
+    return {"cells": [
+        {"profile": p, "model": m, "series": s} for (p, m), s in cells.items()
+    ]}
+
+
 # ---- Profiles Routes ----
 
 @app.get("/api/profiles")

@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 
 # 启动后端
-./venv/bin/python3 main.py "$@" &
+.venv/bin/python3 main.py "$@" &
 BACKEND_PID=$!
 
 # 启动前端 dev server

@@ -1,15 +1,15 @@
 import { test, expect, login, resetDb } from './fixtures/auth';
 
-test.describe('仪表盘', () => {
+test.describe('站点看板', () => {
   test.beforeEach(async ({ page }) => {
     await resetDb(page);
     await login(page);
   });
 
-  test('页面加载显示统计卡片', async ({ page }) => {
+  test('默认落地站点看板', async ({ page }) => {
     await expect(page.locator('.header')).toBeVisible();
     await expect(page.locator('.tab-bar')).toBeVisible();
-    await expect(page.locator('.tab-btn.active')).toContainText('概览');
+    await expect(page.locator('.tab-btn.active')).toContainText('站点');
   });
 
   test('时间范围切换', async ({ page }) => {

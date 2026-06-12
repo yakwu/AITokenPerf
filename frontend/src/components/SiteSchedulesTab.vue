@@ -112,7 +112,8 @@
                 <option :value="0">未选择</option>
                 <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
               </select>
-              <div class="form-hint">在「设置」页管理告警器</div>
+              <div class="form-hint">选择已有告警渠道，或就地新建一个</div>
+              <InlineNotifierCreate @created="onNotifierCreated('create')" />
               <div class="form-hint" style="color:var(--danger)" v-if="createForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
             </div>
             <div class="form-group">
@@ -311,7 +312,8 @@
               <option :value="0">未选择</option>
               <option v-for="n in notifiers" :key="n.id" :value="n.id">{{ n.name }}</option>
             </select>
-            <div class="form-hint">在「设置」页管理告警器</div>
+            <div class="form-hint">选择已有告警渠道，或就地新建一个</div>
+            <InlineNotifierCreate @created="onNotifierCreated('edit')" />
             <div class="form-hint" style="color:var(--danger)" v-if="editForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
           </div>
           <div class="form-group">
@@ -347,6 +349,7 @@ import {
 import { toast } from '../composables/useToast.js';
 import InlineConfirmDelete from './InlineConfirmDelete.vue';
 import ModalOverlay from './ModalOverlay.vue';
+import InlineNotifierCreate from './InlineNotifierCreate.vue';
 
 const props = defineProps({
   profile: { type: Object, required: true },
@@ -358,6 +361,13 @@ const schedules = ref([]);
 const notifiers = ref([]);
 async function loadNotifiers() {
   try { notifiers.value = await getNotifiers(); } catch { notifiers.value = []; }
+}
+async function onNotifierCreated(target) {
+  await loadNotifiers();
+  if (!notifiers.value.length) return;
+  const newest = notifiers.value.reduce((a, b) => (b.id > a.id ? b : a));
+  if (target === 'edit') editForm.value.alert_notifier_id = newest.id;
+  else createForm.value.alert_notifier_id = newest.id;
 }
 const showCreateForm = ref(false);
 const createLoading = ref(false);
@@ -634,8 +644,9 @@ async function createSchedule() {
     await refreshSchedules();
   } catch (e) {
     toast('创建失败: ' + e.message, 'error');
+  } finally {
+    createLoading.value = false;
   }
-  createLoading.value = false;
 }
 
 async function saveEdit() {
@@ -678,8 +689,9 @@ async function saveEdit() {
     await refreshSchedules();
   } catch (e) {
     toast('更新失败: ' + e.message, 'error');
+  } finally {
+    editLoading.value = false;
   }
-  editLoading.value = false;
 }
 
 async function pauseSchedule(id) {

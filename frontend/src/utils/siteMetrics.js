@@ -156,3 +156,34 @@ export function getDegradation(site) {
   }
   return null;
 }
+
+// 可用性着色：成功率(%) → 档位。阈值 绿≥95 / 橙80–95 / 红<80；空桶=na
+export function availabilityClass(rate) {
+  if (rate == null) return 'na';
+  if (rate >= 95) return 'up';
+  if (rate >= 80) return 'degraded';
+  return 'down';
+}
+
+// /api/sites/availability 的 cells 数组 → 查找表 {profile: {model: series}}
+export function buildAvailabilityLookup(cells) {
+  const lut = {};
+  for (const c of cells || []) {
+    if (!lut[c.profile]) lut[c.profile] = {};
+    lut[c.profile][c.model] = c.series || [];
+  }
+  return lut;
+}
+
+// 站点级可用性序列 = 各模型同一桶成功率平均（忽略 null 空桶）；无数据→[]
+export function siteAvgSeries(modelSeriesList) {
+  const lists = (modelSeriesList || []).filter(s => Array.isArray(s) && s.length);
+  if (!lists.length) return [];
+  const n = Math.max(...lists.map(s => s.length));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const vals = lists.map(s => s[i]).filter(v => v != null);
+    out.push(vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
+  }
+  return out;
+}

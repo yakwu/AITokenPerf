@@ -12,6 +12,9 @@
     <div class="header-right" v-if="store.user">
       <ScheduleIndicator />
       <NotificationCenter />
+        <router-link to="/settings" class="settings-gear" :class="{ active: $route.path.startsWith('/settings') }" title="设置">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </router-link>
       <div class="user-menu" v-click-outside="() => userMenuOpen = false">
         <button class="user-avatar" @click="userMenuOpen = !userMenuOpen">
           {{ (store.user?.email || '?')[0].toUpperCase() }}
@@ -21,17 +24,9 @@
           <div class="user-dropdown-role" style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">
             {{ store.user?.role === 'admin' ? '管理员' : '用户' }}
           </div>
-          <button class="user-dropdown-item" @click="store.switchTab('settings'); userMenuOpen = false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          <button class="user-dropdown-item" @click="store.switchTab('settings/profile'); userMenuOpen = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             个人资料
-          </button>
-          <button class="user-dropdown-item" v-if="store.user?.role === 'admin'" @click="store.switchTab('admin-users'); userMenuOpen = false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-            用户管理
-          </button>
-          <button class="user-dropdown-item" v-if="store.user?.role === 'admin'" @click="store.switchTab('models'); userMenuOpen = false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-            模型管理
           </button>
           <div class="user-dropdown-divider"></div>
           <button class="user-dropdown-item user-dropdown-logout" @click="store.logout(); userMenuOpen = false">
@@ -87,8 +82,7 @@ const store = useAppStore();
 const timeRangeStore = useTimeRangeStore();
 
 const tabs = [
-  { name: '概览', path: '/' },
-  { name: '目标站点', path: '/sites', activeMatch: (p) => p.startsWith('/sites') },
+  { name: '站点', path: '/sites', activeMatch: (p) => p.startsWith('/sites') || p === '/' },
   { name: '历史与对比', path: '/history' },
   { name: '定时任务', path: '/tasks' },
 ];
@@ -131,7 +125,7 @@ watch(
   () => store.user,
   (u) => {
     if (u && route.path === '/auth' && !u.must_change_password) {
-      router.push('/');
+      router.push('/sites');
     }
   }
 );
@@ -149,3 +143,13 @@ const vClickOutside = {
   },
 };
 </script>
+
+<style scoped>
+.settings-gear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 8px;
+  color: var(--text-secondary); text-decoration: none; transition: background .15s, color .15s;
+}
+.settings-gear:hover { background: var(--border-subtle); color: var(--text-primary); }
+.settings-gear.active { color: var(--accent); background: var(--border-subtle); }
+</style>

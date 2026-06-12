@@ -51,12 +51,6 @@
         <div class="settings-msg" v-show="passwordMsg" :class="passwordMsgType">{{ passwordMsg }}</div>
       </div>
 
-      <div class="card" style="margin-top:20px">
-        <div class="card-header">
-          <div class="card-title">告警器</div>
-        </div>
-        <NotifiersManager />
-      </div>
     </div>
   </section>
 </template>
@@ -66,7 +60,6 @@ import { ref } from 'vue';
 import { useAppStore } from '../stores/app';
 import { updateProfileApi, changePasswordApi } from '../api';
 import { toast } from '../composables/useToast';
-import NotifiersManager from '../components/NotifiersManager.vue';
 
 const store = useAppStore();
 const displayName = ref(store.user?.display_name || '');
