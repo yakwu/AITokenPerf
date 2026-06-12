@@ -6,14 +6,10 @@ test.describe('用户管理', () => {
     await login(page);
   });
 
-  test('管理员用户管理页加载', async ({ page }) => {
-    await page.goto('/settings/users');
-    await expect(page.locator('.header')).toBeVisible();
-  });
-
-  test('用户菜单显示管理入口', async ({ page }) => {
+  test('管理员可进入设置·用户管理子页', async ({ page }) => {
     await page.goto('/settings/users');
     await expect(page.locator('.settings-subtabs')).toBeVisible();
-    await expect(page.locator('text=用户管理')).toBeVisible();
+    // 真正落在「用户管理」子页：激活的子标签就是它
+    await expect(page.locator('.settings-subtab.router-link-active')).toContainText('用户管理');
   });
 });
