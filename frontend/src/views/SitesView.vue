@@ -59,11 +59,11 @@
                 <router-link class="sname" :to="`/sites/${encodeURIComponent(site.profile.name)}`" @click.stop>{{ site.profile.name }}</router-link>
                 <span class="mcount">{{ getModelMetrics(site).length }} 模型</span>
               </td>
-              <td><span class="avail-bars"><i v-for="(rate,i) in siteSeries(site)" :key="i" :class="'ab-'+availabilityClass(rate)" :title="rate==null?'无数据':('成功率 '+rate.toFixed(1)+'%')"></i></span></td>
+              <td><span class="avail-bars" :class="{ dim: isExpanded(site.profile.name) }"><i v-for="(rate,i) in siteSeries(site)" :key="i" :class="'ab-'+availabilityClass(rate)" :title="rate==null?'无数据':('成功率 '+rate.toFixed(1)+'%')"></i></span></td>
               <td>{{ siteAvg(site,'ttft') != null ? fmtTime(siteAvg(site,'ttft')) : '-' }} <span class="agg" v-if="siteAvg(site,'ttft')!=null">平均</span></td>
               <td></td>
               <td>{{ siteAvg(site,'tps') != null ? fmtNum(siteAvg(site,'tps'),0) : '-' }}</td>
-              <td><span class="rate" :class="rateClass(siteAvg(site,'successRate'))">{{ siteAvg(site,'successRate')!=null ? fmtPct(siteAvg(site,'successRate')) : '-' }}</span></td>
+              <td><span class="rate" :class="rateClass(siteRate(site))">{{ siteRate(site)!=null ? fmtPct(siteRate(site)) : '-' }}</span></td>
               <td>{{ site.last_test_at ? relativeTime(site.last_test_at) : '未测试' }}</td>
               <td class="row-actions" @click.stop>
                 <button class="btn btn-ghost btn-sm" @click="testSite(site)">一键测试</button>
@@ -159,7 +159,7 @@ import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
 import { api, getSitesSummary, getCellAvailability } from '../api';
 import { fmtTime, fmtPct, fmtNum } from '../utils/formatters';
-import { getModelMetrics, sparklinePoints, latencyTrendColor, availabilityClass, buildAvailabilityLookup, siteAvgSeries } from '../utils/siteMetrics';
+import { getModelMetrics, sparklinePoints, latencyTrendColor, availabilityClass, buildAvailabilityLookup, siteAvgSeries, seriesAvg } from '../utils/siteMetrics';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
 import ModalOverlay from '../components/ModalOverlay.vue';
@@ -199,11 +199,19 @@ function toggleExpand(name) { const n = new Set(expanded.value); n.has(name) ? n
 function isExpanded(name) { return expanded.value.has(name); }
 function modelRows(site) {
   const lut = availabilityLut.value[site.profile.name] || {};
-  return getModelMetrics(site).map(m => ({ ...m, series: lut[m.model] || [] }));
+  // 成功率取可用率柱（series）的均值，与柱同源、覆盖所选时间范围
+  return getModelMetrics(site).map(m => {
+    const series = lut[m.model] || [];
+    return { ...m, series, successRate: seriesAvg(series) };
+  });
 }
 function siteSeries(site) {
   const lut = availabilityLut.value[site.profile.name] || {};
   return siteAvgSeries(Object.values(lut));
+}
+// 站点成功率 = 站点可用率柱的均值（同源、反映所选时间范围，而非最近一次）
+function siteRate(site) {
+  return seriesAvg(siteSeries(site));
 }
 function siteAvg(site, key) {
   const vals = getModelMetrics(site).map(m => m[key]).filter(v => v != null);
@@ -236,7 +244,7 @@ function sortValue(site, key) {
     case 'avail': { const s = siteSeries(site).filter(v => v != null); return s.length ? s.reduce((a, b) => a + b, 0) / s.length : null; }
     case 'ttft': return siteAvg(site, 'ttft');
     case 'tps': return siteAvg(site, 'tps');
-    case 'rate': return siteAvg(site, 'successRate');
+    case 'rate': return siteRate(site);
     case 'last': return site.last_test_at || '';
     default: return null;
   }
@@ -541,6 +549,7 @@ onUnmounted(() => { store.refreshFn = null; });
 .avail-bars { display:inline-flex; align-items:flex-end; gap:1.5px; }
 .avail-bars i { display:inline-block; width:4px; height:16px; border-radius:1px; background:var(--border); }
 .avail-bars.sm i { height:13px; }
+.avail-bars.dim { opacity:.3; }
 .avail-bars i.ab-up { background:#21a366; }
 .avail-bars i.ab-degraded { background:#f5a623; }
 .avail-bars i.ab-down { background:#e5484d; }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { availabilityClass, buildAvailabilityLookup, siteAvgSeries } from '../siteMetrics';
+import { availabilityClass, buildAvailabilityLookup, siteAvgSeries, seriesAvg, latencyTrendColor } from '../siteMetrics';
 
 describe('availabilityClass', () => {
   it('按阈值分三档 + 空值', () => {
@@ -35,5 +35,29 @@ describe('siteAvgSeries', () => {
   it('空输入 → []', () => {
     expect(siteAvgSeries([])).toEqual([]);
     expect(siteAvgSeries([[], []])).toEqual([]);
+  });
+});
+
+describe('seriesAvg', () => {
+  it('非空桶的平均，忽略 null', () => {
+    expect(seriesAvg([100, null, 80])).toBe(90);
+    expect(seriesAvg([90])).toBe(90);
+    expect(seriesAvg([100, 81])).toBe(90.5);
+  });
+  it('全空 / 空 / 缺省 → null', () => {
+    expect(seriesAvg([null, null])).toBeNull();
+    expect(seriesAvg([])).toBeNull();
+    expect(seriesAvg()).toBeNull();
+  });
+});
+
+describe('latencyTrendColor', () => {
+  it('恒为统一中性色，不随涨跌变红/绿', () => {
+    const neutral = 'var(--text-secondary)';
+    expect(latencyTrendColor([1, 2, 3])).toBe(neutral);   // 上升
+    expect(latencyTrendColor([3, 2, 1])).toBe(neutral);   // 下降
+    expect(latencyTrendColor([2, 2, 2])).toBe(neutral);   // 持平
+    expect(latencyTrendColor([5])).toBe(neutral);          // 数据不足
+    expect(latencyTrendColor([])).toBe(neutral);
   });
 });
