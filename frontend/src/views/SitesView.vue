@@ -40,15 +40,21 @@
       </div>
       <table class="board">
         <thead><tr>
-          <th></th><th>站点 / 模型</th><th>可用性 · 近{{ BUCKETS }}</th>
-          <th>TTFT P50</th><th>趋势</th><th>Token/s</th><th>成功率</th><th>最近测试</th><th></th>
+          <th></th>
+          <th class="th-sort" @click="setSort('name')">站点 / 模型<span class="sarr">{{ sortArrow('name') }}</span></th>
+          <th class="th-sort" @click="setSort('avail')">可用性 · 近{{ BUCKETS }}<span class="sarr">{{ sortArrow('avail') }}</span></th>
+          <th class="th-sort" @click="setSort('ttft')">TTFT P50<span class="sarr">{{ sortArrow('ttft') }}</span></th>
+          <th>趋势</th>
+          <th class="th-sort" @click="setSort('tps')">Token/s<span class="sarr">{{ sortArrow('tps') }}</span></th>
+          <th class="th-sort" @click="setSort('rate')">成功率<span class="sarr">{{ sortArrow('rate') }}</span></th>
+          <th class="th-sort" @click="setSort('last')">最近测试<span class="sarr">{{ sortArrow('last') }}</span></th>
+          <th></th>
         </tr></thead>
         <tbody>
           <template v-for="site in filteredSites" :key="site.profile.name">
             <tr class="site-row" :class="'h-' + site.health" @click="toggleExpand(site.profile.name)">
               <td><span class="dot" :class="'d-' + site.health"></span></td>
               <td>
-                <span class="chev" :class="{ open: isExpanded(site.profile.name) }">▸</span>
                 <button class="fav" :class="{ on: isFavorite(site.profile.name) }" @click.stop="toggleFavorite(site.profile.name)" :title="isFavorite(site.profile.name) ? '取消收藏' : '收藏'">★</button>
                 <router-link class="sname" :to="`/sites/${encodeURIComponent(site.profile.name)}`" @click.stop>{{ site.profile.name }}</router-link>
                 <span class="mcount">{{ getModelMetrics(site).length }} 模型</span>
@@ -212,6 +218,30 @@ const statusFilters = [
   { label: '未测试', value: 'untested' },
 ];
 
+// ---- 列排序：点击列头 升序 → 降序 → 默认 ----
+const sortKey = ref('');
+const sortDir = ref('asc');
+function setSort(key) {
+  if (sortKey.value !== key) { sortKey.value = key; sortDir.value = 'asc'; }
+  else if (sortDir.value === 'asc') { sortDir.value = 'desc'; }
+  else { sortKey.value = ''; }
+}
+function sortArrow(key) {
+  if (sortKey.value !== key) return '';
+  return sortDir.value === 'asc' ? '▲' : '▼';
+}
+function sortValue(site, key) {
+  switch (key) {
+    case 'name': return site.profile?.name || '';
+    case 'avail': { const s = siteSeries(site).filter(v => v != null); return s.length ? s.reduce((a, b) => a + b, 0) / s.length : null; }
+    case 'ttft': return siteAvg(site, 'ttft');
+    case 'tps': return siteAvg(site, 'tps');
+    case 'rate': return siteAvg(site, 'successRate');
+    case 'last': return site.last_test_at || '';
+    default: return null;
+  }
+}
+
 const filteredSites = computed(() => {
   let list = sites.value;
   if (statusFilter.value !== 'all') {
@@ -224,17 +254,30 @@ const filteredSites = computed(() => {
       s.profile?.base_url?.toLowerCase().includes(q)
     );
   }
-  // Sort: 收藏置顶，组内 error > healthy > untested，再按 last_test_at desc
-  const healthOrder = { error: 0, healthy: 1, untested: 2, unknown: 2 };
-  list = [...list].sort((a, b) => {
-    const fa = favorites.value.has(a.profile.name) ? 0 : 1;
-    const fb = favorites.value.has(b.profile.name) ? 0 : 1;
-    if (fa !== fb) return fa - fb;
-    const ha = healthOrder[a.health] ?? 2;
-    const hb = healthOrder[b.health] ?? 2;
-    if (ha !== hb) return ha - hb;
-    return (b.last_test_at || '').localeCompare(a.last_test_at || '');
-  });
+  // 手动列排序优先；未选列时回到默认智能排序
+  if (sortKey.value) {
+    const dir = sortDir.value === 'asc' ? 1 : -1, key = sortKey.value;
+    list = [...list].sort((a, b) => {
+      const va = sortValue(a, key), vb = sortValue(b, key);
+      const na = va == null || va === '', nb = vb == null || vb === '';
+      if (na && nb) return 0;
+      if (na) return 1;
+      if (nb) return -1;
+      return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * dir;
+    });
+  } else {
+    // 默认：收藏置顶 → error > healthy > untested → last_test_at desc
+    const healthOrder = { error: 0, healthy: 1, untested: 2, unknown: 2 };
+    list = [...list].sort((a, b) => {
+      const fa = favorites.value.has(a.profile.name) ? 0 : 1;
+      const fb = favorites.value.has(b.profile.name) ? 0 : 1;
+      if (fa !== fb) return fa - fb;
+      const ha = healthOrder[a.health] ?? 2;
+      const hb = healthOrder[b.health] ?? 2;
+      if (ha !== hb) return ha - hb;
+      return (b.last_test_at || '').localeCompare(a.last_test_at || '');
+    });
+  }
   return list;
 });
 
@@ -504,17 +547,18 @@ onUnmounted(() => { store.refreshFn = null; });
 .avail-bars i.ab-na { background:var(--border-subtle, #e5e5e5); }
 table.board { width:100%; border-collapse:collapse; font-size:12.5px; }
 table.board th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-tertiary); padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.th-sort { cursor:pointer; user-select:none; }
+.th-sort:hover { color:var(--text-secondary); }
+.sarr { margin-left:3px; font-size:9px; color:var(--accent); }
 table.board td { padding:8px 10px; border-bottom:1px solid var(--border-subtle); white-space:nowrap; vertical-align:middle; }
 .site-row { cursor:pointer; } .site-row:hover td { background:var(--border-subtle); }
 .site-row.h-error td { background:#fef6f6; }
 .model-row td { background:var(--bg, #fafafa); }
 .mname { padding-left:26px; color:var(--text-secondary); font-weight:600; }
-.chev { display:inline-block; width:14px; color:var(--text-tertiary); font-size:10px; transition:transform .15s; }
-.chev.open { transform:rotate(90deg); }
 .sname { font-weight:700; color:var(--text-primary); text-decoration:none; }
 .sname:hover { color:var(--accent); }
 .mcount { font-size:10.5px; font-weight:600; color:#6b7280; background:var(--border-subtle); border-radius:999px; padding:1px 7px; margin-left:6px; }
-.fav { background:none; border:none; cursor:pointer; color:var(--text-tertiary); font-size:13px; }
+.fav { background:none; border:none; cursor:pointer; color:var(--text-tertiary); font-size:13px; margin-right:7px; }
 .fav.on { color:var(--warning); }
 .agg { font-size:9px; color:var(--text-tertiary); }
 .row-actions { display:flex; gap:6px; justify-content:flex-end; }
