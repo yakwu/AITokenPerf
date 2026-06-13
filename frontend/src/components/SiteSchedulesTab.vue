@@ -61,7 +61,7 @@
         <div class="form-grid" style="margin-top:12px">
           <div class="form-group">
             <label class="form-label">任务名称</label>
-            <input class="form-input" v-model="createForm.name" placeholder="留空将自动生成（持续监控-模型名）">
+            <input class="form-input" v-model="createForm.name" placeholder="留空将自动生成（持续监控-站点名）">
           </div>
           <div class="form-group">
             <label class="form-label">并发数</label>
@@ -606,9 +606,9 @@ async function createSchedule() {
     toast('请至少选择一个模型', 'info');
     return;
   }
-  // 任务名留空时自动生成（任务名已折叠进高级参数，多数用户不填）
+  // 任务名留空时自动按站点命名（一个站点会测多个模型，不取单个模型名）
   if (!f.name.trim()) {
-    f.name = `持续监控-${f.models[0]}`;
+    f.name = `持续监控-${props.profile.name}`;
   }
 
   createLoading.value = true;
