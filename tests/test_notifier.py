@@ -101,6 +101,7 @@ def test_alert_card_red_header():
     assert card["card"]["header"]["template"] == "red"
     title = card["card"]["header"]["title"]["content"]
     assert "告警" in title and "主力渠道" in title and "2 个异常" in title
+    assert "OpenAI-A/gpt-4o" in title          # 首个异常的站点×模型进标题
     flat = str(card)
     assert "OpenAI-A" in flat and "gpt-4o" in flat and "72.0%" in flat
     assert "OpenAI-B" in flat and "claude" in flat and "65.0%" in flat
@@ -113,6 +114,7 @@ def test_recover_card_green_header():
     assert card["card"]["header"]["template"] == "green"
     title = card["card"]["header"]["title"]["content"]
     assert "恢复" in title and "主力渠道" in title and "1 个" in title
+    assert "OpenAI-A/gpt-4o" in title
     flat = str(card)
     assert "OpenAI-A" in flat and "gpt-4o" in flat and "95.0%" in flat
 
@@ -120,8 +122,9 @@ def test_recover_card_green_header():
 def test_card_title_handles_empty_task_name():
     card = build_feishu_card("alert", "", [("S", "m", 50.0)], 90, "t")
     title = card["card"]["header"]["title"]["content"]
-    assert title.startswith("🔴 拨测告警（")     # 空任务名不留悬空分隔符
+    assert title.startswith("🔴 拨测告警 · S/m")   # 站点×模型进标题
     assert "1 个异常" in title
+    assert " ·  · " not in title                   # 空任务名不留悬空分隔符
 
 
 @pytest.mark.asyncio

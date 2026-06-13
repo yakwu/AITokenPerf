@@ -84,14 +84,15 @@ def build_feishu_card(kind: str, task_name: str,
     """构造飞书自定义机器人 interactive 卡片。kind ∈ {'alert','recover'}。
     cells: [(profile, model, rate), ...] —— 本轮新翻转的格子。"""
     n = len(cells)
+    cell = f" · {cells[0][0]}/{cells[0][1]}" if cells else ""  # 首个异常的站点/模型，手机一眼定位
     label = f" · {task_name}" if task_name else ""
     if kind == "recover":
         template = color = "green"
-        title = f"✅ 已恢复{label}（{n} 个）"
+        title = f"✅ 已恢复{cell}{label}（{n} 个）"
         summary = f"以下 {n} 个格子已恢复（成功率 ≥ 阈值 {threshold}%）"
     else:
         template = color = "red"
-        title = f"🔴 拨测告警{label}（{n} 个异常）"
+        title = f"🔴 拨测告警{cell}{label}（{n} 个异常）"
         summary = f"本轮 {n} 个格子成功率低于阈值 {threshold}%"
     elements = [
         {"tag": "div", "text": {"tag": "lark_md", "content": f"**任务**：{task_name}"}},
