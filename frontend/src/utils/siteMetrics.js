@@ -80,16 +80,10 @@ export function sparklineEnd(values) {
   return { x: 60, y: 20 - ((last - min) / range) * 18 };
 }
 
-// 延迟趋势配色：延迟越低越好。上升=警示色，下降=绿色，基本持平=中性灰
-export function latencyTrendColor(values) {
-  if (!values || values.length < 2) return 'var(--text-tertiary)';
-  const first = values[0];
-  const last = values[values.length - 1];
-  if (first <= 0) return 'var(--text-tertiary)';
-  const pct = (last - first) / first;
-  if (pct > 0.05) return 'var(--danger)';
-  if (pct < -0.05) return 'var(--success)';
-  return 'var(--text-tertiary)';
+// 延迟趋势配色：统一中性色，只看走势形状。涨跌的具体数值交给 latencyTrendTooltip，
+// 不再用红/绿染色（红/绿会把"延迟变化方向"误导成"健康好坏"，且末点一抖就翻色）。
+export function latencyTrendColor() {
+  return 'var(--text-secondary)';
 }
 
 export function latencyTrendTooltip(values) {
@@ -186,4 +180,11 @@ export function siteAvgSeries(modelSeriesList) {
     out.push(vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
   }
   return out;
+}
+
+// 可用性序列 → 区间成功率：非空桶（!= null）的平均，全空/空/缺省 → null。
+// 用于把"成功率"数字与可用率柱同源，反映所选时间范围而非最近一次。
+export function seriesAvg(series) {
+  const vals = (series || []).filter(v => v != null);
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
