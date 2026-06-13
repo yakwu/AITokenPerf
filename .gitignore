@@ -35,6 +35,9 @@ Thumbs.db
 # Visual companion
 .superpowers/
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # IDE
 .idea/
 .vscode/
