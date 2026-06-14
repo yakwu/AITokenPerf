@@ -26,7 +26,8 @@ vi.mock('../../composables/useToast', () => ({ toast: vi.fn() }));
 const routerLinkStub = { props: ['to'], template: '<a><slot /></a>' };
 
 import SitesView from '../SitesView.vue';
-import { getActiveAlerts } from '../../api';
+import { getActiveAlerts, getSitesSummary } from '../../api';
+import { toast } from '../../composables/useToast';
 
 function mountView() {
   return mount(SitesView, {
@@ -71,5 +72,18 @@ describe('SitesView 合并页', () => {
     const w = mountView();
     await flushPromises();
     expect(w.text()).toContain('未命名任务');
+  });
+
+  it('getSitesSummary 失败时清空站点看板并 toast，不残留过期站点', async () => {
+    vi.mocked(getSitesSummary).mockRejectedValueOnce(new Error('boom'));
+    const w = mountView();
+    await flushPromises();
+    // 组件正常渲染，未抛未捕获错误
+    expect(w.exists()).toBe(true);
+    // toast 被调用（错误提示）
+    expect(vi.mocked(toast)).toHaveBeenCalled();
+    // 不残留来自 summary 的站点，落到空态文案
+    expect(w.text()).not.toContain('siteX');
+    expect(w.text()).toContain('尚无站点配置');
   });
 });

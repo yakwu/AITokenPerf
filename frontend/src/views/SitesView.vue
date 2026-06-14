@@ -363,6 +363,8 @@ async function loadData() {
     schedules.value = schedData.schedules || [];
   } catch (e) {
     toast('加载站点数据失败: ' + e.message, 'error');
+    sites.value = [];
+    availabilityLut.value = {};
     alerts.value = [];
     schedules.value = [];
   }
