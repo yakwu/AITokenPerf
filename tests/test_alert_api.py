@@ -139,3 +139,33 @@ async def test_notifier_rejects_other_user(client):
     assert r_put.status_code == 404
     r_test = await client.post(f"/api/notifiers/{nid}/test", headers=headers_b)
     assert r_test.status_code == 404
+
+
+def test_aggregate_active_alerts_merges_by_cell():
+    from app.notifier import aggregate_active_alerts
+    tasks = [
+        {"id": 1, "name": "任务A", "profile_ids": ["siteX"],
+         "alert_state": '{"siteX": {"gpt-4": {"s": "alerting", "n": 2}, "gpt-3.5": {"s": "ok", "n": 0}}}'},
+        {"id": 2, "name": "任务B", "profile_ids": ["siteX"],
+         "alert_state": '{"siteX": {"gpt-4": {"s": "alerting", "n": 3}}}'},
+        {"id": 3, "name": "任务C", "profile_ids": ["siteY"],
+         "alert_state": '{"siteY": {"claude": {"s": "ok", "n": 0}}}'},
+    ]
+    out = aggregate_active_alerts(tasks)
+    assert len(out) == 1
+    cell = out[0]
+    assert cell["profile"] == "siteX" and cell["model"] == "gpt-4"
+    assert cell["streak"] == 3
+    assert cell["task_count"] == 2
+    assert {t["id"] for t in cell["tasks"]} == {1, 2}
+
+
+def test_aggregate_active_alerts_handles_empty_and_legacy():
+    from app.notifier import aggregate_active_alerts
+    tasks = [
+        {"id": 1, "name": "x", "profile_ids": ["s"], "alert_state": None},
+        {"id": 2, "name": "y", "profile_ids": ["s"], "alert_state": '"ok"'},
+        {"id": 3, "name": "z", "profile_ids": ["s"], "alert_state": '{"s": {"m": "alerting"}}'},
+    ]
+    out = aggregate_active_alerts(tasks)
+    assert len(out) == 1 and out[0]["streak"] == 0

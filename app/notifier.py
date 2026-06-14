@@ -58,6 +58,36 @@ def _cell_state(value) -> Tuple[str, int]:
     return ALERT_OK, 0
 
 
+def aggregate_active_alerts(tasks: list) -> list:
+    """把多个任务的 alert_state 聚合为"当前正在告警"的格子列表，按 (站点,模型) 合并。
+    入参 tasks: get_scheduled_tasks() 返回的 dict 列表（含 alert_state/name/id/profile_ids）。
+    前置条件：每个 task 应含 id 字段（来自 get_scheduled_tasks 的主键，必非空）。
+    出参: [{"profile","model","streak","task_count","tasks":[{"id","name"}]}, ...]，
+    按 (profile, model) 排序，便于前端稳定渲染。"""
+    merged: dict = {}
+    for t in tasks:
+        states = _load_alert_states(t.get("alert_state"))
+        for profile, models in states.items():
+            if not isinstance(models, dict):
+                continue
+            for model, cellval in models.items():
+                state, streak = _cell_state(cellval)
+                if state != ALERT_ALERTING:
+                    continue
+                key = (profile, model)
+                entry = merged.setdefault(key, {
+                    "profile": profile, "model": model,
+                    "streak": 0, "task_count": 0, "tasks": [],
+                })
+                entry["streak"] = max(entry["streak"], streak)
+                entry["tasks"].append({"id": t.get("id"), "name": t.get("name", "")})
+    out = []
+    for (profile, model), entry in sorted(merged.items()):
+        entry["task_count"] = len(entry["tasks"])
+        out.append(entry)
+    return out
+
+
 def _safe_host(url: str) -> str:
     """日志脱敏：只取 host，绝不打印含 secret 的完整 URL。"""
     try:
