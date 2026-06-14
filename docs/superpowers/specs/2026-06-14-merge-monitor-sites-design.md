@@ -101,6 +101,12 @@ Promise.all([
 - 删除 MonitorView.vue 后，核对引用：router.js、App.vue tabs、以及 NotificationCenter.vue /
   TasksView.vue / HistoryView.vue 中对 `/monitor`、`/sites`、`站点管理` 文案与跳转的引用，
   确保跳转仍可达（多为跳 `/sites/:id`，路由保留即可）。
+- **App.vue:128 登录成功后 `router.push('/monitor')` 一并改为 `/sites`**（否则虽走重定向但不干净）。
+- **healthCounts 必须继续计算 `error`**：健康条 pill 不渲染「异常」，但筛选 chip「异常」仍按
+  `s.health === 'error'` 过滤，故沿用 SitesView 现有 `healthCounts`（含 error），只是不渲染该 pill。
+- **watch 沿用 SitesView 的 `route.path === '/sites'` 写法，不要照抄 MonitorView 的
+  `route.name === 'monitor'`**（合并后该 name 不存在）。timeRangeStore watch 的现有条件保持不变。
+- TasksView.vue 顶部「/tasks 已重定向到 /monitor」注释顺手更新为 `/sites`（非阻塞）。
 - `store.refreshFn` 仍指向合并页的 `loadData`。
 - 过 vitest + build（pre-push hook）。注意 4 个 pre-existing 失败的 tab_refactor 测试与本次无关，可忽略。
 
