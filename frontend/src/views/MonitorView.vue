@@ -15,7 +15,10 @@
         <router-link class="btn btn-sm" :to="`/sites/${encodeURIComponent(a.profile)}`">进站点 →</router-link>
       </div>
     </div>
-    <div v-else class="alert-ok">✅ 一切正常</div>
+    <div v-else class="alert-ok">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <span>一切正常</span>
+    </div>
 
     <SiteHealthBoard
       :sites="sites"
@@ -115,7 +118,7 @@ onUnmounted(() => { if (store.refreshFn === loadData) store.refreshFn = null; })
 .alert-card { display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid #f3c2c2; background:#fef6f6; border-radius:8px; }
 .alert-meta { color:var(--text-tertiary); font-size:12px; }
 .alert-card .btn { margin-left:auto; }
-.alert-ok { color:var(--success); padding:12px 0; font-weight:600; }
+.alert-ok { display:flex; align-items:center; gap:6px; color:var(--success); padding:12px 0; font-weight:600; }
 .tasks-fold { margin-top:18px; }
 .tasks-fold summary { cursor:pointer; font-size:13px; color:var(--text-secondary); }
 .health-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
