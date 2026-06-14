@@ -4,7 +4,7 @@
 import json
 import logging
 from typing import Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 import aiohttp
 
@@ -110,9 +110,11 @@ def is_allowed_webhook(url: str) -> bool:
 
 
 def build_feishu_card(kind: str, task_name: str,
-                      cells: list, threshold: int, ts: str) -> dict:
+                      cells: list, threshold: int, ts: str,
+                      base_url: str = "") -> dict:
     """构造飞书自定义机器人 interactive 卡片。kind ∈ {'alert','recover'}。
-    cells: [(profile, model, rate), ...] —— 本轮新翻转的格子。"""
+    cells: [(profile, model, rate), ...] —— 本轮新翻转的格子。
+    base_url: 公开访问基址（如 https://app.aitokenperf.com），空则不加跳转按钮。"""
     n = len(cells)
     cell = f" · {cells[0][0]}/{cells[0][1]}" if cells else ""  # 首个异常的站点/模型，手机一眼定位
     label = f" · {task_name}" if task_name else ""
@@ -135,6 +137,15 @@ def build_feishu_card(kind: str, task_name: str,
             {"is_short": True, "text": {"tag": "lark_md",
                 "content": f"**成功率**\n<font color='{color}'>{rate:.1f}%</font>"}},
         ]})
+    if base_url and cells:
+        base_url = base_url.rstrip("/")
+        site = quote(str(cells[0][0]), safe="")
+        elements.append({"tag": "action", "actions": [{
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "进站点查看 →"},
+            "type": "primary",
+            "url": f"{base_url}/sites/{site}",
+        }]})
     elements.append({"tag": "hr"})
     elements.append({"tag": "note", "elements": [
         {"tag": "lark_md", "content": f"{ts} · AITokenPerf"}]})
