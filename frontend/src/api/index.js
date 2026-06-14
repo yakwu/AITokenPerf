@@ -135,3 +135,6 @@ export const getLibrary = ({ search = '', vendor = '', page = 1, pageSize = 50 }
   const params = new URLSearchParams({ search, vendor, page, page_size: pageSize });
   return api(`/api/pricing/library?${params}`);
 };
+
+// Alerts
+export const getActiveAlerts = () => api('/api/alerts/active');
