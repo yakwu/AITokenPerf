@@ -1,7 +1,7 @@
 #!/bin/bash
 # 一键启动前端(Vite dev) + 后端(Python)
 # 前端 http://localhost:5180 (含 HMR)
-# 后端 http://localhost:8080
+# 后端 http://localhost:8420
 
 set -e
 cd "$(dirname "$0")"
@@ -20,7 +20,7 @@ trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" SIGINT SIGTERM
 
 echo ""
 echo "前端: http://localhost:5180"
-echo "后端: http://localhost:8080"
+echo "后端: http://localhost:8420"
 echo ""
 
 wait
