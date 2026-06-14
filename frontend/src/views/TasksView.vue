@@ -1,4 +1,4 @@
-<!-- TODO(阶段二): /tasks 已重定向到 /monitor，此视图不再被路由；阶段二整合后删除。 -->
+<!-- TODO(阶段二): /tasks 已重定向到 /sites，此视图不再被路由；阶段二整合后删除。 -->
 <template>
   <section class="tab-content active">
     <!-- Toolbar -->
