@@ -111,7 +111,7 @@ async function submit() {
       return;
     }
     store.setUser(res.user, res.token);
-    store.switchTab('monitor');
+    store.switchTab('sites');
   } catch (e) {
     error.value = e.message;
   }
@@ -140,7 +140,7 @@ async function doForceChange() {
     store.setUser(updatedUser, pendingToken);
     loading.value = false;
     toast('密码已修改', 'success');
-    store.switchTab('monitor');
+    store.switchTab('sites');
   } catch (e) {
     error.value = e.message;
   }

@@ -20,6 +20,16 @@
       </div>
     </div>
 
+    <!-- 告警卡区（连续 2 轮才翻红；无告警不显示） -->
+    <div v-if="alerts.length" class="alert-area">
+      <div v-for="(a, i) in alerts" :key="a.profile + '/' + a.model + '/' + i" class="alert-card">
+        <span class="dot d-error"></span>
+        <strong>{{ a.profile }} × {{ a.model }}</strong>
+        <span class="alert-meta">连续 {{ a.streak }} 轮 · {{ a.task_count > 1 ? ('所属 ' + a.task_count + ' 个任务') : (a.tasks?.[0]?.name || '未命名任务') }}</span>
+        <router-link class="btn btn-sm" :to="`/sites/${encodeURIComponent(a.profile)}`">进站点 →</router-link>
+      </div>
+    </div>
+
     <!-- Loading -->
     <div v-if="loading && !sites.length" style="text-align:center;color:var(--text-tertiary);padding:40px">加载中...</div>
 
@@ -33,7 +43,7 @@
     <!-- Site × Model Health Board -->
     <div v-else class="board-wrap">
       <div class="health-bar">
-        <span class="hb-pill err"><span class="dot d-error"></span>异常 {{ healthCounts.error }}</span>
+        <span class="hb-pill err" title="连续多轮失败才计入「告警中」；只看最近一次失败的站点请用下方「异常」筛选"><span class="dot d-error"></span>告警中 {{ alerts.length }}</span>
         <span class="hb-pill ok"><span class="dot d-healthy"></span>健康 {{ healthCounts.healthy }}</span>
         <span class="hb-pill un"><span class="dot d-untested"></span>未测 {{ healthCounts.untested }}</span>
         <span class="hb-legend"><i class="ab-up"></i>可用 <i class="ab-degraded"></i>降级 <i class="ab-down"></i>不可用</span>
@@ -48,6 +58,15 @@
         @navigate-to-detail="goDetail"
       />
     </div>
+
+    <details v-if="schedules.length" class="tasks-fold">
+      <summary>监控任务跑批状态（{{ schedules.length }}）</summary>
+      <table class="board"><tbody>
+        <tr v-for="s in schedules" :key="s.id">
+          <td>{{ s.name }}</td><td>{{ siteOf(s) }}</td><td>{{ s.status }}</td>
+        </tr>
+      </tbody></table>
+    </details>
 
     <!-- Create Site Modal -->
     <ModalOverlay :show="showCreateModal" title="新建站点" max-width="520px" @close="showCreateModal = false">
@@ -117,7 +136,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
-import { api, getSitesSummary, getCellAvailability } from '../api';
+import { api, getSitesSummary, getCellAvailability, getActiveAlerts, getSchedules } from '../api';
 import { buildAvailabilityLookup } from '../utils/siteMetrics';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
@@ -137,6 +156,9 @@ const search = ref('');
 const statusFilter = ref('all');
 const confirmTarget = ref(null);
 const availabilityLut = ref({});
+const alerts = ref([]);
+const schedules = ref([]);
+function siteOf(s) { return (s.profile_ids && s.profile_ids.length) ? s.profile_ids.join('、') : '-'; }
 const BUCKETS = 24;
 
 // ---- 收藏（localStorage 持久化）----
@@ -326,8 +348,8 @@ async function submitCreate() {
   createLoading.value = false;
 }
 
-async function loadData() {
-  loading.value = true;
+async function loadBoard() {
+  // 时间范围相关：站点摘要 + 可用性
   try {
     const [summaryData, availData] = await Promise.all([
       getSitesSummary({ hours: timeRangeStore.hours }),
@@ -337,7 +359,32 @@ async function loadData() {
     availabilityLut.value = buildAvailabilityLookup(availData.cells || []);
   } catch (e) {
     toast('加载站点数据失败: ' + e.message, 'error');
+    sites.value = [];
+    availabilityLut.value = {};
   }
+}
+
+async function loadStatic() {
+  // 与时间范围无关：告警 + 跑批调度
+  const [alertData, schedData] = await Promise.all([
+    getActiveAlerts().catch(() => ({ alerts: [] })),
+    getSchedules().catch(() => ({ schedules: [] })),
+  ]);
+  alerts.value = alertData.alerts || [];
+  schedules.value = schedData.schedules || [];
+}
+
+// 进入页面 / 手动刷新：全量
+async function loadData() {
+  loading.value = true;
+  await Promise.all([loadBoard(), loadStatic()]);
+  loading.value = false;
+}
+
+// 仅时间范围变化：只刷新看板，不重拉告警/跑批
+async function reloadBoard() {
+  loading.value = true;
+  await loadBoard();
   loading.value = false;
 }
 
@@ -346,7 +393,7 @@ watch(() => route.path, (val) => {
 }, { immediate: true });
 
 watch(() => timeRangeStore.hours, () => {
-  if (route.path === '/sites' || route.path.startsWith('/sites/')) loadData();
+  if (route.path === '/sites' || route.path.startsWith('/sites/')) reloadBoard();
 });
 
 store.refreshFn = loadData;
@@ -420,6 +467,12 @@ onUnmounted(() => { if (store.refreshFn === loadData) store.refreshFn = null; })
 .hb-legend i.ab-up{background:#21a366;} .hb-legend i.ab-degraded{background:#f5a623;} .hb-legend i.ab-down{background:#e5484d;}
 .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
 .dot.d-healthy { background:var(--success); } .dot.d-error { background:var(--danger); } .dot.d-untested { background:var(--text-tertiary); }
+.alert-area { display:flex; flex-direction:column; gap:8px; margin:14px 0; }
+.alert-card { display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid #f3c2c2; background:#fef6f6; border-radius:8px; }
+.alert-meta { color:var(--text-tertiary); font-size:12px; }
+.alert-card .btn { margin-left:auto; }
+.tasks-fold { margin-top:18px; }
+.tasks-fold summary { cursor:pointer; font-size:13px; color:var(--text-secondary); }
 </style>
 
 <style>
