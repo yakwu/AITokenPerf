@@ -350,7 +350,7 @@ watch(() => timeRangeStore.hours, () => {
 });
 
 store.refreshFn = loadData;
-onUnmounted(() => { store.refreshFn = null; });
+onUnmounted(() => { if (store.refreshFn === loadData) store.refreshFn = null; });
 </script>
 
 <style scoped>
