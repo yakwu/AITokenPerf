@@ -19,7 +19,7 @@ gh issue list / create
 创建 worktree + 分支: {type}/issue-{N}-{slug}
       ↓
 ┌─ 简单改动 → 直接实现
-└─ 复杂改动 → brainstorming → plan → subagent-driven
+└─ 复杂改动 → brainstorming → spec → [subagent 审 spec] → writing-plans → [subagent 开发]
       ↓
 提交: type(scope): 描述 (#N)
       ↓
@@ -66,20 +66,38 @@ git worktree add -b {type}/issue-{N}-{slug} ../worktrees/issue-{N}
 
 ### 复杂改动 — 必须使用 superpowers
 
-**强规则：先 Invoke brainstorming skill，再 Invoke writing-plans，最后用 subagent-driven-development 执行。**
+**强规则：brainstorming → 写 spec → subagent 审 spec → writing-plans → subagent 开发 → 收尾。**
+**spec 与 plan 写完后改由 subagent 自动审查放行，无需等用户手动确认（覆盖 brainstorming
+skill 的"用户审 spec"人工闸门——用户指令优先）。** 设计呈现阶段（写 spec 之前）的方案确认仍保留。
 
 ```bash
-# 第一步：设计方案
+# 第一步：设计方案（仍需用户确认设计方案后才写 spec）
 Skill(skill="superpowers:brainstorming")
+```
 
-# 第二步：写实施计划
+**第二步：spec 写完后，自动 spawn subagent 审查 spec（不等用户手动审）**
+
+```
+Agent(subagent_type="general-purpose", description="审查 spec",
+      prompt="审查设计文档 <spec 路径>：检查 1) 占位/TODO/未填项 2) 内部矛盾
+              3) 歧义需求 4) 范围是否适合单个实现计划 5) 技术可实现性与对现有代码的影响。
+              只读不改。输出 BLOCKER（必须改）/ NIT（建议）/ 通过 三档结论。")
+```
+
+- subagent 返回 **通过 / 仅 NIT** → 直接进入 writing-plans（不再等用户）。
+- subagent 返回 **BLOCKER** → 修复 spec 后重审；反复修不掉或涉及产品取舍 → 回到用户。
+
+```bash
+# 第三步：写实施计划
 Skill(skill="superpowers:writing-plans")
+```
 
-# 第三步：TDD 实现
+**第四步：plan 写完后，直接用 subagent-driven-development 执行（不等用户手动确认）**
+
+```bash
 Skill(skill="superpowers:subagent-driven-development")
 ```
 
-```
 每个 subagent 任务完成后自动做 spec review + code review。实现完毕用 `finishing-a-development-branch` 收尾。
 
 ## 4. 提交
