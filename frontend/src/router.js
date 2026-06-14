@@ -3,11 +3,12 @@ import { createRouter, createWebHistory } from 'vue-router';
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/sites' },
+    { path: '/', redirect: '/monitor' },
+    { path: '/monitor', name: 'monitor', component: () => import('./views/MonitorView.vue') },
     { path: '/sites', name: 'sites', component: () => import('./views/SitesView.vue') },
     { path: '/sites/:id', name: 'site-detail', component: () => import('./views/SiteDetailView.vue'), props: true },
     { path: '/history', name: 'history', component: () => import('./views/HistoryView.vue') },
-    { path: '/tasks', name: 'tasks', component: () => import('./views/TasksView.vue') },
+    { path: '/tasks', redirect: '/monitor' },
     {
       path: '/settings',
       component: () => import('./views/SettingsHub.vue'),

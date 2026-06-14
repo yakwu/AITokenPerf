@@ -82,9 +82,9 @@ const store = useAppStore();
 const timeRangeStore = useTimeRangeStore();
 
 const tabs = [
-  { name: '站点', path: '/sites', activeMatch: (p) => p.startsWith('/sites') || p === '/' },
+  { name: '监控总览', path: '/monitor', activeMatch: (p) => p === '/' || p.startsWith('/monitor') },
+  { name: '站点管理', path: '/sites', activeMatch: (p) => p.startsWith('/sites') },
   { name: '历史与对比', path: '/history' },
-  { name: '定时任务', path: '/tasks' },
 ];
 
 // Global detail overlay
@@ -125,7 +125,7 @@ watch(
   () => store.user,
   (u) => {
     if (u && route.path === '/auth' && !u.must_change_password) {
-      router.push('/sites');
+      router.push('/monitor');
     }
   }
 );
