@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app import notifier
@@ -184,3 +186,27 @@ def test_load_alert_states_non_dict_json():
     assert _load_alert_states('"ok"') == {}
     assert _load_alert_states("123") == {}
     assert _load_alert_states("[1, 2]") == {}
+
+
+def test_feishu_card_includes_link_when_base_url_given():
+    from app.notifier import build_feishu_card
+    card = build_feishu_card("alert", "任务A", [("siteX", "gpt-4", 0.0)],
+                             90, "2026-06-14 10:00:00", base_url="https://app.aitokenperf.com")
+    blob = json.dumps(card, ensure_ascii=False)
+    assert "https://app.aitokenperf.com/sites/siteX" in blob
+
+
+def test_feishu_card_no_link_when_base_url_absent():
+    from app.notifier import build_feishu_card
+    card = build_feishu_card("alert", "任务A", [("siteX", "gpt-4", 0.0)],
+                             90, "2026-06-14 10:00:00")
+    blob = json.dumps(card, ensure_ascii=False)
+    assert "/sites/" not in blob
+
+
+def test_feishu_card_link_encodes_special_chars():
+    from app.notifier import build_feishu_card
+    card = build_feishu_card("alert", "", [("site/A?x=1", "m", 0.0)],
+                             90, "2026-06-14 00:00:00", base_url="https://h.example.com")
+    blob = json.dumps(card, ensure_ascii=False)
+    assert "site%2FA%3Fx%3D1" in blob

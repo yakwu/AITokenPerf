@@ -2096,6 +2096,15 @@ def _mask_webhook(url: str) -> str:
         return "***"
 
 
+@app.get("/api/alerts/active")
+async def active_alerts(user: dict = Depends(get_current_user)):
+    """监控总览"当前告警区"用：返回当前正在告警的 (站点×模型) 合并列表。"""
+    from app.db import get_scheduled_tasks
+    from app.notifier import aggregate_active_alerts
+    tasks = await get_scheduled_tasks(user["user_id"])
+    return {"alerts": aggregate_active_alerts(tasks)}
+
+
 @app.post("/api/schedules")
 async def create_schedule(request: Request, user: dict = Depends(get_current_user)):
     from app.db import create_scheduled_task, get_scheduled_task, count_user_scheduled_tasks

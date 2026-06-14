@@ -139,3 +139,62 @@ async def test_notifier_rejects_other_user(client):
     assert r_put.status_code == 404
     r_test = await client.post(f"/api/notifiers/{nid}/test", headers=headers_b)
     assert r_test.status_code == 404
+
+
+def test_aggregate_active_alerts_merges_by_cell():
+    from app.notifier import aggregate_active_alerts
+    tasks = [
+        {"id": 1, "name": "任务A", "profile_ids": ["siteX"],
+         "alert_state": '{"siteX": {"gpt-4": {"s": "alerting", "n": 2}, "gpt-3.5": {"s": "ok", "n": 0}}}'},
+        {"id": 2, "name": "任务B", "profile_ids": ["siteX"],
+         "alert_state": '{"siteX": {"gpt-4": {"s": "alerting", "n": 3}}}'},
+        {"id": 3, "name": "任务C", "profile_ids": ["siteY"],
+         "alert_state": '{"siteY": {"claude": {"s": "ok", "n": 0}}}'},
+    ]
+    out = aggregate_active_alerts(tasks)
+    assert len(out) == 1
+    cell = out[0]
+    assert cell["profile"] == "siteX" and cell["model"] == "gpt-4"
+    assert cell["streak"] == 3
+    assert cell["task_count"] == 2
+    assert {t["id"] for t in cell["tasks"]} == {1, 2}
+
+
+def test_aggregate_active_alerts_handles_empty_and_legacy():
+    from app.notifier import aggregate_active_alerts
+    tasks = [
+        {"id": 1, "name": "x", "profile_ids": ["s"], "alert_state": None},
+        {"id": 2, "name": "y", "profile_ids": ["s"], "alert_state": '"ok"'},
+        {"id": 3, "name": "z", "profile_ids": ["s"], "alert_state": '{"s": {"m": "alerting"}}'},
+    ]
+    out = aggregate_active_alerts(tasks)
+    assert len(out) == 1 and out[0]["streak"] == 0
+
+
+@pytest.mark.asyncio
+async def test_active_alerts_endpoint(client):
+    from app.db import update_scheduled_task
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    nid = await _make_notifier(client, headers)
+    resp = await client.post("/api/schedules", json={
+        "name": "t", "profile_ids": ["s"], "schedule_value": "300",
+        "alert_enabled": True, "alert_notifier_id": nid, "alert_threshold": 90,
+    }, headers=headers)
+    sid = resp.json()["id"]
+    await update_scheduled_task(sid, alert_state='{"s": {"gpt-4o-mini": {"s": "alerting", "n": 2}}}')
+
+    r = await client.get("/api/alerts/active", headers=headers)
+    assert r.status_code == 200
+    alerts = r.json()["alerts"]
+    assert len(alerts) == 1
+    assert alerts[0]["profile"] == "s" and alerts[0]["model"] == "gpt-4o-mini"
+    assert alerts[0]["streak"] == 2
+    assert alerts[0]["task_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_active_alerts_empty_when_none(client):
+    headers = await auth_headers(client)
+    r = await client.get("/api/alerts/active", headers=headers)
+    assert r.status_code == 200 and r.json()["alerts"] == []

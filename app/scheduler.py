@@ -231,6 +231,7 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
         evaluate_alert, build_feishu_card, send_webhook,
         _load_alert_states, _cell_state,
     )
+    from app.config import APP_PUBLIC_URL
 
     notifier_id = task_row.get("alert_notifier_id") or 0
     if not task_row.get("alert_enabled") or not notifier_id:
@@ -266,9 +267,9 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     name = task_row.get("name", "")
     if alerts:
-        await send_webhook(webhook, build_feishu_card("alert", name, alerts, threshold, ts))
+        await send_webhook(webhook, build_feishu_card("alert", name, alerts, threshold, ts, base_url=APP_PUBLIC_URL))
     if recovers:
-        await send_webhook(webhook, build_feishu_card("recover", name, recovers, threshold, ts))
+        await send_webhook(webhook, build_feishu_card("recover", name, recovers, threshold, ts, base_url=APP_PUBLIC_URL))
 
     if new_states != prev:
         await update_scheduled_task(
