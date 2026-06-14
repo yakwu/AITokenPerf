@@ -26,6 +26,7 @@ vi.mock('../../composables/useToast', () => ({ toast: vi.fn() }));
 const routerLinkStub = { props: ['to'], template: '<a><slot /></a>' };
 
 import SitesView from '../SitesView.vue';
+import { getActiveAlerts } from '../../api';
 
 function mountView() {
   return mount(SitesView, {
@@ -61,5 +62,14 @@ describe('SitesView 合并页', () => {
     await flushPromises();
     expect(w.text()).toContain('监控任务跑批状态（1）');
     expect(w.text()).toContain('每日巡检');
+  });
+
+  it('告警不带 tasks 字段时不崩溃并回退「未命名任务」', async () => {
+    vi.mocked(getActiveAlerts).mockResolvedValueOnce({ alerts: [
+      { profile: 'siteY', model: 'gpt-4o', streak: 2, task_count: 1 },
+    ] });
+    const w = mountView();
+    await flushPromises();
+    expect(w.text()).toContain('未命名任务');
   });
 });

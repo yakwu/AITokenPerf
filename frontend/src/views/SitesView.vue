@@ -25,7 +25,7 @@
       <div v-for="a in alerts" :key="a.profile + '/' + a.model" class="alert-card">
         <span class="dot d-error"></span>
         <strong>{{ a.profile }} × {{ a.model }}</strong>
-        <span class="alert-meta">连续 {{ a.streak }} 轮 · {{ a.task_count > 1 ? ('所属 ' + a.task_count + ' 个任务') : ((a.tasks[0] && a.tasks[0].name) || '未命名任务') }}</span>
+        <span class="alert-meta">连续 {{ a.streak }} 轮 · {{ a.task_count > 1 ? ('所属 ' + a.task_count + ' 个任务') : (a.tasks?.[0]?.name || '未命名任务') }}</span>
         <router-link class="btn btn-sm" :to="`/sites/${encodeURIComponent(a.profile)}`">进站点 →</router-link>
       </div>
     </div>
@@ -59,7 +59,7 @@
       />
     </div>
 
-    <details class="tasks-fold">
+    <details v-if="schedules.length" class="tasks-fold">
       <summary>监控任务跑批状态（{{ schedules.length }}）</summary>
       <table class="board"><tbody>
         <tr v-for="s in schedules" :key="s.id">
@@ -363,6 +363,8 @@ async function loadData() {
     schedules.value = schedData.schedules || [];
   } catch (e) {
     toast('加载站点数据失败: ' + e.message, 'error');
+    alerts.value = [];
+    schedules.value = [];
   }
   loading.value = false;
 }
