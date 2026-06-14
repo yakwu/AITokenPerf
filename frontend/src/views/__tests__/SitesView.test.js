@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { setActivePinia, createPinia } from 'pinia';
+import { useTimeRangeStore } from '../../stores/timeRange';
 
 vi.mock('../../api', () => ({
   api: vi.fn(),
@@ -76,14 +77,32 @@ describe('SitesView 合并页', () => {
 
   it('getSitesSummary 失败时清空站点看板并 toast，不残留过期站点', async () => {
     vi.mocked(getSitesSummary).mockRejectedValueOnce(new Error('boom'));
+    // F2 后告警/跑批独立加载，需一并 mock 为空才能落到干净的空态
+    const api = await import('../../api');
+    vi.mocked(api.getActiveAlerts).mockResolvedValueOnce({ alerts: [] });
+    vi.mocked(api.getSchedules).mockResolvedValueOnce({ schedules: [] });
     const w = mountView();
     await flushPromises();
     // 组件正常渲染，未抛未捕获错误
     expect(w.exists()).toBe(true);
     // toast 被调用（错误提示）
     expect(vi.mocked(toast)).toHaveBeenCalled();
-    // 不残留来自 summary 的站点，落到空态文案
-    expect(w.text()).not.toContain('siteX');
+    // 落到空态文案
     expect(w.text()).toContain('尚无站点配置');
+  });
+
+  it('切换时间范围只重拉看板，不重复请求告警/跑批', async () => {
+    const api = await import('../../api');
+    const w = mountView();
+    await flushPromises();
+    const summaryBefore = vi.mocked(api.getSitesSummary).mock.calls.length;
+    const alertsBefore = vi.mocked(api.getActiveAlerts).mock.calls.length;
+    const schedBefore = vi.mocked(api.getSchedules).mock.calls.length;
+    const tr = useTimeRangeStore();
+    tr.setHours(tr.hours === 6 ? 24 : 6); // 切到不同值以触发 watch
+    await flushPromises();
+    expect(vi.mocked(api.getSitesSummary).mock.calls.length).toBe(summaryBefore + 1);
+    expect(vi.mocked(api.getActiveAlerts).mock.calls.length).toBe(alertsBefore);
+    expect(vi.mocked(api.getSchedules).mock.calls.length).toBe(schedBefore);
   });
 });

@@ -22,7 +22,7 @@
 
     <!-- 告警卡区（连续 2 轮才翻红；无告警不显示） -->
     <div v-if="alerts.length" class="alert-area">
-      <div v-for="a in alerts" :key="a.profile + '/' + a.model" class="alert-card">
+      <div v-for="(a, i) in alerts" :key="a.profile + '/' + a.model + '/' + i" class="alert-card">
         <span class="dot d-error"></span>
         <strong>{{ a.profile }} × {{ a.model }}</strong>
         <span class="alert-meta">连续 {{ a.streak }} 轮 · {{ a.task_count > 1 ? ('所属 ' + a.task_count + ' 个任务') : (a.tasks?.[0]?.name || '未命名任务') }}</span>
@@ -43,7 +43,7 @@
     <!-- Site × Model Health Board -->
     <div v-else class="board-wrap">
       <div class="health-bar">
-        <span class="hb-pill err"><span class="dot d-error"></span>告警中 {{ alerts.length }}</span>
+        <span class="hb-pill err" title="连续多轮失败才计入「告警中」；只看最近一次失败的站点请用下方「异常」筛选"><span class="dot d-error"></span>告警中 {{ alerts.length }}</span>
         <span class="hb-pill ok"><span class="dot d-healthy"></span>健康 {{ healthCounts.healthy }}</span>
         <span class="hb-pill un"><span class="dot d-untested"></span>未测 {{ healthCounts.untested }}</span>
         <span class="hb-legend"><i class="ab-up"></i>可用 <i class="ab-degraded"></i>降级 <i class="ab-down"></i>不可用</span>
@@ -158,7 +158,7 @@ const confirmTarget = ref(null);
 const availabilityLut = ref({});
 const alerts = ref([]);
 const schedules = ref([]);
-function siteOf(s) { return (s.profile_ids && s.profile_ids[0]) || '-'; }
+function siteOf(s) { return (s.profile_ids && s.profile_ids.length) ? s.profile_ids.join('、') : '-'; }
 const BUCKETS = 24;
 
 // ---- 收藏（localStorage 持久化）----
@@ -348,26 +348,43 @@ async function submitCreate() {
   createLoading.value = false;
 }
 
-async function loadData() {
-  loading.value = true;
+async function loadBoard() {
+  // 时间范围相关：站点摘要 + 可用性
   try {
-    const [summaryData, availData, alertData, schedData] = await Promise.all([
+    const [summaryData, availData] = await Promise.all([
       getSitesSummary({ hours: timeRangeStore.hours }),
       getCellAvailability({ hours: timeRangeStore.hours, buckets: BUCKETS }).catch(() => ({ cells: [] })),
-      getActiveAlerts().catch(() => ({ alerts: [] })),
-      getSchedules().catch(() => ({ schedules: [] })),
     ]);
     sites.value = summaryData.summary || [];
     availabilityLut.value = buildAvailabilityLookup(availData.cells || []);
-    alerts.value = alertData.alerts || [];
-    schedules.value = schedData.schedules || [];
   } catch (e) {
     toast('加载站点数据失败: ' + e.message, 'error');
     sites.value = [];
     availabilityLut.value = {};
-    alerts.value = [];
-    schedules.value = [];
   }
+}
+
+async function loadStatic() {
+  // 与时间范围无关：告警 + 跑批调度
+  const [alertData, schedData] = await Promise.all([
+    getActiveAlerts().catch(() => ({ alerts: [] })),
+    getSchedules().catch(() => ({ schedules: [] })),
+  ]);
+  alerts.value = alertData.alerts || [];
+  schedules.value = schedData.schedules || [];
+}
+
+// 进入页面 / 手动刷新：全量
+async function loadData() {
+  loading.value = true;
+  await Promise.all([loadBoard(), loadStatic()]);
+  loading.value = false;
+}
+
+// 仅时间范围变化：只刷新看板，不重拉告警/跑批
+async function reloadBoard() {
+  loading.value = true;
+  await loadBoard();
   loading.value = false;
 }
 
@@ -376,7 +393,7 @@ watch(() => route.path, (val) => {
 }, { immediate: true });
 
 watch(() => timeRangeStore.hours, () => {
-  if (route.path === '/sites' || route.path.startsWith('/sites/')) loadData();
+  if (route.path === '/sites' || route.path.startsWith('/sites/')) reloadBoard();
 });
 
 store.refreshFn = loadData;

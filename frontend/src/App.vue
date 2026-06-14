@@ -82,7 +82,7 @@ const store = useAppStore();
 const timeRangeStore = useTimeRangeStore();
 
 const tabs = [
-  { name: '站点监控', path: '/sites', activeMatch: (p) => p === '/' || p.startsWith('/sites') || p.startsWith('/monitor') },
+  { name: '站点监控', path: '/sites', activeMatch: (p) => p.startsWith('/sites') },
   { name: '历史与对比', path: '/history' },
 ];
 
