@@ -100,7 +100,6 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     benchmark_json TEXT NOT NULL DEFAULT '{}',
-    output_dir     TEXT NOT NULL DEFAULT './data/results',
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -210,7 +209,6 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     benchmark_json TEXT NOT NULL DEFAULT '{}',
-    output_dir     TEXT NOT NULL DEFAULT './data/results',
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1386,16 +1384,15 @@ async def get_settings(user_id: int) -> dict:
         return json.loads(dict(row._mapping)["benchmark_json"])
 
 
-async def save_settings(user_id: int, benchmark: dict, output_dir: str = "./results"):
+async def save_settings(user_id: int, benchmark: dict):
     async with engine.begin() as conn:
         await conn.execute(
-            text(f"""INSERT INTO user_settings (user_id, benchmark_json, output_dir)
-                     VALUES (:uid, :bj, :od)
+            text(f"""INSERT INTO user_settings (user_id, benchmark_json)
+                     VALUES (:uid, :bj)
                      ON CONFLICT(user_id) DO UPDATE SET
                        benchmark_json=excluded.benchmark_json,
-                       output_dir=excluded.output_dir,
                        updated_at={_now_sql()}"""),
-            {"uid": user_id, "bj": json.dumps(benchmark), "od": output_dir},
+            {"uid": user_id, "bj": json.dumps(benchmark)},
         )
 
 
