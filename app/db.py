@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import event, text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import DATABASE_URL
 

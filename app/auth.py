@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """认证模块 — bcrypt 密码哈希 + JWT token (FastAPI 版)"""
 
-import hashlib
 import os
 import time
 from pathlib import Path

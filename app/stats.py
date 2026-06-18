@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Claude API SSE 流式压测工具 - 统计与报表模块"""
 
-import json
-import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
