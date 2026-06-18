@@ -5,7 +5,6 @@ import asyncio
 import json
 import logging
 import random
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -15,7 +14,6 @@ from app.db import (
     get_scheduled_task,
     update_scheduled_task,
     get_profiles,
-    get_settings,
     get_user_by_id,
     claim_scheduled_task,
     release_scheduled_task,

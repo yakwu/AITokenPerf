@@ -13,24 +13,23 @@ from pathlib import Path
 from typing import Optional
 
 import aiohttp as aiohttp_lib
-from fastapi import FastAPI, Depends, Query, Path as FPath, HTTPException, Request
+from fastapi import FastAPI, Depends, Query, Request
 from fastapi.responses import JSONResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.client import send_streaming_request
 from app.stats import aggregate_metrics, build_report_dict
 from app.logger import log_access, log_security, current_run_id
 
 log = logging.getLogger("server")
-from app.db import init_db, close_db, get_profiles, get_active_profile, upsert_profile
+from app.db import close_db, get_profiles, get_active_profile, upsert_profile
 from app.db import switch_active_profile, delete_profile as db_delete_profile, rename_profile as db_rename_profile
-from app.db import save_result as db_save_result, get_results as db_get_results
+from app.db import save_result as db_save_result
 from app.db import get_results_aggregated as db_get_results_aggregated
 from app.db import get_result_by_filename, delete_result as db_delete_result
 from app.db import get_settings, save_settings
 from app.db import save_channel_diagnostic, get_channel_diagnostic, list_channel_diagnostics, list_diagnostic_filter_options
-from app.diagnostics import run_diagnostics, get_available_categories
+from app.diagnostics import run_diagnostics
 from app.db import get_sites_summary as db_get_sites_summary
 from app.db import create_user, get_user_by_email, get_user_by_id, update_user_password, count_users
 from app.db import list_users, update_user_display_name, update_user_role, delete_user as db_delete_user
@@ -470,7 +469,6 @@ async def _run_benchmark_task(config: dict, owner_id: int, task: BenchTask):
             })
 
     except Exception as e:
-        import traceback
         log_security("bench_error", error=str(e))
         log.error("bench error: %s", e, exc_info=True)
         await _publish(task, "bench:error", {"error": "Benchmark execution failed, check server logs for details"})
@@ -732,7 +730,6 @@ async def test_reset():
     async with _test_reset_lock:
         from sqlalchemy import text
         from app.db import engine, init_db
-        from app.migrate import migrate
 
         async with engine.begin() as conn:
             for table in ["scheduled_tasks", "user_settings", "results", "profiles", "sessions", "users"]:
@@ -2107,7 +2104,7 @@ async def active_alerts(user: dict = Depends(get_current_user)):
 
 @app.post("/api/schedules")
 async def create_schedule(request: Request, user: dict = Depends(get_current_user)):
-    from app.db import create_scheduled_task, get_scheduled_task, count_user_scheduled_tasks
+    from app.db import create_scheduled_task, count_user_scheduled_tasks
     user_id = user["user_id"]
     body = await request.json()
     name = body.get("name", "").strip()
