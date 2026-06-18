@@ -701,7 +701,7 @@ async def rename_profile(user_id: int, old_name: str, new_name: str) -> bool:
             await conn.execute(
                 text("""
                     UPDATE results
-                    SET config_json = jsonb_set(config_json::jsonb, '{profile_name}', to_jsonb(:new))::text
+                    SET config_json = jsonb_set(config_json::jsonb, '{profile_name}', to_jsonb(cast(:new as text)))::text
                     WHERE user_id=:uid
                       AND config_json::jsonb->>'profile_name' = :old
                 """),
