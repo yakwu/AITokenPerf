@@ -5,7 +5,7 @@ description: Issue → 分支 → 实现 → PR 完整工作流。实现阶段�
 
 # Issue Workflow（融合 Superpowers）
 
-标准化开发流程：Issue 关联 → 工作树 → 实现 → PR → 等待审核。
+标准化开发流程：Issue 关联 → 分支 → 实现 → PR → 等待审核。
 
 实现阶段分为两档：
 - **简单改动**（拼写、单行修复、纯配置）→ 直接编码
@@ -16,7 +16,7 @@ description: Issue → 分支 → 实现 → PR 完整工作流。实现阶段�
 ```
 gh issue list / create
       ↓
-创建 worktree + 分支: {type}/issue-{N}-{slug}
+创建分支: {type}/issue-{N}-{slug}
       ↓
 ┌─ 简单改动 → 直接实现
 └─ 复杂改动 → brainstorming → spec → [subagent 审 spec] → writing-plans → [subagent 开发]
@@ -40,11 +40,13 @@ gh issue list --state open --limit 30
 gh issue create --title "简短描述" --body "详细说明"
 ```
 
-## 2. 创建 Worktree + 分支
+## 2. 创建分支
+
+在主仓库直接开分支，**不用 git worktree**（worktree 下 Edit/Write 易误写主仓库、且需单独 `bun install`，单人项目得不偿失）。
 
 ```bash
 git checkout main && git pull
-git worktree add -b {type}/issue-{N}-{slug} ../worktrees/issue-{N}
+git checkout -b {type}/issue-{N}-{slug}
 ```
 
 - **type**: fix / feat / refactor / docs / chore
@@ -138,7 +140,8 @@ EOF
 ```bash
 gh issue close {N}
 gh issue view {N} --json state
-git worktree remove ../worktrees/issue-{N}
+git checkout main && git pull
+git branch -d {type}/issue-{N}-{slug}
 ```
 
 ## 异常处理

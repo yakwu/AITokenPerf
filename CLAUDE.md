@@ -11,7 +11,7 @@
 ### Branch + PR flow
 
 1. 分支命名：`fix/issue-<N>-<slug>` 或 `feat/issue-<N>-<slug>`
-2. 使用 `git worktree` 隔离开发（参见 `issue-workflow` skill）
+2. 在主仓库直接开分支开发：`git checkout -b <branch>`（不用 git worktree，参见 `issue-workflow` skill）
 3. Commit（不含 Co-Authored-By），包含 issue 引用
 4. Push 分支 + `gh pr create`（PR body 含 `Closes #N`）
 5. 等待人工审核后合并
