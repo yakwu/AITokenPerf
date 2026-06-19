@@ -253,7 +253,7 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
 
     threshold = int(task_row.get("alert_threshold") or 90)
     rules = _load_rules(task_row.get("alert_rules"))
-    mode = rules.get("mode", "time")
+    mode = rules.get("mode", "minute")   # _load_rules 已补默认，与 DEFAULT_ALERT_RULES 对齐
     value = int(rules.get("value", 1) or 1)
     # 各格窗口内坏轮序列（含本轮，本轮结果已落库）
     windows = await get_task_window_rounds_by_cell(task_id, threshold, mode, value)

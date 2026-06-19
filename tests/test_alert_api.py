@@ -61,6 +61,32 @@ async def test_create_schedule_rejects_bad_threshold(client):
 
 
 @pytest.mark.asyncio
+async def test_create_schedule_accepts_minute_mode(client):
+    """前端默认 alert_rules.mode='minute'，后端必须放行（否则用默认值就报错）。"""
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    nid = await _make_notifier(client, headers)
+    resp = await client.post("/api/schedules", json={
+        "name": "t", "profile_ids": ["s"], "schedule_value": "300",
+        "alert_enabled": True, "alert_notifier_id": nid, "alert_threshold": 90,
+        "alert_rules": {"mode": "minute", "value": 30, "fail_consecutive": 2,
+                        "fail_in_window": 3, "recover_consecutive": 2},
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_create_schedule_rejects_bad_mode(client):
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    resp = await client.post("/api/schedules", json={
+        "name": "t", "profile_ids": ["s"],
+        "alert_rules": {"mode": "weekly", "value": 1},
+    }, headers=headers)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_notifier_crud_api(client):
     headers = await auth_headers(client)
     r = await client.post("/api/notifiers",

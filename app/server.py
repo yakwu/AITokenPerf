@@ -2091,8 +2091,8 @@ async def _extract_alert_fields(body: dict, user_id: int):
             rules = {}
         if not isinstance(rules, dict):
             return None, "alert_rules 必须是对象"
-        if rules.get("mode") not in (None, "time", "count"):
-            return None, "alert_rules.mode 必须是 time 或 count"
+        if rules.get("mode") not in (None, "time", "minute", "count"):
+            return None, "alert_rules.mode 必须是 time、minute 或 count"
         for k in ("value", "fail_consecutive", "fail_in_window", "recover_consecutive"):
             if rules.get(k) is not None:
                 try:
