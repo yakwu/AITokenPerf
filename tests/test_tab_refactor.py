@@ -1,25 +1,14 @@
 #!/usr/bin/env python3
-"""Tab 重构验证测试 — 确保路由、Tab 栏、文件结构正确"""
+"""路由架构不变量测试 — 守住 IA 重构（#58/#76/#81）后的既定结构，防旧架构复活。
+
+注：原本配套 tab/ProfileView 旧架构的断言（ProfileView.vue 存在、/config→ProfileView、
+VALID_TABS、ProfileView CRUD）已随该架构删除而过时，于 #85 一并清理。
+"""
 
 import re
 from pathlib import Path
 
 FRONTEND = Path(__file__).parent.parent / "frontend" / "src"
-
-
-def test_profile_view_exists():
-    """ProfileView.vue 应该存在"""
-    assert (FRONTEND / "views" / "ProfileView.vue").exists(), \
-        "ProfileView.vue 不存在 — 需要从 BenchmarkView 提取 Profile 管理逻辑"
-
-
-def test_router_has_config_route():
-    """router.js 应该有 /config 路由指向 ProfileView.vue"""
-    router = (FRONTEND / "router.js").read_text()
-    assert re.search(r"['\"]\/config['\"]", router), \
-        "router.js 中没有 /config 路由"
-    assert "ProfileView" in router, \
-        "/config 路由应该指向 ProfileView.vue"
 
 
 def test_router_no_benchmark_route():
@@ -36,26 +25,6 @@ def test_router_no_schedules_route():
     for line in lines:
         assert not re.search(r"['\"]\/schedules['\"]", line), \
             "router.js 中仍有 /schedules 路由，定时任务已合并到站点详情页"
-
-
-def test_store_valid_tabs():
-    """stores/app.js VALID_TABS 应该更新"""
-    store = (FRONTEND / "stores" / "app.js").read_text()
-    assert "'bench'" in store or '"bench"' in store, \
-        "VALID_TABS 应该包含 'bench'"
-    assert "'config'" in store or '"config"' in store, \
-        "VALID_TABS 应该包含 'config'"
-
-
-def test_profile_view_has_crud():
-    """ProfileView.vue 应该包含 Profile CRUD 功能"""
-    pv = (FRONTEND / "views" / "ProfileView.vue").read_text()
-    assert "saveProfile" in pv, "ProfileView 应该有 saveProfile 函数"
-    assert "delete" in pv.lower(), "ProfileView 应该有删除功能"
-    assert "switchProfile" in pv or "selectProfile" in pv, \
-        "ProfileView 应该有切换 Profile 功能"
-    assert "base_url" in pv, "ProfileView 应该有 base_url 字段"
-    assert "api_key" in pv, "ProfileView 应该有 api_key 字段"
 
 
 def test_no_hard_redirect_on_401():
