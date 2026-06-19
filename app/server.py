@@ -2119,11 +2119,13 @@ def _mask_webhook(url: str) -> str:
 
 @app.get("/api/alerts/active")
 async def active_alerts(user: dict = Depends(get_current_user)):
-    """监控总览"当前告警区"用：返回当前正在告警的 (站点×模型) 合并列表。"""
-    from app.db import get_scheduled_tasks
+    """监控总览"当前告警区"用：返回当前正在告警的 (站点×模型) 合并列表。
+    仅保留仍存在的站点：删除站点后其遗留告警格不再返回（自愈残留卡）。"""
+    from app.db import get_scheduled_tasks, get_profiles
     from app.notifier import aggregate_active_alerts
     tasks = await get_scheduled_tasks(user["user_id"])
-    return {"alerts": aggregate_active_alerts(tasks)}
+    names = {p["name"] for p in await get_profiles(user["user_id"])}
+    return {"alerts": aggregate_active_alerts(tasks, valid_profiles=names)}
 
 
 @app.post("/api/schedules")

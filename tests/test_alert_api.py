@@ -160,6 +160,21 @@ def test_aggregate_active_alerts_merges_by_cell():
     assert {t["id"] for t in cell["tasks"]} == {1, 2}
 
 
+def test_aggregate_active_alerts_filters_deleted_profiles():
+    """valid_profiles 传入时，已删除站点遗留的告警格不再返回（自愈残留卡）。"""
+    from app.notifier import aggregate_active_alerts
+    tasks = [
+        {"id": 1, "name": "任务A", "profile_ids": ["siteX"],
+         "alert_state": '{"siteX": {"gpt-4": {"s": "alerting", "n": 2}},'
+                        ' "deletedSite": {"gpt-4": {"s": "alerting", "n": 5}}}'},
+    ]
+    # 不传 valid_profiles：保持原行为，两个站点都返回
+    assert len(aggregate_active_alerts(tasks)) == 2
+    # 传入仅含 siteX：deletedSite 被过滤
+    out = aggregate_active_alerts(tasks, valid_profiles={"siteX"})
+    assert len(out) == 1 and out[0]["profile"] == "siteX"
+
+
 def test_aggregate_active_alerts_handles_empty_and_legacy():
     from app.notifier import aggregate_active_alerts
     tasks = [
@@ -198,3 +213,34 @@ async def test_active_alerts_empty_when_none(client):
     headers = await auth_headers(client)
     r = await client.get("/api/alerts/active", headers=headers)
     assert r.status_code == 200 and r.json()["alerts"] == []
+
+
+@pytest.mark.asyncio
+async def test_active_alerts_clears_after_profile_deleted(client):
+    """删除站点后，其遗留告警卡应从 /api/alerts/active 消失（自愈残留卡）。"""
+    from app.db import update_scheduled_task
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    nid = await _make_notifier(client, headers)
+    resp = await client.post("/api/schedules", json={
+        "name": "t", "profile_ids": ["s"], "schedule_value": "300",
+        "alert_enabled": True, "alert_notifier_id": nid, "alert_threshold": 90,
+    }, headers=headers)
+    sid = resp.json()["id"]
+    await update_scheduled_task(sid, alert_state='{"s": {"gpt-4o-mini": {"s": "alerting", "n": 2}}}')
+
+    # 删除前：有一张告警卡
+    r = await client.get("/api/alerts/active", headers=headers)
+    assert len(r.json()["alerts"]) == 1
+
+    # 删除站点
+    await client.delete("/api/profiles/s", headers=headers)
+
+    # 删除后：告警卡消失（valid_profiles 过滤 + delete_profile 已清 alert_state）
+    r = await client.get("/api/alerts/active", headers=headers)
+    assert r.json()["alerts"] == []
+
+    # alert_state 里该站点 key 也已被清掉
+    task = await get_scheduled_task(sid)
+    import json as _json
+    assert "s" not in _json.loads(task["alert_state"])
