@@ -270,7 +270,13 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
         if action == "alert":
             alerts.append((profile, model, fail_count, total))
         elif action == "recover":
-            recovers.append((profile, model, fail_count, total))
+            # 恢复卡展示末尾连续正常轮数（坏轮序列尾部连续 False 的个数）
+            consec_good = 0
+            for b in reversed(rounds):
+                if b:
+                    break
+                consec_good += 1
+            recovers.append((profile, model, consec_good, total))
 
     # 本轮未出现但仍在告警的旧格子：保留状态，避免临时跳过（如容量不足）丢失告警
     for profile, models in prev.items():
