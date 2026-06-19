@@ -10,6 +10,8 @@ from app.db import (
     get_profiles,
     create_scheduled_task,
     get_scheduled_task,
+    update_scheduled_task,
+    delete_profile,
     save_result,
     engine,
     rename_profile,
@@ -108,6 +110,43 @@ async def test_rename_profile_not_found():
 
     with pytest.raises((ValueError, LookupError)):
         await rename_profile(uid, "Ghost", "NewGhost")
+
+
+@pytest.mark.asyncio
+async def test_rename_profile_migrates_alert_state():
+    """改名后 scheduled_tasks.alert_state 顶层站点 key 跟随迁移，旧名不残留。"""
+    uid = await create_user("rename_alert@example.com", "pw")
+    await upsert_profile(uid, "OldSite", base_url="https://api.example.com", models=["gpt-4o"])
+    sid = await create_scheduled_task(uid, "t", ["OldSite"], {}, "interval", "300")
+    await update_scheduled_task(
+        sid, alert_state='{"OldSite": {"gpt-4o": {"s": "alerting", "n": 3}}}')
+
+    await rename_profile(uid, "OldSite", "NewSite")
+
+    task = await get_scheduled_task(sid)
+    states = json.loads(task["alert_state"])
+    assert "OldSite" not in states, "旧名不应残留在 alert_state"
+    assert states.get("NewSite", {}).get("gpt-4o", {}).get("s") == "alerting", \
+        "告警状态应迁移到新名下"
+
+
+@pytest.mark.asyncio
+async def test_delete_profile_clears_alert_state():
+    """删除站点后 scheduled_tasks.alert_state 里该站点 key 被清除。"""
+    uid = await create_user("delete_alert@example.com", "pw")
+    await upsert_profile(uid, "DelSite", base_url="https://api.example.com", models=["gpt-4o"])
+    sid = await create_scheduled_task(uid, "t", ["DelSite"], {}, "interval", "300")
+    await update_scheduled_task(
+        sid,
+        alert_state='{"DelSite": {"gpt-4o": {"s": "alerting", "n": 3}},'
+                    ' "KeepSite": {"gpt-4o": {"s": "alerting", "n": 1}}}')
+
+    await delete_profile(uid, "DelSite")
+
+    task = await get_scheduled_task(sid)
+    states = json.loads(task["alert_state"])
+    assert "DelSite" not in states, "已删除站点不应残留在 alert_state"
+    assert "KeepSite" in states, "其它站点的告警状态应保留"
 
 
 @pytest.mark.asyncio

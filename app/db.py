@@ -642,6 +642,23 @@ async def delete_profile(user_id: int, name: str):
             text("DELETE FROM profiles WHERE user_id=:uid AND name=:name"),
             {"uid": user_id, "name": name},
         )
+        # 清理该站点在各任务 alert_state 里的遗留告警格，
+        # 否则调度器会一直保留删除站点的告警状态，顶部告警卡永远消不掉。
+        cur = await conn.execute(
+            text("SELECT id, alert_state FROM scheduled_tasks WHERE user_id=:uid"),
+            {"uid": user_id},
+        )
+        for task_id, state_raw in cur.fetchall():
+            try:
+                states = json.loads(state_raw) if state_raw else {}
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(states, dict) and name in states:
+                states.pop(name, None)
+                await conn.execute(
+                    text("UPDATE scheduled_tasks SET alert_state=:s WHERE id=:tid"),
+                    {"s": json.dumps(states, ensure_ascii=False), "tid": task_id},
+                )
 
 
 async def rename_profile(user_id: int, old_name: str, new_name: str) -> bool:
@@ -712,14 +729,13 @@ async def rename_profile(user_id: int, old_name: str, new_name: str) -> bool:
                 {"uid": user_id, "new": new_name, "old": old_name},
             )
 
-        # 4. scheduled_tasks.profile_ids（JSON 字符串数组，Python 解析后替换再写回）
+        # 4. scheduled_tasks.profile_ids（JSON 字符串数组）+ alert_state（JSON，顶层以站点名为 key）
         cur = await conn.execute(
-            text("SELECT id, profile_ids FROM scheduled_tasks WHERE user_id=:uid"),
+            text("SELECT id, profile_ids, alert_state FROM scheduled_tasks WHERE user_id=:uid"),
             {"uid": user_id},
         )
         tasks = cur.fetchall()
-        for task_row in tasks:
-            task_id, pids_raw = task_row[0], task_row[1]
+        for task_id, pids_raw, state_raw in tasks:
             try:
                 pids = json.loads(pids_raw) if pids_raw else []
             except (json.JSONDecodeError, TypeError):
@@ -729,6 +745,17 @@ async def rename_profile(user_id: int, old_name: str, new_name: str) -> bool:
                 await conn.execute(
                     text("UPDATE scheduled_tasks SET profile_ids=:pids WHERE id=:tid"),
                     {"pids": json.dumps(new_pids), "tid": task_id},
+                )
+            # alert_state 顶层 key 跟随改名，否则旧名会留一张残卡
+            try:
+                states = json.loads(state_raw) if state_raw else {}
+            except (json.JSONDecodeError, TypeError):
+                states = {}
+            if isinstance(states, dict) and old_name in states:
+                states[new_name] = states.pop(old_name)
+                await conn.execute(
+                    text("UPDATE scheduled_tasks SET alert_state=:s WHERE id=:tid"),
+                    {"s": json.dumps(states, ensure_ascii=False), "tid": task_id},
                 )
 
         # 5. channel_diagnostics.profile_name

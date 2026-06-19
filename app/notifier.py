@@ -109,9 +109,11 @@ def _cell_state(value) -> Tuple[str, int]:
     return ALERT_OK, 0
 
 
-def aggregate_active_alerts(tasks: list) -> list:
+def aggregate_active_alerts(tasks: list, valid_profiles: set | None = None) -> list:
     """把多个任务的 alert_state 聚合为"当前正在告警"的格子列表，按 (站点,模型) 合并。
     入参 tasks: get_scheduled_tasks() 返回的 dict 列表（含 alert_state/name/id/profile_ids）。
+    valid_profiles: 若传入，仅保留仍存在的站点；过滤掉已删除站点遗留的告警格（自愈残留卡）。
+                    默认 None = 不过滤。
     前置条件：每个 task 应含 id 字段（来自 get_scheduled_tasks 的主键，必非空）。
     出参: [{"profile","model","fail_count","task_count","tasks":[{"id","name"}]}, ...]，
     按 (profile, model) 排序，便于前端稳定渲染。
@@ -121,6 +123,8 @@ def aggregate_active_alerts(tasks: list) -> list:
         states = _load_alert_states(t.get("alert_state"))
         for profile, models in states.items():
             if not isinstance(models, dict):
+                continue
+            if valid_profiles is not None and profile not in valid_profiles:
                 continue
             for model, cellval in models.items():
                 state, fail_count = _cell_state(cellval)
