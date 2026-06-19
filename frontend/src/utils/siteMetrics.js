@@ -38,10 +38,16 @@ export function getModelMetrics(site) {
     const tpsList = results.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
     const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
 
+    // 输入/输出 token：取每条结果每请求 P50 的均值
+    const inToks = results.map(r => r.summary?.input_tokens?.P50).filter(v => v != null);
+    const inTok = inToks.length ? inToks.reduce((a, b) => a + b, 0) / inToks.length : null;
+    const outToks = results.map(r => r.summary?.output_tokens?.P50).filter(v => v != null);
+    const outTok = outToks.length ? outToks.reduce((a, b) => a + b, 0) / outToks.length : null;
+
     // Sparkline: TTFT 延迟趋势（优先后端 7 天 sparkline_data，回退 latest_results）
     const latencyTrend = getSparklineTrend(site, model);
 
-    return { model, ttft, tpot, e2e, tps, successRate, latencyTrend };
+    return { model, ttft, tpot, e2e, tps, inTok, outTok, successRate, latencyTrend };
   }).sort((a, b) => a.model.localeCompare(b.model));
 }
 
@@ -100,6 +106,15 @@ export function getErrorTypes(site) {
   const results = site.latest_results || [];
   const errorCounts = {};
   for (const r of results) {
+    // 优先用记录里聚合好的 error_counts（{类型: 次数}），由后端 report["errors"] 提供
+    const counts = r.errors;
+    if (counts && typeof counts === 'object' && !Array.isArray(counts)) {
+      for (const [type, n] of Object.entries(counts)) {
+        if (type) errorCounts[type] = (errorCounts[type] || 0) + (n || 0);
+      }
+      continue;
+    }
+    // 回退：从 error_details 里数 error_type（兼容可能带该字段的旧数据）
     const errDetails = r.error_details;
     if (Array.isArray(errDetails)) {
       for (const e of errDetails) {
