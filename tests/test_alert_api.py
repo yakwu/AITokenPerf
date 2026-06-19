@@ -155,7 +155,7 @@ def test_aggregate_active_alerts_merges_by_cell():
     assert len(out) == 1
     cell = out[0]
     assert cell["profile"] == "siteX" and cell["model"] == "gpt-4"
-    assert cell["streak"] == 3
+    assert cell["fail_count"] == 3
     assert cell["task_count"] == 2
     assert {t["id"] for t in cell["tasks"]} == {1, 2}
 
@@ -168,7 +168,7 @@ def test_aggregate_active_alerts_handles_empty_and_legacy():
         {"id": 3, "name": "z", "profile_ids": ["s"], "alert_state": '{"s": {"m": "alerting"}}'},
     ]
     out = aggregate_active_alerts(tasks)
-    assert len(out) == 1 and out[0]["streak"] == 0
+    assert len(out) == 1 and out[0]["fail_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -189,7 +189,7 @@ async def test_active_alerts_endpoint(client):
     alerts = r.json()["alerts"]
     assert len(alerts) == 1
     assert alerts[0]["profile"] == "s" and alerts[0]["model"] == "gpt-4o-mini"
-    assert alerts[0]["streak"] == 2
+    assert alerts[0]["fail_count"] == 2
     assert alerts[0]["task_count"] == 1
 
 

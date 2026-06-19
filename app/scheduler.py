@@ -223,11 +223,16 @@ class TaskScheduler:
 # ── 模块级工具函数 ───────────────────────────────────────
 
 async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
-    """按 (站点,模型) 格子聚合成功率，逐格状态翻转，聚合成红/绿卡发送。全程不抛。"""
-    from app.db import get_run_success_rate_by_cell, get_notifier
+    """按 (站点,模型) 在滑动窗口内数坏轮，逐格状态翻转，聚合成红/绿卡发送。全程不抛。
+
+    单轮健康线 = alert_threshold（单次成功率 < 此值记为一次失败）；
+    告警规则 = alert_rules（连续坏轮 / 窗口内累计坏轮 / 恢复连续好轮）。"""
+    from app.db import (
+        get_run_success_rate_by_cell, get_task_window_rounds_by_cell, get_notifier,
+    )
     from app.notifier import (
-        evaluate_alert, build_feishu_card, send_webhook,
-        _load_alert_states, _cell_state,
+        evaluate_window, build_feishu_card, send_webhook,
+        _load_alert_states, _cell_state, _load_rules, ALERT_ALERTING,
     )
     from app.config import APP_PUBLIC_URL
 
@@ -240,27 +245,46 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
         log.info("定时任务 #%d 告警器缺失或 webhook 空，跳过告警", task_id)
         return
 
+    # 本轮出现的格子集合（只评估这些，避免对已消失的格子误判）
     cells = await get_run_success_rate_by_cell(run_ids)
     if not cells:
         log.info("定时任务 #%d 本轮无有效请求，跳过告警评估", task_id)
         return
 
     threshold = int(task_row.get("alert_threshold") or 90)
+    rules = _load_rules(task_row.get("alert_rules"))
+    mode = rules.get("mode", "time")
+    value = int(rules.get("value", 1) or 1)
+    # 各格窗口内坏轮序列（含本轮，本轮结果已落库）
+    windows = await get_task_window_rounds_by_cell(task_id, threshold, mode, value)
+
     prev = _load_alert_states(task_row.get("alert_state"))
     new_states: dict = {}
     alerts, recovers = [], []
-    for (profile, model), (succ, tot) in cells.items():
-        p_state, p_streak = _cell_state(prev.get(profile, {}).get(model))
-        if tot == 0:                       # 没真发出请求 → 不评估、保留旧态
-            new_states.setdefault(profile, {})[model] = {"s": p_state, "n": p_streak}
-            continue
-        rate = succ / tot * 100
-        n_state, n_streak, action = evaluate_alert(p_state, p_streak, rate, threshold)
-        new_states.setdefault(profile, {})[model] = {"s": n_state, "n": n_streak}
+    for (profile, model) in cells:
+        rounds = windows.get((profile, model), [])
+        p_state, _ = _cell_state(prev.get(profile, {}).get(model))
+        n_state, action, fail_count = evaluate_window(rounds, p_state, rules)
+        new_states.setdefault(profile, {})[model] = {"s": n_state, "n": fail_count}
+        total = len(rounds)
         if action == "alert":
-            alerts.append((profile, model, rate))
+            alerts.append((profile, model, fail_count, total))
         elif action == "recover":
-            recovers.append((profile, model, rate))
+            recovers.append((profile, model, fail_count, total))
+
+    # 本轮未出现但仍在告警的旧格子：保留状态，避免临时跳过（如容量不足）丢失告警
+    for profile, models in prev.items():
+        if not isinstance(models, dict):
+            continue
+        for model, cellval in models.items():
+            if model in new_states.get(profile, {}):
+                continue
+            st, fc = _cell_state(cellval)
+            if st == ALERT_ALERTING:
+                latest = windows.get((profile, model))   # 窗口内仍有数据则刷新失败数
+                if latest:
+                    fc = sum(1 for b in latest if b)
+                new_states.setdefault(profile, {})[model] = {"s": st, "n": fc}
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     name = task_row.get("name", "")

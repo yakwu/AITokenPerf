@@ -20,12 +20,12 @@
       </div>
     </div>
 
-    <!-- 告警卡区（连续 2 轮才翻红；无告警不显示） -->
+    <!-- 告警卡区（滑动窗口内失败次数超限才翻红；无告警不显示） -->
     <div v-if="alerts.length" class="alert-area">
       <div v-for="(a, i) in alerts" :key="a.profile + '/' + a.model + '/' + i" class="alert-card">
         <span class="dot d-error"></span>
         <strong>{{ a.profile }} × {{ a.model }}</strong>
-        <span class="alert-meta">连续 {{ a.streak }} 轮 · {{ a.task_count > 1 ? ('所属 ' + a.task_count + ' 个任务') : (a.tasks?.[0]?.name || '未命名任务') }}</span>
+        <span class="alert-meta">近窗口失败 {{ a.fail_count }} 次 · {{ a.task_count > 1 ? ('所属 ' + a.task_count + ' 个任务') : (a.tasks?.[0]?.name || '未命名任务') }}</span>
         <router-link class="btn btn-sm" :to="`/sites/${encodeURIComponent(a.profile)}`">进站点 →</router-link>
       </div>
     </div>

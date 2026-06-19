@@ -2078,6 +2078,30 @@ async def _extract_alert_fields(body: dict, user_id: int):
             if not n or n["user_id"] != user_id:
                 return None, "告警器不存在或无权使用"
         out["alert_notifier_id"] = nid
+    if "alert_rules" in body:
+        raw = body.get("alert_rules")
+        if isinstance(raw, dict):
+            rules = raw
+        elif isinstance(raw, str) and raw.strip():
+            try:
+                rules = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return None, "alert_rules 格式非法"
+        else:
+            rules = {}
+        if not isinstance(rules, dict):
+            return None, "alert_rules 必须是对象"
+        if rules.get("mode") not in (None, "time", "count"):
+            return None, "alert_rules.mode 必须是 time 或 count"
+        for k in ("value", "fail_consecutive", "fail_in_window", "recover_consecutive"):
+            if rules.get(k) is not None:
+                try:
+                    iv = int(rules[k])
+                except (ValueError, TypeError):
+                    return None, f"alert_rules.{k} 必须是正整数"
+                if iv < 1:
+                    return None, f"alert_rules.{k} 必须 ≥ 1"
+        out["alert_rules"] = json.dumps(rules, ensure_ascii=False)
     return out, None
 
 
@@ -2145,6 +2169,7 @@ async def create_schedule(request: Request, user: dict = Depends(get_current_use
         alert_notifier_id=alert_fields.get("alert_notifier_id", 0),
         alert_threshold=alert_fields.get("alert_threshold", 90),
         alert_enabled=alert_fields.get("alert_enabled", False),
+        alert_rules=alert_fields.get("alert_rules", ""),
     )
     if _scheduler:
         _scheduler.start_loop(sid)
@@ -2335,7 +2360,7 @@ async def notifier_test(notifier_id: int, user: dict = Depends(get_current_user)
     if not webhook or not is_allowed_webhook(webhook):
         return JSONResponse({"error": "该告警器 webhook 非法"}, status_code=400)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    card = build_feishu_card("alert", n.get("name", ""), [("测试", "测试", 0.0)], 90, ts)
+    card = build_feishu_card("alert", n.get("name", ""), [("测试", "测试", 3, 12)], 90, ts)
     card["card"]["header"]["title"]["content"] = "🔔 告警测试（这是一条测试消息）"
     ok = await send_webhook(webhook, card)
     return {"ok": ok}

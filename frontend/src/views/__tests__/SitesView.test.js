@@ -10,7 +10,7 @@ vi.mock('../../api', () => ({
   ] })),
   getCellAvailability: vi.fn(() => Promise.resolve({ cells: [] })),
   getActiveAlerts: vi.fn(() => Promise.resolve({ alerts: [
-    { profile: 'siteX', model: 'gpt-4', streak: 3, task_count: 1, tasks: [{ id: 1, name: '巡检A' }] },
+    { profile: 'siteX', model: 'gpt-4', fail_count: 3, task_count: 1, tasks: [{ id: 1, name: '巡检A' }] },
   ] })),
   getSchedules: vi.fn(() => Promise.resolve({ schedules: [
     { id: 9, name: '每日巡检', profile_ids: ['siteX'], status: 'idle' },
@@ -50,7 +50,7 @@ describe('SitesView 合并页', () => {
     const w = mountView();
     await flushPromises();
     expect(w.text()).toContain('siteX × gpt-4');
-    expect(w.text()).toContain('连续 3 轮');
+    expect(w.text()).toContain('近窗口失败 3 次');
   });
 
   it('健康条显示「告警中」计数', async () => {
@@ -68,7 +68,7 @@ describe('SitesView 合并页', () => {
 
   it('告警不带 tasks 字段时不崩溃并回退「未命名任务」', async () => {
     vi.mocked(getActiveAlerts).mockResolvedValueOnce({ alerts: [
-      { profile: 'siteY', model: 'gpt-4o', streak: 2, task_count: 1 },
+      { profile: 'siteY', model: 'gpt-4o', fail_count: 2, task_count: 1 },
     ] });
     const w = mountView();
     await flushPromises();
