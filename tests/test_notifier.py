@@ -93,7 +93,12 @@ def test_load_rules_garbage_falls_back():
 
 def test_load_rules_accepts_dict():
     r = _load_rules({"value": 6})
-    assert r["value"] == 6 and r["mode"] == "time"
+    assert r["value"] == 6 and r["mode"] == "minute"   # 默认窗口为 分钟/30
+
+
+def test_default_window_is_30_minutes():
+    assert DEFAULT_ALERT_RULES["mode"] == "minute"
+    assert DEFAULT_ALERT_RULES["value"] == 30
 
 
 # ---- _cell_state（解析不变，n 语义=窗口失败数）----
