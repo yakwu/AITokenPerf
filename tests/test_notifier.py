@@ -45,6 +45,22 @@ def test_recover_one_good_not_enough():
     assert evaluate_window([True, True, False], "alerting", R) == ("alerting", None, 2)
 
 
+def test_recover_waits_for_window_to_drain():
+    # 对称迟滞：连续好够了，但窗口内坏轮仍 ≥ 告警阈值 → 不恢复，避免被单次抖动反复弹回
+    rules = {"fail_consecutive": 2, "fail_in_window": 2, "recover_consecutive": 2}
+    # 老失败还压在窗口里：累计=2≥fw，虽连续2正常也保持告警
+    assert evaluate_window([True, True, False, False], "alerting", rules) == ("alerting", None, 2)
+    # 老失败滑出后累计回落到 <fw，且连续2正常 → 这才恢复
+    assert evaluate_window([True, False, False], "alerting", rules) == ("ok", "recover", 1)
+
+
+def test_no_reflap_after_window_dirty():
+    # 用户场景：窗口里留着老失败时，单次新抖动不应让「刚恢复→又告警」来回弹。
+    # 对称迟滞下根本不会先恢复，所以始终保持告警，不产生噪音。
+    rules = {"fail_consecutive": 2, "fail_in_window": 2, "recover_consecutive": 2}
+    assert evaluate_window([True, True, False, False, True], "alerting", rules) == ("alerting", None, 3)
+
+
 def test_all_good_no_action():
     assert evaluate_window([False, False], "ok", R) == ("ok", None, 0)
 
@@ -137,7 +153,7 @@ def test_empty_rejected():
     assert is_allowed_webhook("") is False
 
 
-# ---- 飞书卡片（cells 为 (profile, model, fail_count, total)）----
+# ---- 飞书卡片（cells 为 (profile, model, metric, total)）----
 
 def test_alert_card_red_header():
     card = build_feishu_card("alert", "主力渠道",
@@ -155,15 +171,29 @@ def test_alert_card_red_header():
     assert "< 90%" in flat                      # 汇总行带单轮健康线
 
 
+def test_alert_card_groups_by_site():
+    # 同站点多模型：站点名只出现一次，各模型分别成行
+    card = build_feishu_card("alert", "hao",
+                             [("hao.ai", "claude-opus-4-8", 5, 12),
+                              ("hao.ai", "claude-sonnet-4-6", 4, 13)],
+                             90, "t")
+    flat = str(card)
+    assert flat.count("站点 hao.ai") == 1       # 站点名只写一次
+    assert "claude-opus-4-8 · 失败" in flat and "5/12" in flat
+    assert "claude-sonnet-4-6 · 失败" in flat and "4/13" in flat
+
+
 def test_recover_card_green_header():
     card = build_feishu_card("recover", "主力渠道",
-                             [("OpenAI-A", "gpt-4o", 0, 12)], 90, "2026-06-09 10:30")
+                             [("OpenAI-A", "gpt-4o", 2, 12)], 90, "2026-06-09 10:30")
     assert card["card"]["header"]["template"] == "green"
     title = card["card"]["header"]["title"]["content"]
     assert "恢复" in title and "主力渠道" in title and "1 个" in title
     assert "OpenAI-A/gpt-4o" in title
     flat = str(card)
     assert "OpenAI-A" in flat and "gpt-4o" in flat
+    assert "已连续" in flat and "轮正常" in flat   # 恢复卡显示连续正常轮数，不显示失败比例
+    assert "失败" not in flat
 
 
 def test_card_title_handles_empty_task_name():
