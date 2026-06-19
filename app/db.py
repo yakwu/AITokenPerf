@@ -944,16 +944,19 @@ async def get_task_window_rounds_by_cell(
 
     一轮 = 同一 run_id 内该格所有并发档聚合后的 (success, total)；
     bad = 该轮成功率 < threshold（total==0 的轮不计入序列）。
-    mode='time': 取最近 value 小时内的轮；mode='count': 每格取最近 value 轮。
+    mode='time': 取最近 value 小时内的轮；'minute': 最近 value 分钟内；'count': 每格取最近 value 轮。
     返回 {(profile, model): [bad_bool, ...]}（按轮代表时间旧→新）。
     分组口径与 get_run_success_rate_by_cell 一致（profile_name 列；config.model 缺失归 '-'）。"""
     from datetime import datetime, timedelta
     params: dict = {"tid": task_id}
     sql = ("SELECT profile_name, config_json, summary_json, run_id, timestamp "
            "FROM results WHERE scheduled_task_id = :tid")
-    if mode == "time":
-        window_h = value if (value and value > 0) else 1
-        cutoff = (datetime.now() - timedelta(hours=window_h)).strftime("%Y%m%d_%H%M%S")
+    if mode in ("time", "minute"):
+        if mode == "minute":
+            delta = timedelta(minutes=value if (value and value > 0) else 30)
+        else:
+            delta = timedelta(hours=value if (value and value > 0) else 1)
+        cutoff = (datetime.now() - delta).strftime("%Y%m%d_%H%M%S")
         sql += " AND timestamp >= :cutoff"
         params["cutoff"] = cutoff
     async with engine.connect() as conn:

@@ -125,13 +125,14 @@
               <label class="form-label">告警窗口</label>
               <div style="display:flex;gap:8px;align-items:center">
                 <select class="form-input" v-model="createForm.alert_rules.mode" style="width:auto;flex:0 0 auto">
+                  <option value="minute">最近 N 分钟</option>
                   <option value="time">最近 N 小时</option>
                   <option value="count">最近 N 次</option>
                 </select>
                 <input class="form-input" type="number" v-model.number="createForm.alert_rules.value" min="1" style="width:90px">
-                <span class="form-hint" style="margin:0">{{ createForm.alert_rules.mode === 'time' ? '小时' : '次' }}</span>
+                <span class="form-hint" style="margin:0">{{ unitLabel(createForm.alert_rules.mode) }}</span>
               </div>
-              <div class="form-hint">在此窗口内统计失败次数（5 分钟一拨时，1 小时 ≈ 12 次）</div>
+              <div class="form-hint">在此窗口内统计失败次数；窗口越大，恢复通知越慢（按时间的窗口约等于「最长卡在告警」的时长）</div>
             </div>
             <div class="form-group">
               <label class="form-label">连续失败几次告警</label>
@@ -352,13 +353,14 @@
             <label class="form-label">告警窗口</label>
             <div style="display:flex;gap:8px;align-items:center">
               <select class="form-input" v-model="editForm.alert_rules.mode" style="width:auto;flex:0 0 auto">
+                <option value="minute">最近 N 分钟</option>
                 <option value="time">最近 N 小时</option>
                 <option value="count">最近 N 次</option>
               </select>
               <input class="form-input" type="number" v-model.number="editForm.alert_rules.value" min="1" style="width:90px">
-              <span class="form-hint" style="margin:0">{{ editForm.alert_rules.mode === 'time' ? '小时' : '次' }}</span>
+              <span class="form-hint" style="margin:0">{{ unitLabel(editForm.alert_rules.mode) }}</span>
             </div>
-            <div class="form-hint">在此窗口内统计失败次数（5 分钟一拨时，1 小时 ≈ 12 次）</div>
+            <div class="form-hint">在此窗口内统计失败次数；窗口越大，恢复通知越慢（按时间的窗口约等于「最长卡在告警」的时长）</div>
           </div>
           <div class="form-group">
             <label class="form-label">连续失败几次告警</label>
@@ -469,7 +471,12 @@ function defaultCreateForm() {
 
 // 滑动窗口告警默认规则；与后端 notifier.DEFAULT_ALERT_RULES 保持一致
 function defaultAlertRules() {
-  return { mode: 'time', value: 1, fail_consecutive: 2, fail_in_window: 3, recover_consecutive: 2 };
+  return { mode: 'minute', value: 30, fail_consecutive: 2, fail_in_window: 3, recover_consecutive: 2 };
+}
+
+// 窗口模式 → 单位文案
+function unitLabel(mode) {
+  return mode === 'minute' ? '分钟' : mode === 'time' ? '小时' : '次';
 }
 
 // 后端 alert_rules 存为 JSON 字符串；解析并补全缺省字段，非法回退默认

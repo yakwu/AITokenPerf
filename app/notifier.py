@@ -15,12 +15,13 @@ ALERT_ALERTING = "alerting"
 FEISHU_ALLOWED_HOSTS = {"open.feishu.cn", "open.larksuite.com"}
 
 # 滑动窗口告警默认规则：
-#   mode='time'  → 取最近 value 小时内的轮；'count' → 每格取最近 value 轮
+#   mode='time' → 最近 value 小时；'minute' → 最近 value 分钟；'count' → 每格取最近 value 轮
 #   fail_consecutive   末尾连续坏轮 ≥ 此值 → 告警（抓硬故障）
 #   fail_in_window     窗口内累计坏轮 ≥ 此值 → 告警（抓间歇抖动，容忍偶发）
 #   recover_consecutive 告警中末尾连续好轮 ≥ 此值 → 恢复
+# 默认 30 分钟窗口：与拨测间隔解耦，改频率不影响窗口时长。
 DEFAULT_ALERT_RULES = {
-    "mode": "time", "value": 1,
+    "mode": "minute", "value": 30,
     "fail_consecutive": 2, "fail_in_window": 3, "recover_consecutive": 2,
 }
 _MIN_SAMPLES = 2   # 窗口内有效轮数不足则视为冷启动，不评估

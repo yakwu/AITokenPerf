@@ -55,6 +55,20 @@ async def _eval(sid, run_ids):
     await scheduler._maybe_send_alert(sid, row, run_ids)
 
 
+# ---- 窗口模式：分钟 ----
+
+@pytest.mark.asyncio
+async def test_window_minute_mode_filters_by_minutes():
+    """mode='minute'：按分钟裁窗口（5 轮分别在 25/20/15/10/5 分钟前）。"""
+    from app.db import get_task_window_rounds_by_cell
+    rounds = [[("SiteA", "m", 0, 10)] for _ in range(5)]
+    sid, _ = await _seed_task(rounds)
+    w12 = await get_task_window_rounds_by_cell(sid, 90, "minute", 12)
+    assert len(w12[("SiteA", "m")]) == 2     # 仅 10、5 分钟前两轮
+    w30 = await get_task_window_rounds_by_cell(sid, 90, "minute", 30)
+    assert len(w30[("SiteA", "m")]) == 5     # 全部 5 轮
+
+
 # ---- 告警触发：连续 / 累计 ----
 
 @pytest.mark.asyncio
