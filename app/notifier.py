@@ -171,11 +171,11 @@ def build_feishu_card(kind: str, task_name: str,
     if kind == "recover":
         template = color = "green"
         title = f"✅ 已恢复{cell}{label}（{n} 个）"
-        summary = f"以下 {n} 个格子拨测已恢复稳定"
+        summary = f"以下 {n} 个站点/模型拨测已恢复稳定"
     else:
         template = color = "red"
         title = f"🔴 拨测告警{cell}{label}（{n} 个异常）"
-        summary = (f"以下 {n} 个格子近窗口内拨测失败次数超限"
+        summary = (f"以下 {n} 个站点/模型近窗口内拨测失败次数超限"
                    f"（单次成功率 < {threshold}% 记为一次失败）")
     elements = [
         {"tag": "div", "text": {"tag": "lark_md", "content": f"**任务**：{task_name}"}},
