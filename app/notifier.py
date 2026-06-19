@@ -18,7 +18,8 @@ FEISHU_ALLOWED_HOSTS = {"open.feishu.cn", "open.larksuite.com"}
 #   mode='time'  → 取最近 value 小时内的轮；'count' → 每格取最近 value 轮
 #   fail_consecutive   末尾连续坏轮 ≥ 此值 → 告警（抓硬故障）
 #   fail_in_window     窗口内累计坏轮 ≥ 此值 → 告警（抓间歇抖动，容忍偶发）
-#   recover_consecutive 告警中末尾连续好轮 ≥ 此值 → 恢复
+#   recover_consecutive 告警中末尾连续好轮 ≥ 此值 且 窗口内坏轮 < fail_in_window → 恢复
+#     （对称迟滞：触发看窗口整体健康度，恢复也要等窗口退烧，避免单次抖动反复横跳）
 DEFAULT_ALERT_RULES = {
     "mode": "time", "value": 1,
     "fail_consecutive": 2, "fail_in_window": 3, "recover_consecutive": 2,
@@ -70,8 +71,10 @@ def evaluate_window(rounds: list, prev_state: str,
             break
 
     if prev_state == ALERT_ALERTING:
-        if consec_good >= rc:
-            return ALERT_OK, "recover", fail_count          # 连续好轮够 → 恢复
+        # 对称迟滞：连续好轮够 且 窗口已退烧（累计坏轮 < fw）才恢复，
+        # 否则保持告警——避免老失败还压在窗口里时被单次抖动反复弹回。
+        if consec_good >= rc and fail_count < fw:
+            return ALERT_OK, "recover", fail_count          # 连续好 + 窗口退烧 → 恢复
         return ALERT_ALERTING, None, fail_count             # 保持告警，不重复发
     if consec_fail >= fc or fail_count >= fw:
         return ALERT_ALERTING, "alert", fail_count          # 连续坏 或 累计坏 → 告警

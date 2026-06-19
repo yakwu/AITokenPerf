@@ -45,6 +45,22 @@ def test_recover_one_good_not_enough():
     assert evaluate_window([True, True, False], "alerting", R) == ("alerting", None, 2)
 
 
+def test_recover_waits_for_window_to_drain():
+    # 对称迟滞：连续好够了，但窗口内坏轮仍 ≥ 告警阈值 → 不恢复，避免被单次抖动反复弹回
+    rules = {"fail_consecutive": 2, "fail_in_window": 2, "recover_consecutive": 2}
+    # 老失败还压在窗口里：累计=2≥fw，虽连续2正常也保持告警
+    assert evaluate_window([True, True, False, False], "alerting", rules) == ("alerting", None, 2)
+    # 老失败滑出后累计回落到 <fw，且连续2正常 → 这才恢复
+    assert evaluate_window([True, False, False], "alerting", rules) == ("ok", "recover", 1)
+
+
+def test_no_reflap_after_window_dirty():
+    # 用户场景：窗口里留着老失败时，单次新抖动不应让「刚恢复→又告警」来回弹。
+    # 对称迟滞下根本不会先恢复，所以始终保持告警，不产生噪音。
+    rules = {"fail_consecutive": 2, "fail_in_window": 2, "recover_consecutive": 2}
+    assert evaluate_window([True, True, False, False, True], "alerting", rules) == ("alerting", None, 3)
+
+
 def test_all_good_no_action():
     assert evaluate_window([False, False], "ok", R) == ("ok", None, 0)
 
