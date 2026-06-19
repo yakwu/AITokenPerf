@@ -87,7 +87,9 @@
               <th style="width:50px">并发</th>
               <th style="width:55px">模式</th>
               <th style="width:72px">成功率</th>
+              <th style="width:70px" title="失败请求数（悬停看错误类型）">失败</th>
               <th style="width:78px">TTFT P50</th>
+              <th style="width:78px" title="每输出 token 间隔 P50（吐字速度）">TPOT P50</th>
               <th style="width:78px">E2E P50</th>
               <th style="width:72px">吞吐量</th>
               <th style="width:72px" title="每请求输入 Token (P50)">输入 Tok</th>
@@ -99,7 +101,7 @@
           <tbody>
             <template v-if="!filtered.length">
               <tr>
-                <td colspan="14" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
+                <td colspan="16" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
               </tr>
             </template>
             <template v-for="(r, idx) in filtered" :key="r.filename || idx">
@@ -118,7 +120,12 @@
                 <td style="font-size:12px">{{ r.config?.concurrency || '-' }}</td>
                 <td style="font-size:12px">{{ r.config?.mode || '-' }}</td>
                 <td :class="successRateClass(r.summary?.success_rate)" style="font-weight:600;font-size:12px">{{ fmtPct(r.summary?.success_rate) }}</td>
+                <td style="font-size:12px;white-space:nowrap" :title="errorTypesTitle(r)">
+                  <span :class="r.summary?.failed_count ? 'danger' : ''" style="font-weight:600">{{ r.summary?.failed_count || 0 }}</span>
+                  <span v-if="topErrorType(r)" style="color:var(--text-tertiary);font-size:10px;margin-left:3px">{{ topErrorType(r) }}</span>
+                </td>
                 <td :class="latencyClass(r.percentiles?.TTFT?.P50, 0.5, 2)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtTime(r.percentiles?.TTFT?.P50) }}</td>
+                <td :class="latencyClass(r.percentiles?.TPOT?.P50, 0.05, 0.2)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtTime(r.percentiles?.TPOT?.P50) }}</td>
                 <td :class="latencyClass(r.percentiles?.E2E?.P50, 2, 10)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
                 <td :class="qualityClass(r.summary?.throughput_rps, 20, 5)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtNum(r.summary?.throughput_rps) }}/s</td>
                 <td style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtNum(r.summary?.input_tokens?.P50, 0) }}</td>
@@ -136,7 +143,7 @@
               </tr>
               <!-- 展开详情 -->
               <tr v-if="expandedRows.has(idx)" class="history-detail-row">
-                <td colspan="14" style="padding:0">
+                <td colspan="16" style="padding:0">
                   <div style="padding:12px 16px;background:var(--bg);border-top:1px solid var(--border-subtle)" v-html="detailHtml[idx]"></div>
                 </td>
               </tr>
@@ -442,6 +449,27 @@ const compareData = computed(() => {
 function successRateClass(rate) {
   if (rate == null) return '';
   return rate >= 95 ? 'success' : rate >= 80 ? 'warning' : 'danger';
+}
+
+// 记录顶层 errors 是 {错误类型: 次数}（后端 report["errors"]），按次数降序
+function sortedErrorEntries(r) {
+  const errs = r.errors || {};
+  return Object.entries(errs).filter(([t]) => t).sort((a, b) => b[1] - a[1]);
+}
+
+// 失败列内联展示的主要错误类型（截断，避免过长撑宽）
+function topErrorType(r) {
+  const entries = sortedErrorEntries(r);
+  if (!entries.length) return '';
+  const t = entries[0][0];
+  return t.length > 10 ? t.slice(0, 10) + '…' : t;
+}
+
+// 失败列悬停提示：完整错误类型 + 次数
+function errorTypesTitle(r) {
+  const entries = sortedErrorEntries(r);
+  if (!entries.length) return r.summary?.failed_count ? '有失败但无错误类型明细' : '无失败';
+  return entries.map(([t, c]) => `${t}: ${c}`).join('\n');
 }
 
 function latencyClass(value, good, warn) {

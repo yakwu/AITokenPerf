@@ -106,6 +106,15 @@ export function getErrorTypes(site) {
   const results = site.latest_results || [];
   const errorCounts = {};
   for (const r of results) {
+    // 优先用记录里聚合好的 error_counts（{类型: 次数}），由后端 report["errors"] 提供
+    const counts = r.errors;
+    if (counts && typeof counts === 'object' && !Array.isArray(counts)) {
+      for (const [type, n] of Object.entries(counts)) {
+        if (type) errorCounts[type] = (errorCounts[type] || 0) + (n || 0);
+      }
+      continue;
+    }
+    // 回退：从 error_details 里数 error_type（兼容可能带该字段的旧数据）
     const errDetails = r.error_details;
     if (Array.isArray(errDetails)) {
       for (const e of errDetails) {

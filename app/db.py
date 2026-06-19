@@ -1813,7 +1813,8 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
         cur = await conn.execute(
             text(f"""
                 SELECT r.id, r.profile_name, r.timestamp, r.summary_json,
-                       r.percentiles_json, r.config_json, r.scheduled_task_id
+                       r.percentiles_json, r.config_json, r.scheduled_task_id,
+                       r.errors_json
                 FROM results r
                 WHERE r.user_id=:uid
                   AND r.profile_name IN ({placeholders})
@@ -1848,12 +1849,17 @@ async def get_sites_summary(user_id: int, hours: int | None = None) -> list[dict
                 p = json.loads(r[4]) if r[4] else {}  # percentiles_json
             except (json.JSONDecodeError, TypeError):
                 p = {}
+            try:
+                errs = json.loads(r[7]) if r[7] else {}
+            except (json.JSONDecodeError, TypeError):
+                errs = {}
             latest_results.append({
                 "timestamp": r[2],
                 "summary": s,
                 "percentiles": p,
                 "config": json.loads(r[5]) if r[5] else {},
                 "scheduled_task_id": r[6],
+                "errors": errs,
             })
 
         summary[pn]["latest_results"] = latest_results
