@@ -38,10 +38,16 @@ export function getModelMetrics(site) {
     const tpsList = results.map(r => r.summary?.token_throughput_tps).filter(v => v != null && v > 0);
     const tps = tpsList.length ? tpsList.reduce((a, b) => a + b, 0) / tpsList.length : null;
 
+    // 输入/输出 token：取每条结果每请求 P50 的均值
+    const inToks = results.map(r => r.summary?.input_tokens?.P50).filter(v => v != null);
+    const inTok = inToks.length ? inToks.reduce((a, b) => a + b, 0) / inToks.length : null;
+    const outToks = results.map(r => r.summary?.output_tokens?.P50).filter(v => v != null);
+    const outTok = outToks.length ? outToks.reduce((a, b) => a + b, 0) / outToks.length : null;
+
     // Sparkline: TTFT 延迟趋势（优先后端 7 天 sparkline_data，回退 latest_results）
     const latencyTrend = getSparklineTrend(site, model);
 
-    return { model, ttft, tpot, e2e, tps, successRate, latencyTrend };
+    return { model, ttft, tpot, e2e, tps, inTok, outTok, successRate, latencyTrend };
   }).sort((a, b) => a.model.localeCompare(b.model));
 }
 

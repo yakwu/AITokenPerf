@@ -90,6 +90,8 @@
               <th style="width:78px">TTFT P50</th>
               <th style="width:78px">E2E P50</th>
               <th style="width:72px">吞吐量</th>
+              <th style="width:72px" title="每请求输入 Token (P50)">输入 Tok</th>
+              <th style="width:72px" title="每请求输出 Token (P50)">输出 Tok</th>
               <th style="width:55px">费用</th>
               <th style="width:80px"></th>
             </tr>
@@ -97,7 +99,7 @@
           <tbody>
             <template v-if="!filtered.length">
               <tr>
-                <td colspan="12" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
+                <td colspan="14" style="text-align:center;padding:40px;color:var(--text-tertiary)">暂无记录</td>
               </tr>
             </template>
             <template v-for="(r, idx) in filtered" :key="r.filename || idx">
@@ -119,6 +121,8 @@
                 <td :class="latencyClass(r.percentiles?.TTFT?.P50, 0.5, 2)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtTime(r.percentiles?.TTFT?.P50) }}</td>
                 <td :class="latencyClass(r.percentiles?.E2E?.P50, 2, 10)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtTime(r.percentiles?.E2E?.P50) }}</td>
                 <td :class="qualityClass(r.summary?.throughput_rps, 20, 5)" style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtNum(r.summary?.throughput_rps) }}/s</td>
+                <td style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtNum(r.summary?.input_tokens?.P50, 0) }}</td>
+                <td style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtNum(r.summary?.output_tokens?.P50, 0) }}</td>
                 <td style="font-family:var(--font-mono);font-size:12px;font-weight:500">{{ fmtCostShort(r.summary?.cost_total_usd) }}</td>
                 <td style="white-space:nowrap;text-align:right">
                   <span class="history-row-source" v-if="r.schedule_name" :title="r.schedule_name" style="font-size:10px;color:var(--text-tertiary);margin-right:4px">定时</span>
@@ -132,7 +136,7 @@
               </tr>
               <!-- 展开详情 -->
               <tr v-if="expandedRows.has(idx)" class="history-detail-row">
-                <td colspan="12" style="padding:0">
+                <td colspan="14" style="padding:0">
                   <div style="padding:12px 16px;background:var(--bg);border-top:1px solid var(--border-subtle)" v-html="detailHtml[idx]"></div>
                 </td>
               </tr>

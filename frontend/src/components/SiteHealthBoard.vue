@@ -8,6 +8,8 @@
         <th class="th-sort" @click="setSort('ttft')">TTFT P50<span class="sarr">{{ sortArrow('ttft') }}</span></th>
         <th>趋势</th>
         <th class="th-sort" @click="setSort('tps')">Token/s<span class="sarr">{{ sortArrow('tps') }}</span></th>
+        <th class="th-sort" @click="setSort('inTok')" title="每请求输入 Token (P50)">输入Tok<span class="sarr">{{ sortArrow('inTok') }}</span></th>
+        <th class="th-sort" @click="setSort('outTok')" title="每请求输出 Token (P50)">输出Tok<span class="sarr">{{ sortArrow('outTok') }}</span></th>
         <th class="th-sort" @click="setSort('rate')">成功率<span class="sarr">{{ sortArrow('rate') }}</span></th>
         <th class="th-sort" @click="setSort('last')">最近测试<span class="sarr">{{ sortArrow('last') }}</span></th>
         <th></th>
@@ -25,6 +27,8 @@
             <td>{{ siteAvg(site,'ttft') != null ? fmtTime(siteAvg(site,'ttft')) : '-' }} <span class="agg" v-if="siteAvg(site,'ttft')!=null">平均</span></td>
             <td></td>
             <td>{{ siteAvg(site,'tps') != null ? fmtNum(siteAvg(site,'tps'),0) : '-' }}</td>
+            <td>{{ siteAvg(site,'inTok') != null ? fmtNum(siteAvg(site,'inTok'),0) : '-' }}</td>
+            <td>{{ siteAvg(site,'outTok') != null ? fmtNum(siteAvg(site,'outTok'),0) : '-' }}</td>
             <td><span class="rate" :class="rateClass(siteRate(site))">{{ siteRate(site)!=null ? fmtPct(siteRate(site)) : '-' }}</span></td>
             <td>{{ site.last_test_at ? relativeTime(site.last_test_at) : '未测试' }}</td>
             <td class="row-actions" @click.stop>
@@ -42,6 +46,8 @@
               <span v-else class="spark-na">-</span>
             </td>
             <td>{{ m.tps!=null ? fmtNum(m.tps,0) : '-' }}</td>
+            <td>{{ m.inTok!=null ? fmtNum(m.inTok,0) : '-' }}</td>
+            <td>{{ m.outTok!=null ? fmtNum(m.outTok,0) : '-' }}</td>
             <td><span class="rate" :class="rateClass(m.successRate)">{{ m.successRate!=null ? fmtPct(m.successRate) : '-' }}</span></td>
             <td></td>
             <td></td>
@@ -110,6 +116,8 @@ function sortValue(site, key) {
     case 'avail': { const s = siteSeries(site).filter(v => v != null); return s.length ? s.reduce((a, b) => a + b, 0) / s.length : null; }
     case 'ttft': return siteAvg(site, 'ttft');
     case 'tps': return siteAvg(site, 'tps');
+    case 'inTok': return siteAvg(site, 'inTok');
+    case 'outTok': return siteAvg(site, 'outTok');
     case 'rate': return siteRate(site);
     case 'last': return site.last_test_at || '';
     default: return null;
