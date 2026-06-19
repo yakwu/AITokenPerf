@@ -117,9 +117,36 @@
               <div class="form-hint" style="color:var(--danger)" v-if="createForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
             </div>
             <div class="form-group">
-              <label class="form-label">成功率阈值（%）</label>
+              <label class="form-label">单次成功率阈值（%）</label>
               <input class="form-input" type="number" v-model.number="createForm.alert_threshold" min="0" max="100" placeholder="90">
-              <div class="form-hint">上次运行成功率低于该值时触发告警；测试消息可在创建后编辑时发送</div>
+              <div class="form-hint">单次拨测成功率低于此值记为「一次失败」（每轮 1 个请求时即这次成没成功）</div>
+            </div>
+            <div class="form-group full">
+              <label class="form-label">告警窗口</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <select class="form-input" v-model="createForm.alert_rules.mode" style="width:auto;flex:0 0 auto">
+                  <option value="time">最近 N 小时</option>
+                  <option value="count">最近 N 次</option>
+                </select>
+                <input class="form-input" type="number" v-model.number="createForm.alert_rules.value" min="1" style="width:90px">
+                <span class="form-hint" style="margin:0">{{ createForm.alert_rules.mode === 'time' ? '小时' : '次' }}</span>
+              </div>
+              <div class="form-hint">在此窗口内统计失败次数（5 分钟一拨时，1 小时 ≈ 12 次）</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">连续失败几次告警</label>
+              <input class="form-input" type="number" v-model.number="createForm.alert_rules.fail_consecutive" min="1" placeholder="2">
+              <div class="form-hint">抓硬故障（站点真挂），默认连续 2 次</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">窗口内累计几次告警</label>
+              <input class="form-input" type="number" v-model.number="createForm.alert_rules.fail_in_window" min="1" placeholder="3">
+              <div class="form-hint">抓间歇抖动，默认累计 3 次（容忍偶发 1 次）</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">连续几次成功才算恢复</label>
+              <input class="form-input" type="number" v-model.number="createForm.alert_rules.recover_consecutive" min="1" placeholder="2">
+              <div class="form-hint">防抖动误恢复，默认连续 2 次成功</div>
             </div>
           </template>
         </div>
@@ -317,9 +344,36 @@
             <div class="form-hint" style="color:var(--danger)" v-if="editForm.alert_notifier_id === 0">⚠️ 已开启告警但未选择告警器，将不会发送通知</div>
           </div>
           <div class="form-group">
-            <label class="form-label">成功率阈值（%）</label>
+            <label class="form-label">单次成功率阈值（%）</label>
             <input class="form-input" type="number" v-model.number="editForm.alert_threshold" min="0" max="100" placeholder="90">
-            <div class="form-hint">上次运行成功率低于该值时触发告警</div>
+            <div class="form-hint">单次拨测成功率低于此值记为「一次失败」（每轮 1 个请求时即这次成没成功）</div>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">告警窗口</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select class="form-input" v-model="editForm.alert_rules.mode" style="width:auto;flex:0 0 auto">
+                <option value="time">最近 N 小时</option>
+                <option value="count">最近 N 次</option>
+              </select>
+              <input class="form-input" type="number" v-model.number="editForm.alert_rules.value" min="1" style="width:90px">
+              <span class="form-hint" style="margin:0">{{ editForm.alert_rules.mode === 'time' ? '小时' : '次' }}</span>
+            </div>
+            <div class="form-hint">在此窗口内统计失败次数（5 分钟一拨时，1 小时 ≈ 12 次）</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">连续失败几次告警</label>
+            <input class="form-input" type="number" v-model.number="editForm.alert_rules.fail_consecutive" min="1" placeholder="2">
+            <div class="form-hint">抓硬故障（站点真挂），默认连续 2 次</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">窗口内累计几次告警</label>
+            <input class="form-input" type="number" v-model.number="editForm.alert_rules.fail_in_window" min="1" placeholder="3">
+            <div class="form-hint">抓间歇抖动，默认累计 3 次（容忍偶发 1 次）</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">连续几次成功才算恢复</label>
+            <input class="form-input" type="number" v-model.number="editForm.alert_rules.recover_consecutive" min="1" placeholder="2">
+            <div class="form-hint">防抖动误恢复，默认连续 2 次成功</div>
           </div>
         </template>
       </div>
@@ -409,7 +463,24 @@ function defaultCreateForm() {
     alert_enabled: false,
     alert_notifier_id: 0,
     alert_threshold: 90,
+    alert_rules: defaultAlertRules(),
   };
+}
+
+// 滑动窗口告警默认规则；与后端 notifier.DEFAULT_ALERT_RULES 保持一致
+function defaultAlertRules() {
+  return { mode: 'time', value: 1, fail_consecutive: 2, fail_in_window: 3, recover_consecutive: 2 };
+}
+
+// 后端 alert_rules 存为 JSON 字符串；解析并补全缺省字段，非法回退默认
+function parseAlertRules(raw) {
+  const def = defaultAlertRules();
+  if (!raw) return def;
+  try {
+    return { ...def, ...(typeof raw === 'string' ? JSON.parse(raw) : raw) };
+  } catch {
+    return def;
+  }
 }
 
 const createForm = ref(defaultCreateForm());
@@ -450,6 +521,7 @@ const editForm = ref({
   alert_enabled: false,
   alert_notifier_id: 0,
   alert_threshold: 90,
+  alert_rules: defaultAlertRules(),
 });
 
 // ---- Multi-model select ----
@@ -527,6 +599,7 @@ function startEdit(s) {
     alert_enabled: !!s.alert_enabled,
     alert_notifier_id: s.alert_notifier_id || 0,
     alert_threshold: s.alert_threshold != null ? s.alert_threshold : 90,
+    alert_rules: parseAlertRules(s.alert_rules),
   };
   // Detect preset or custom
   const sv = String(s.schedule_value);
@@ -631,6 +704,7 @@ async function createSchedule() {
       alert_enabled: !!f.alert_enabled,
       alert_notifier_id: f.alert_notifier_id || 0,
       alert_threshold: parseInt(f.alert_threshold) || 90,
+      alert_rules: f.alert_rules || defaultAlertRules(),
     };
     const res = await createScheduleApi(payload);
     if (res.error) {
@@ -679,6 +753,7 @@ async function saveEdit() {
       alert_enabled: !!f.alert_enabled,
       alert_notifier_id: f.alert_notifier_id || 0,
       alert_threshold: parseInt(f.alert_threshold) || 90,
+      alert_rules: f.alert_rules || defaultAlertRules(),
     });
     if (res.error) {
       toast(res.error, 'error');

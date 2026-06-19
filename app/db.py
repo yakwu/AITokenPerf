@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     alert_threshold INTEGER NOT NULL DEFAULT 90,
     alert_enabled   INTEGER NOT NULL DEFAULT 0,
     alert_state     TEXT NOT NULL DEFAULT 'ok',
+    alert_rules     TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -231,6 +232,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     alert_threshold INTEGER NOT NULL DEFAULT 90,
     alert_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
     alert_state     TEXT NOT NULL DEFAULT 'ok',
+    alert_rules     TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -338,6 +340,7 @@ async def init_db():
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_enabled INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_state TEXT NOT NULL DEFAULT 'ok'",
                 "ALTER TABLE scheduled_tasks ADD COLUMN alert_notifier_id INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE scheduled_tasks ADD COLUMN alert_rules TEXT NOT NULL DEFAULT ''",
             ]:
                 try:
                     await conn.execute(text(col_def))
@@ -350,6 +353,7 @@ async def init_db():
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_enabled BOOLEAN NOT NULL DEFAULT FALSE",
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_state TEXT NOT NULL DEFAULT 'ok'",
                 "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_notifier_id INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS alert_rules TEXT NOT NULL DEFAULT ''",
             ]:
                 await conn.execute(text(col_def))
 
@@ -933,6 +937,68 @@ async def get_cell_availability_series(user_id: int, hours: int | None = None,
     return out
 
 
+async def get_task_window_rounds_by_cell(
+    task_id: int, threshold: int, mode: str = "time", value: int = 1
+) -> dict:
+    """取某定时任务窗口内各 (profile_name, model) 的「坏轮」序列，用于滑动窗口告警。
+
+    一轮 = 同一 run_id 内该格所有并发档聚合后的 (success, total)；
+    bad = 该轮成功率 < threshold（total==0 的轮不计入序列）。
+    mode='time': 取最近 value 小时内的轮；mode='count': 每格取最近 value 轮。
+    返回 {(profile, model): [bad_bool, ...]}（按轮代表时间旧→新）。
+    分组口径与 get_run_success_rate_by_cell 一致（profile_name 列；config.model 缺失归 '-'）。"""
+    from datetime import datetime, timedelta
+    params: dict = {"tid": task_id}
+    sql = ("SELECT profile_name, config_json, summary_json, run_id, timestamp "
+           "FROM results WHERE scheduled_task_id = :tid")
+    if mode == "time":
+        window_h = value if (value and value > 0) else 1
+        cutoff = (datetime.now() - timedelta(hours=window_h)).strftime("%Y%m%d_%H%M%S")
+        sql += " AND timestamp >= :cutoff"
+        params["cutoff"] = cutoff
+    async with engine.connect() as conn:
+        cur = await conn.execute(text(sql), params)
+        rows = cur.fetchall()
+
+    # acc[(profile, model)][run_id] = [succ, tot, min_ts]，把同轮多并发档合并成一轮
+    acc: dict = {}
+    for profile_name, config_json, summary_json, run_id, ts in rows:
+        try:
+            cfg = json.loads(config_json) if config_json else {}
+        except (json.JSONDecodeError, TypeError):
+            cfg = {}
+        try:
+            s = json.loads(summary_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        profile = profile_name or "-"
+        model = cfg.get("model") or "-"
+        succ = int(s.get("success_count") or 0)
+        tot = int(s.get("total_requests") or 0)
+        rid = run_id or (ts or "")          # run_id 缺失时退化为按 timestamp 分轮
+        rounds = acc.setdefault((profile, model), {})
+        r = rounds.get(rid)
+        if r is None:
+            rounds[rid] = [succ, tot, ts or ""]
+        else:
+            r[0] += succ
+            r[1] += tot
+            if ts and (not r[2] or ts < r[2]):
+                r[2] = ts
+
+    out: dict = {}
+    for cell, rounds in acc.items():
+        ordered = sorted(rounds.values(), key=lambda r: r[2])   # 旧→新
+        # bad: 成功率 < threshold，用乘法避免浮点除零（tot>0 已保证）
+        series = [succ < tot * threshold / 100.0
+                  for succ, tot, _ in ordered if tot > 0]
+        if mode == "count":
+            n = value if (value and value > 0) else 10
+            series = series[-n:]
+        out[cell] = series
+    return out
+
+
 def _row_to_result_dict(row, lightweight: bool = False) -> dict:
     d = dict(row._mapping)
     d["config"] = json.loads(d["config_json"])
@@ -1405,16 +1471,19 @@ async def create_scheduled_task(user_id: int, name: str, profile_ids: list,
                                  configs_json: dict, schedule_type: str,
                                  schedule_value: str, alert_notifier_id: int = 0,
                                  alert_threshold: int = 90,
-                                 alert_enabled: bool = False) -> int:
+                                 alert_enabled: bool = False,
+                                 alert_rules: str = '') -> int:
     async with engine.begin() as conn:
         cur = await conn.execute(
             text("""INSERT INTO scheduled_tasks (user_id, name, profile_ids, configs_json,
-                    schedule_type, schedule_value, alert_notifier_id, alert_threshold, alert_enabled)
-                   VALUES (:uid, :name, :pids, :cj, :st, :sv, :ani, :at, :ae)"""),
+                    schedule_type, schedule_value, alert_notifier_id, alert_threshold,
+                    alert_enabled, alert_rules)
+                   VALUES (:uid, :name, :pids, :cj, :st, :sv, :ani, :at, :ae, :ar)"""),
             {"uid": user_id, "name": name, "pids": json.dumps(profile_ids),
              "cj": json.dumps(configs_json), "st": schedule_type, "sv": schedule_value,
              "ani": alert_notifier_id, "at": alert_threshold,
-             "ae": (1 if alert_enabled else 0) if _is_sqlite else bool(alert_enabled)},
+             "ae": (1 if alert_enabled else 0) if _is_sqlite else bool(alert_enabled),
+             "ar": alert_rules or ''},
         )
         if _is_sqlite:
             return cur.lastrowid
@@ -1479,7 +1548,7 @@ async def update_scheduled_task(task_id: int, **fields):
         allowed = {"name", "profile_ids", "configs_json", "schedule_type",
                    "schedule_value", "status", "last_run_at", "next_run_at", "run_count",
                    "alert_threshold", "alert_enabled", "alert_state",
-                   "alert_notifier_id"}
+                   "alert_notifier_id", "alert_rules"}
         set_parts = []
         values = {"id": task_id}
         for k, v in fields.items():
