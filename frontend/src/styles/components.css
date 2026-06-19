@@ -1899,9 +1899,24 @@ thead th.active-sort .sort-arrow { opacity: 1; }
 
 /* ---- Responsive ---- */
 @media (max-width: 768px) {
-  .header { padding: 0 16px; }
-  .tab-bar { padding: 0 16px; overflow-x: auto; }
-  .main { padding: 16px; }
+  /* 顶栏随页面滚走：不再 fixed，避免写死的 padding-top:128px 在窄屏失配遮挡内容 */
+  .header {
+    position: static;
+    height: auto;
+    min-height: 56px;
+    padding: 8px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .tab-bar {
+    position: static;
+    top: auto;
+    padding: 0 16px;
+    overflow-x: auto;
+  }
+  .main { padding: 16px; }      /* 覆盖桌面的 padding-top:128px */
+  .version-badge { display: none; }     /* 省空间：手机上隐藏版本号 */
+  .global-time-range { margin-left: auto; }
   .form-grid { grid-template-columns: 1fr; }
   .detail-content { grid-template-columns: 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
