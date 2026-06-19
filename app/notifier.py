@@ -161,8 +161,9 @@ def build_feishu_card(kind: str, task_name: str,
                       cells: list, threshold: int, ts: str,
                       base_url: str = "") -> dict:
     """构造飞书自定义机器人 interactive 卡片。kind ∈ {'alert','recover'}。
-    cells: [(profile, model, fail_count, total), ...] —— 本轮新翻转的格子，
-           fail_count=窗口内坏轮数，total=窗口内有效轮数。
+    cells: [(profile, model, metric, total), ...] —— 本轮新翻转的格子，total=窗口内有效轮数。
+           alert  时 metric=窗口内坏轮数；recover 时 metric=末尾连续正常轮数。
+    排版：按站点分组，站点名只写一次，组内每个模型占一行，手机上扫读最快。
     threshold: 单轮健康线（单次拨测成功率 < threshold% 记为一次失败）。
     base_url: 公开访问基址（如 https://app.aitokenperf.com），空则不加跳转按钮。"""
     n = len(cells)
@@ -170,10 +171,12 @@ def build_feishu_card(kind: str, task_name: str,
     label = f" · {task_name}" if task_name else ""
     if kind == "recover":
         template = color = "green"
+        icon = "✅"
         title = f"✅ 已恢复{cell}{label}（{n} 个）"
         summary = f"以下 {n} 个站点/模型拨测已恢复稳定"
     else:
         template = color = "red"
+        icon = "🔴"
         title = f"🔴 拨测告警{cell}{label}（{n} 个异常）"
         summary = (f"以下 {n} 个站点/模型近窗口内拨测失败次数超限"
                    f"（单次成功率 < {threshold}% 记为一次失败）")
@@ -181,13 +184,24 @@ def build_feishu_card(kind: str, task_name: str,
         {"tag": "div", "text": {"tag": "lark_md", "content": f"**任务**：{task_name}"}},
         {"tag": "div", "text": {"tag": "lark_md", "content": summary}},
     ]
-    for profile, model, fail_count, total in cells:
-        elements.append({"tag": "div", "fields": [
-            {"is_short": True, "text": {"tag": "lark_md", "content": f"**站点**\n{profile}"}},
-            {"is_short": True, "text": {"tag": "lark_md", "content": f"**模型**\n{model}"}},
-            {"is_short": True, "text": {"tag": "lark_md",
-                "content": f"**失败**\n<font color='{color}'>{fail_count}/{total} 次</font>"}},
-        ]})
+    # 按站点分组（保持 cells 原有顺序），站点名一行 + 组内各模型逐行
+    grouped: list = []          # [(profile, [(model, metric, total), ...]), ...]
+    index: dict = {}
+    for profile, model, metric, total in cells:
+        if profile not in index:
+            index[profile] = len(grouped)
+            grouped.append((profile, []))
+        grouped[index[profile]][1].append((model, metric, total))
+    for profile, rows in grouped:
+        lines = [f"**站点 {profile}**"]
+        for model, metric, total in rows:
+            if kind == "recover":
+                stat = f"已连续 <font color='{color}'>{metric}</font> 轮正常"
+            else:
+                stat = f"失败 <font color='{color}'>{metric}/{total}</font> 轮"
+            lines.append(f"{icon} {model} · {stat}")
+        elements.append({"tag": "div",
+                         "text": {"tag": "lark_md", "content": "\n".join(lines)}})
     if base_url and cells:
         base_url = base_url.rstrip("/")
         site = quote(str(cells[0][0]), safe="")
