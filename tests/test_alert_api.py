@@ -235,6 +235,54 @@ async def test_active_alerts_endpoint(client):
 
 
 @pytest.mark.asyncio
+async def test_ack_unack_marks_alert_acked(client):
+    """ack → active 该条 acked=true（仍在列表里，前端据此归入已忽略）；unack → false。"""
+    from app.db import update_scheduled_task
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    nid = await _make_notifier(client, headers)
+    resp = await client.post("/api/schedules", json={
+        "name": "t", "profile_ids": ["s"], "schedule_value": "300",
+        "alert_enabled": True, "alert_notifier_id": nid, "alert_threshold": 90,
+    }, headers=headers)
+    sid = resp.json()["id"]
+    await update_scheduled_task(sid, alert_state='{"s": {"gpt-4o-mini": {"s": "alerting", "n": 2}}}')
+
+    # 初始未忽略
+    alerts = (await client.get("/api/alerts/active", headers=headers)).json()["alerts"]
+    assert len(alerts) == 1 and alerts[0]["acked"] is False
+
+    # 忽略 → acked=true（仍在列表）
+    r = await client.post("/api/alerts/ack", json={"profile": "s", "model": "gpt-4o-mini"}, headers=headers)
+    assert r.status_code == 200
+    alerts = (await client.get("/api/alerts/active", headers=headers)).json()["alerts"]
+    assert len(alerts) == 1 and alerts[0]["acked"] is True
+
+    # 取消忽略 → acked=false
+    r = await client.post("/api/alerts/unack", json={"profile": "s", "model": "gpt-4o-mini"}, headers=headers)
+    assert r.status_code == 200
+    alerts = (await client.get("/api/alerts/active", headers=headers)).json()["alerts"]
+    assert len(alerts) == 1 and alerts[0]["acked"] is False
+
+
+@pytest.mark.asyncio
+async def test_ack_rejects_empty_profile(client):
+    headers = await auth_headers(client)
+    r = await client.post("/api/alerts/ack", json={"model": "gpt-4o-mini"}, headers=headers)
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_ack_idempotent(client):
+    """重复忽略同一格幂等，不报错。"""
+    headers = await auth_headers(client)
+    await _make_profile(client, headers)
+    for _ in range(2):
+        r = await client.post("/api/alerts/ack", json={"profile": "s", "model": "m"}, headers=headers)
+        assert r.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_active_alerts_empty_when_none(client):
     headers = await auth_headers(client)
     r = await client.get("/api/alerts/active", headers=headers)

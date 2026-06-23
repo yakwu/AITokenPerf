@@ -138,3 +138,5 @@ export const getLibrary = ({ search = '', vendor = '', page = 1, pageSize = 50 }
 
 // Alerts
 export const getActiveAlerts = () => api('/api/alerts/active');
+export const ackAlert = (profile, model) => api('/api/alerts/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile, model }) });
+export const unackAlert = (profile, model) => api('/api/alerts/unack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile, model }) });

@@ -147,3 +147,59 @@ async def test_success_rate_by_cell_blank_profile():
     )
     cells = await get_run_success_rate_by_cell(["run-bp"])
     assert cells[("-", "gpt-4o")] == (7, 10)
+
+
+# ---- 告警忽略（静音）CRUD ----
+
+@pytest.mark.asyncio
+async def test_alert_ack_crud_and_idempotent():
+    from app.db import create_user, add_alert_ack, get_alert_acks, remove_alert_ack
+    uid = await create_user("ackcrud@example.com", "pw")
+    await add_alert_ack(uid, "SiteA", "gpt-4o")
+    await add_alert_ack(uid, "SiteA", "gpt-4o")          # 幂等：重复忽略不报错、不重复
+    await add_alert_ack(uid, "SiteA", "")                # 整站维度（model 空串）
+    acks = await get_alert_acks(uid)
+    assert ("SiteA", "gpt-4o") in acks
+    assert ("SiteA", "") in acks
+    assert len(acks) == 2
+    # 取消忽略
+    await remove_alert_ack(uid, "SiteA", "gpt-4o")
+    acks = await get_alert_acks(uid)
+    assert ("SiteA", "gpt-4o") not in acks and ("SiteA", "") in acks
+    # 删不存在的不报错
+    await remove_alert_ack(uid, "SiteA", "gpt-4o")
+
+
+@pytest.mark.asyncio
+async def test_alert_ack_isolated_per_user():
+    from app.db import create_user, add_alert_ack, get_alert_acks
+    u1 = await create_user("ackiso1@example.com", "pw")
+    u2 = await create_user("ackiso2@example.com", "pw")
+    await add_alert_ack(u1, "SiteA", "gpt-4o")
+    assert ("SiteA", "gpt-4o") in await get_alert_acks(u1)
+    assert await get_alert_acks(u2) == set()       # 不串台
+
+
+@pytest.mark.asyncio
+async def test_delete_profile_clears_ack():
+    from app.db import (create_user, upsert_profile, add_alert_ack,
+                        get_alert_acks, delete_profile)
+    uid = await create_user("ackdel@example.com", "pw")
+    await upsert_profile(uid, "SiteA", base_url="https://api.example.com", models=["gpt-4o"])
+    await add_alert_ack(uid, "SiteA", "gpt-4o")
+    await delete_profile(uid, "SiteA")
+    assert ("SiteA", "gpt-4o") not in await get_alert_acks(uid)
+
+
+@pytest.mark.asyncio
+async def test_rename_profile_migrates_ack():
+    """改名要迁移 ack（非删除），否则改名后静音全丢。"""
+    from app.db import (create_user, upsert_profile, add_alert_ack,
+                        get_alert_acks, rename_profile)
+    uid = await create_user("ackrename@example.com", "pw")
+    await upsert_profile(uid, "OldSite", base_url="https://api.example.com", models=["gpt-4o"])
+    await add_alert_ack(uid, "OldSite", "gpt-4o")
+    await rename_profile(uid, "OldSite", "NewSite")
+    acks = await get_alert_acks(uid)
+    assert ("NewSite", "gpt-4o") in acks
+    assert ("OldSite", "gpt-4o") not in acks

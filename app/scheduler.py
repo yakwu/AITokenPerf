@@ -299,6 +299,14 @@ async def _maybe_send_alert(task_id: int, task_row: dict, run_ids: list):
     if recovers:
         await send_webhook(webhook, build_feishu_card("recover", name, recovers, threshold, ts, base_url=APP_PUBLIC_URL))
 
+    # 某格恢复 → 清除其忽略（静音）记录，使后续重新告警时再次冒出来。
+    # 独立执行（不挂在下面 new_states != prev 分支里），避免 state 恰好未变时漏清。
+    user_id = task_row.get("user_id")
+    if recovers and user_id is not None:
+        from app.db import remove_alert_ack
+        for profile, model, *_ in recovers:
+            await remove_alert_ack(user_id, profile, model)
+
     if new_states != prev:
         await update_scheduled_task(
             task_id, alert_state=json.dumps(new_states, ensure_ascii=False))

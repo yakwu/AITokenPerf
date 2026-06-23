@@ -158,6 +158,31 @@ async def test_recover_needs_two_good(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_recover_clears_alert_ack(monkeypatch):
+    """某格恢复 → 清除其忽略记录，使后续重新告警时再次冒出来。"""
+    from app.db import add_alert_ack, get_alert_acks
+    sent, fake_send = _collector()
+    monkeypatch.setattr(notifier, "send_webhook", fake_send)
+    sid, run = await _seed_task(
+        [
+            [("SiteA", "gpt-4o", 0, 1)],
+            [("SiteA", "gpt-4o", 0, 1)],
+            [("SiteA", "gpt-4o", 1, 1)],
+            [("SiteA", "gpt-4o", 1, 1)],
+        ],
+        alert_state={"SiteA": {"gpt-4o": "alerting"}},
+    )
+    # 用户先忽略了这条告警（user_id=1，与 _seed_task 一致）
+    await add_alert_ack(1, "SiteA", "gpt-4o")
+    assert ("SiteA", "gpt-4o") in await get_alert_acks(1)
+
+    await _eval(sid, run)   # 末尾 2 好轮 → 恢复
+    assert len(sent) == 1 and sent[0]["card"]["header"]["template"] == "green"
+    # 恢复后忽略记录被清掉
+    assert ("SiteA", "gpt-4o") not in await get_alert_acks(1)
+
+
+@pytest.mark.asyncio
 async def test_recover_one_good_not_enough(monkeypatch):
     """告警中，末尾仅 1 个好轮 → 保持告警，不发恢复卡。"""
     sent, fake_send = _collector()
