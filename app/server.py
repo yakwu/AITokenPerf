@@ -2120,12 +2120,56 @@ def _mask_webhook(url: str) -> str:
 @app.get("/api/alerts/active")
 async def active_alerts(user: dict = Depends(get_current_user)):
     """监控总览"当前告警区"用：返回当前正在告警的 (站点×模型) 合并列表。
-    仅保留仍存在的站点：删除站点后其遗留告警格不再返回（自愈残留卡）。"""
-    from app.db import get_scheduled_tasks, get_profiles
+    仅保留仍存在的站点：删除站点后其遗留告警格不再返回（自愈残留卡）。
+    每条带 acked 标记（用户已忽略/静音）：不在后端过滤，前端据此分「显示中 / 已忽略」两组，
+    保证被静音的告警永远可在前端找回。"""
+    from app.db import get_scheduled_tasks, get_profiles, get_alert_acks
     from app.notifier import aggregate_active_alerts
     tasks = await get_scheduled_tasks(user["user_id"])
     names = {p["name"] for p in await get_profiles(user["user_id"])}
-    return {"alerts": aggregate_active_alerts(tasks, valid_profiles=names)}
+    acks = await get_alert_acks(user["user_id"])
+    alerts = aggregate_active_alerts(tasks, valid_profiles=names)
+    for a in alerts:
+        a["acked"] = (a["profile"], a["model"]) in acks
+    return {"alerts": alerts}
+
+
+async def _read_ack_target(request: Request) -> tuple:
+    """解析 ack/unack 入参：{profile, model}。profile 必填、model 可空（整站维度）。
+    返回 (profile, model, err)；err 为 JSONResponse(400) 或 None。"""
+    try:
+        body = await request.json()
+    except Exception:
+        return None, None, JSONResponse({"error": "请求体必须是 JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return None, None, JSONResponse({"error": "请求体必须是对象"}, status_code=400)
+    profile = (body.get("profile") or "").strip()
+    if not profile:
+        return None, None, JSONResponse({"error": "profile 不能为空"}, status_code=400)
+    model = (body.get("model") or "").strip()
+    return profile, model, None
+
+
+@app.post("/api/alerts/ack")
+async def ack_alert(request: Request, user: dict = Depends(get_current_user)):
+    """忽略（静音）某 (站点×模型) 告警，直到它恢复一次后重新告警才再现。幂等。"""
+    from app.db import add_alert_ack
+    profile, model, err = await _read_ack_target(request)
+    if err:
+        return err
+    await add_alert_ack(user["user_id"], profile, model)
+    return {"ok": True}
+
+
+@app.post("/api/alerts/unack")
+async def unack_alert(request: Request, user: dict = Depends(get_current_user)):
+    """取消忽略（前端「显示 / 取消忽略」用）。不存在则无操作。"""
+    from app.db import remove_alert_ack
+    profile, model, err = await _read_ack_target(request)
+    if err:
+        return err
+    await remove_alert_ack(user["user_id"], profile, model)
+    return {"ok": True}
 
 
 @app.post("/api/schedules")

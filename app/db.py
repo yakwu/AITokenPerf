@@ -148,6 +148,15 @@ CREATE TABLE IF NOT EXISTS notifiers (
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, name)
 );
+
+CREATE TABLE IF NOT EXISTS alert_acks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile    TEXT NOT NULL,
+    model      TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, profile, model)
+);
 """
 
 # PostgreSQL schema
@@ -258,6 +267,15 @@ CREATE TABLE IF NOT EXISTS notifiers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(user_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS alert_acks (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile    TEXT NOT NULL,
+    model      TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, profile, model)
 );
 """
 
@@ -659,6 +677,11 @@ async def delete_profile(user_id: int, name: str):
                     text("UPDATE scheduled_tasks SET alert_state=:s WHERE id=:tid"),
                     {"s": json.dumps(states, ensure_ascii=False), "tid": task_id},
                 )
+        # 清理该站点的告警忽略记录（站点没了，静音记录也无意义）
+        await conn.execute(
+            text("DELETE FROM alert_acks WHERE user_id=:uid AND profile=:p"),
+            {"uid": user_id, "p": name},
+        )
 
 
 async def rename_profile(user_id: int, old_name: str, new_name: str) -> bool:
@@ -764,10 +787,57 @@ async def rename_profile(user_id: int, old_name: str, new_name: str) -> bool:
             {"uid": user_id, "new": new_name, "old": old_name},
         )
 
+        # 5b. alert_acks.profile：改名要迁移（非删除），否则改名后用户的告警静音全丢。
+        # 唯一键 (user_id, profile, model)：若新名下已有同 model 的 ack（罕见），先删旧避免唯一冲突。
+        await conn.execute(
+            text("""DELETE FROM alert_acks
+                    WHERE user_id=:uid AND profile=:old
+                      AND model IN (SELECT model FROM alert_acks WHERE user_id=:uid AND profile=:new)"""),
+            {"uid": user_id, "old": old_name, "new": new_name},
+        )
+        await conn.execute(
+            text("UPDATE alert_acks SET profile=:new WHERE user_id=:uid AND profile=:old"),
+            {"uid": user_id, "new": new_name, "old": old_name},
+        )
+
         # 6. active profile：存在 profiles.is_active 列，随 profiles.name 一起在步骤 1 已经更新。
         # （is_active 列没有关联 old_name 文本，步骤 1 UPDATE 已经把整行的 name 改过来了，无需额外操作。）
 
     return True
+
+
+# ---- 告警忽略（静音）CRUD ----
+# 忽略 = 静音某 (站点×模型) 告警，直到它「恢复一次」后重新告警才再现（recover 时清除）。
+# 唯一键 (user_id, profile, model)；model 为空串表示整站维度。
+
+async def add_alert_ack(user_id: int, profile: str, model: str = "") -> None:
+    """记一条告警忽略。幂等：重复忽略同一格不报错、不重复插。"""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("""INSERT INTO alert_acks (user_id, profile, model)
+                    VALUES (:uid, :p, :m)
+                    ON CONFLICT(user_id, profile, model) DO NOTHING"""),
+            {"uid": user_id, "p": profile, "m": model or ""},
+        )
+
+
+async def remove_alert_ack(user_id: int, profile: str, model: str = "") -> None:
+    """取消忽略（前端「显示/取消忽略」用）。不存在则无操作。"""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM alert_acks WHERE user_id=:uid AND profile=:p AND model=:m"),
+            {"uid": user_id, "p": profile, "m": model or ""},
+        )
+
+
+async def get_alert_acks(user_id: int) -> set:
+    """返回该用户已忽略的 (profile, model) 集合，供 active_alerts 标记 acked。"""
+    async with engine.begin() as conn:
+        cur = await conn.execute(
+            text("SELECT profile, model FROM alert_acks WHERE user_id=:uid"),
+            {"uid": user_id},
+        )
+        return {(r[0], r[1]) for r in cur.fetchall()}
 
 
 # ---- Notifiers CRUD ----

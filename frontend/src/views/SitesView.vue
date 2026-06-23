@@ -20,13 +20,46 @@
       </div>
     </div>
 
-    <!-- 告警卡区（滑动窗口内失败次数超限才翻红；无告警不显示） -->
+    <!-- 告警卡区：默认折叠成摘要条；可逐条忽略（静音到恢复），已忽略可找回。无告警不显示。 -->
     <div v-if="alerts.length" class="alert-area">
-      <div v-for="(a, i) in alerts" :key="a.profile + '/' + a.model + '/' + i" class="alert-card">
-        <span class="dot d-error"></span>
-        <strong>{{ a.profile }} × {{ a.model }}</strong>
-        <span class="alert-meta">近窗口失败 {{ a.fail_count }} 次 · {{ a.task_count > 1 ? ('所属 ' + a.task_count + ' 个任务') : (a.tasks?.[0]?.name || '未命名任务') }}</span>
-        <router-link class="btn btn-sm" :to="`/sites/${encodeURIComponent(a.profile)}`">进站点 →</router-link>
+      <!-- 摘要条：告警中 N（含已忽略）；点击展开/收起 -->
+      <div class="alert-summary" :class="{ open: alertExpanded }">
+        <button class="alert-summary-toggle" @click="alertExpanded = !alertExpanded">
+          <svg class="alert-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          <span class="dot d-error"></span>
+          <strong>告警中 {{ alerts.length }}</strong>
+          <span class="alert-summary-meta">站点 × 模型</span>
+        </button>
+        <span v-if="mutedAlerts.length" class="alert-muted-note">
+          · 已忽略 {{ mutedAlerts.length }} 条
+          <a class="alert-link" @click="showMuted = !showMuted">{{ showMuted ? '隐藏' : '显示' }}</a>
+        </span>
+      </div>
+
+      <!-- 展开：显示中（未忽略）告警，默认限高前 5 条 -->
+      <div v-show="alertExpanded" class="alert-list">
+        <div v-for="a in shownVisibleAlerts" :key="a.profile + '/' + a.model" class="alert-card">
+          <span class="dot d-error"></span>
+          <strong>{{ a.profile }} × {{ a.model }}</strong>
+          <span class="alert-meta">近窗口失败 {{ a.fail_count }} 次 · {{ taskLabel(a) }}</span>
+          <button class="btn btn-ghost btn-sm alert-ignore" @click="ignoreAlert(a)">忽略</button>
+          <router-link class="btn btn-sm" :to="`/sites/${encodeURIComponent(a.profile)}`">进站点 →</router-link>
+        </div>
+        <div v-if="!visibleAlerts.length" class="alert-allmuted">显示中的告警都已忽略</div>
+        <button v-if="visibleAlerts.length > VISIBLE_LIMIT" class="alert-more" @click="showAllVisible = !showAllVisible">
+          {{ showAllVisible ? '收起' : `还有 ${visibleAlerts.length - VISIBLE_LIMIT} 条 ▾` }}
+        </button>
+      </div>
+
+      <!-- 已忽略列表：点摘要条「显示」才出现，可逐条取消忽略 -->
+      <div v-if="showMuted && mutedAlerts.length" class="alert-list alert-muted-list">
+        <div v-for="a in mutedAlerts" :key="'m/' + a.profile + '/' + a.model" class="alert-card muted">
+          <span class="dot d-untested"></span>
+          <strong>{{ a.profile }} × {{ a.model }}</strong>
+          <span class="alert-meta">已忽略 · 近窗口失败 {{ a.fail_count }} 次</span>
+          <button class="btn btn-ghost btn-sm" @click="restoreAlert(a)">取消忽略</button>
+          <router-link class="btn btn-sm" :to="`/sites/${encodeURIComponent(a.profile)}`">进站点 →</router-link>
+        </div>
       </div>
     </div>
 
@@ -136,7 +169,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useTimeRangeStore } from '../stores/timeRange';
-import { api, getSitesSummary, getCellAvailability, getActiveAlerts, getSchedules } from '../api';
+import { api, getSitesSummary, getCellAvailability, getActiveAlerts, getSchedules, ackAlert, unackAlert } from '../api';
 import { buildAvailabilityLookup } from '../utils/siteMetrics';
 import { toast } from '../composables/useToast';
 import { useRouter, useRoute } from 'vue-router';
@@ -158,6 +191,47 @@ const confirmTarget = ref(null);
 const availabilityLut = ref({});
 const alerts = ref([]);
 const schedules = ref([]);
+
+// ---- 告警卡区：折叠 / 限高 / 忽略 ----
+const VISIBLE_LIMIT = 5;          // 展开后默认显示的未忽略告警条数
+const alertExpanded = ref(false); // 默认折叠，看板优先上首屏
+const showAllVisible = ref(false);// 是否展开超过 VISIBLE_LIMIT 的部分
+const showMuted = ref(false);     // 是否显示已忽略列表（找回入口）
+
+// alerts 全量含已忽略（acked）：N 口径与顶部健康条「告警中」一致；已忽略是其子集
+const visibleAlerts = computed(() => alerts.value.filter(a => !a.acked));
+const mutedAlerts = computed(() => alerts.value.filter(a => a.acked));
+const shownVisibleAlerts = computed(() =>
+  showAllVisible.value ? visibleAlerts.value : visibleAlerts.value.slice(0, VISIBLE_LIMIT)
+);
+
+function taskLabel(a) {
+  return a.task_count > 1 ? `所属 ${a.task_count} 个任务` : (a.tasks?.[0]?.name || '未命名任务');
+}
+
+// 忽略：乐观置 acked=true（移入已忽略），失败回滚
+async function ignoreAlert(a) {
+  a.acked = true;
+  try {
+    const res = await ackAlert(a.profile, a.model);
+    if (res?.error) throw new Error(res.error);
+  } catch (e) {
+    a.acked = false;
+    toast('忽略失败: ' + (e.message || e), 'error');
+  }
+}
+
+// 取消忽略：乐观置 acked=false（移回显示中），失败回滚
+async function restoreAlert(a) {
+  a.acked = false;
+  try {
+    const res = await unackAlert(a.profile, a.model);
+    if (res?.error) throw new Error(res.error);
+  } catch (e) {
+    a.acked = true;
+    toast('取消忽略失败: ' + (e.message || e), 'error');
+  }
+}
 function siteOf(s) { return (s.profile_ids && s.profile_ids.length) ? s.profile_ids.join('、') : '-'; }
 const BUCKETS = 24;
 
@@ -468,9 +542,25 @@ onUnmounted(() => { if (store.refreshFn === loadData) store.refreshFn = null; })
 .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
 .dot.d-healthy { background:var(--success); } .dot.d-error { background:var(--danger); } .dot.d-untested { background:var(--text-tertiary); }
 .alert-area { display:flex; flex-direction:column; gap:8px; margin:14px 0; }
+/* 摘要条：默认折叠态的一行 */
+.alert-summary { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:8px 12px; border:1px solid #f3c2c2; background:#fef6f6; border-radius:8px; }
+.alert-summary-toggle { display:flex; align-items:center; gap:8px; background:none; border:none; padding:0; cursor:pointer; color:var(--text-primary); font:inherit; }
+.alert-summary-toggle strong { font-size:13px; }
+.alert-caret { color:var(--text-tertiary); transition:transform .15s ease; flex-shrink:0; }
+.alert-summary.open .alert-caret { transform:rotate(90deg); }
+.alert-summary-meta { color:var(--text-tertiary); font-size:12px; }
+.alert-muted-note { color:var(--text-tertiary); font-size:12px; }
+.alert-link { color:var(--primary, #e8590c); cursor:pointer; text-decoration:underline; margin-left:2px; }
+/* 卡片列表 */
+.alert-list { display:flex; flex-direction:column; gap:8px; }
 .alert-card { display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid #f3c2c2; background:#fef6f6; border-radius:8px; }
+.alert-card.muted { border-color:var(--border, #e0e0e0); background:var(--surface, #fafafa); opacity:.85; }
 .alert-meta { color:var(--text-tertiary); font-size:12px; }
-.alert-card .btn { margin-left:auto; }
+/* 把末尾两个操作按钮（忽略/取消忽略 + 进站点）整体推到右侧 */
+.alert-card .btn:nth-last-child(2) { margin-left:auto; }
+.alert-more { align-self:flex-start; background:none; border:none; color:var(--primary, #e8590c); cursor:pointer; font-size:12px; padding:2px 0; }
+.alert-allmuted { color:var(--text-tertiary); font-size:12px; padding:6px 2px; }
+.alert-muted-list { margin-top:2px; }
 .tasks-fold { margin-top:18px; }
 .tasks-fold summary { cursor:pointer; font-size:13px; color:var(--text-secondary); }
 </style>
